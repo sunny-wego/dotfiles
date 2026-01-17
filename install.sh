@@ -30,7 +30,7 @@ link_file() {
     ln -s "$source_file" "$target_file"
 }
 
-# 1. Install Dependencies FIRST (so binaries exist for configuration)
+# 1. Install Dependencies FIRST
 echo "\n--- Installing Dependencies ---"
 if command -v brew >/dev/null 2>&1; then
     echo "🍺  Homebrew detected. Installing bundle..."
@@ -47,23 +47,24 @@ link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
 link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
 link_file "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
 link_file "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
+link_file "$DOTFILES_DIR/btop" "$HOME/.config/btop"
 
-# 3. Create Local Config Templates if missing
+# 3. Create Local Config Templates
 echo "\n--- Checking Local Configs ---"
 if [ ! -f "$HOME/.zshrc_local" ]; then
-    echo "⚠️  Creating template ~/.zshrc_local (Add your secrets here!)"
+    echo "⚠️  Creating template ~/.zshrc_local"
     echo "# Add your local secrets and API keys here" > "$HOME/.zshrc_local"
 fi
 
 if [ ! -f "$HOME/.gitconfig_local" ]; then
-    echo "⚠️  Creating template ~/.gitconfig_local (Add your identity here!)"
+    echo "⚠️  Creating template ~/.gitconfig_local"
     echo "[user]\n\tname = Your Name\n\temail = your@email.com" > "$HOME/.gitconfig_local"
 fi
 
 # 4. Post-Install Configuration
 echo "\n--- Post-Install Configuration ---"
 
-# Bat Theme (TokyoNight)
+# Bat Theme (TokyoNight Day)
 if command -v bat >/dev/null; then
     BAT_CONFIG_DIR="$(bat --config-dir)"
     BAT_THEMES_DIR="$BAT_CONFIG_DIR/themes"
@@ -84,19 +85,7 @@ fi
 # TLDR Update
 if command -v tldr >/dev/null; then
     echo "📚  Updating tldr cache..."
-    tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped (network issue or already running)"
-fi
-
-# Btop Configuration (Tokyo Night)
-if command -v btop >/dev/null; then
-    mkdir -p "$HOME/.config/btop"
-    if [ ! -f "$HOME/.config/btop/btop.conf" ]; then
-        echo "📊  Configuring btop (Tokyo Night)..."
-        # Create minimal config setting the theme
-        echo 'color_theme = "tokyo-night"' > "$HOME/.config/btop/btop.conf"
-        echo 'theme_background = False' >> "$HOME/.config/btop/btop.conf"
-        echo 'vim_keys = True' >> "$HOME/.config/btop/btop.conf"
-    fi
+    tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped"
 fi
 
 echo "\n✨  Dotfiles setup complete! Restart your shell."

@@ -1,0 +1,83 @@
+# Tokyo Night Day Theme for Btop
+
+# Main background, empty for terminal default, need to be empty if you want transparent background
+theme[main_bg]="#e1e2e7"
+
+# Main text color
+theme[main_fg]="#3760bf"
+
+# Title color for boxes
+theme[title]="#2e7de9"
+
+# Highlight color for keyboard shortcuts
+theme[hi_fg]="#f52a65"
+
+# Background color of selected item in processes box
+theme[selected_bg]="#b7c1e3"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#3760bf"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#848cb5"
+
+# Color of text appearing on top of graphs, i.e uptime and current network graph scaling
+theme[graph_text]="#6172b0"
+
+# Misc colors for processes box including mini cpu graphs, details memory graph and details status text
+theme[proc_misc]="#6172b0"
+
+# Cpu box outline color
+theme[cpu_box]="#4094a3"
+
+# Memory box outline color
+theme[mem_box]="#587539"
+
+# Net box outline color
+theme[net_box]="#8c6c3e"
+
+# Processes box outline color
+theme[proc_box]="#9854f1"
+
+# Box divider line and small boxes line color
+theme[div_line]="#848cb5"
+
+# Temperature graph colors
+theme[temp_start]="#4094a3"
+theme[temp_mid]="#8c6c3e"
+theme[temp_end]="#f52a65"
+
+# CPU graph colors
+theme[cpu_start]="#4094a3"
+theme[cpu_mid]="#2e7de9"
+theme[cpu_end]="#9854f1"
+
+# Mem/Disk free meter
+theme[free_start]="#587539"
+theme[free_mid]="#4094a3"
+theme[free_end]="#2e7de9"
+
+# Mem/Disk cached meter
+theme[cached_start]="#4094a3"
+theme[cached_mid]="#2e7de9"
+theme[cached_end]="#9854f1"
+
+# Mem/Disk available meter
+theme[available_start]="#8c6c3e"
+theme[available_mid]="#f52a65"
+theme[available_end]="#f52a65"
+
+# Mem/Disk used meter
+theme[used_start]="#587539"
+theme[used_mid]="#4094a3"
+theme[used_end]="#f52a65"
+
+# Download graph colors
+theme[download_start]="#4094a3"
+theme[download_mid]="#2e7de9"
+theme[download_end]="#9854f1"
+
+# Upload graph colors
+theme[upload_start]="#587539"
+theme[upload_mid]="#4094a3"
+theme[upload_end]="#f52a65"
