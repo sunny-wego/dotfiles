@@ -19,3 +19,14 @@ end
 brew "neovim"
 brew "ripgrep"                 # Fast grep (required by Telescope)
 brew "fd"                      # Fast find (required by Telescope)
+
+# Modern CLI Tools
+brew "tealdeer"                # Fast tldr (man pages)
+brew "zoxide"                  # Smarter cd
+brew "eza"                     # Modern ls
+brew "bat"                     # Modern cat
+brew "git-delta"               # Modern git diff
+
+if OS.linux?
+  brew "wslu"                  # WSL Utilities
+end

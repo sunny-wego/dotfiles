@@ -1,0 +1,38 @@
+# This is Git's per-user configuration file.
+[include]
+	path = ~/.gitconfig_local
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[gtr "ai"]
+	default = claude
+[gtr "editor"]
+	default = nvim
+
+[core]
+	pager = delta
+
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	side-by-side = true
+	line-numbers = true
+	features = decorations
+	syntax-theme = tokyonight_storm
+	plus-style = "syntax #012800"
+	minus-style = "syntax #340001"
+
+[merge]
+	conflictstyle = diff3
+
+[diff]
+	colorMoved = default

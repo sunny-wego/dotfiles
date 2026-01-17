@@ -30,27 +30,7 @@ link_file() {
     ln -s "$source_file" "$target_file"
 }
 
-# 1. Link Configuration Files
-echo "\n--- Linking Configuration Files ---"
-link_file "$DOTFILES_DIR/zsh/.zshrc" "$HOME/.zshrc"
-link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
-link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
-link_file "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
-link_file "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
-# 2. Create Local Config Templates if missing
-echo "\n--- Checking Local Configs ---"
-if [ ! -f "$HOME/.zshrc_local" ]; then
-    echo "⚠️  Creating template ~/.zshrc_local (Add your secrets here!)"
-    echo "# Add your local secrets and API keys here" > "$HOME/.zshrc_local"
-    echo "# export ANTHROPIC_API_KEY=..." >> "$HOME/.zshrc_local"
-fi
-
-if [ ! -f "$HOME/.gitconfig_local" ]; then
-    echo "⚠️  Creating template ~/.gitconfig_local (Add your identity here!)"
-    echo "[user]\n\tname = Your Name\n\temail = your@email.com" > "$HOME/.gitconfig_local"
-fi
-
-# 3. Install Dependencies
+# 1. Install Dependencies FIRST (so binaries exist for configuration)
 echo "\n--- Installing Dependencies ---"
 if command -v brew >/dev/null 2>&1; then
     echo "🍺  Homebrew detected. Installing bundle..."
@@ -58,6 +38,53 @@ if command -v brew >/dev/null 2>&1; then
 else
     echo "⚠️  Homebrew not found. Skipping dependency installation."
     echo "👉  Install Homebrew to use the Brewfile: https://brew.sh"
+fi
+
+# 2. Link Configuration Files
+echo "\n--- Linking Configuration Files ---"
+link_file "$DOTFILES_DIR/zsh/.zshrc" "$HOME/.zshrc"
+link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
+link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
+link_file "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
+link_file "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
+
+# 3. Create Local Config Templates if missing
+echo "\n--- Checking Local Configs ---"
+if [ ! -f "$HOME/.zshrc_local" ]; then
+    echo "⚠️  Creating template ~/.zshrc_local (Add your secrets here!)"
+    echo "# Add your local secrets and API keys here" > "$HOME/.zshrc_local"
+fi
+
+if [ ! -f "$HOME/.gitconfig_local" ]; then
+    echo "⚠️  Creating template ~/.gitconfig_local (Add your identity here!)"
+    echo "[user]\n\tname = Your Name\n\temail = your@email.com" > "$HOME/.gitconfig_local"
+fi
+
+# 4. Post-Install Configuration (Bat Theme & TLDR)
+echo "\n--- Post-Install Configuration ---"
+
+# Bat Theme (TokyoNight)
+if command -v bat >/dev/null; then
+    BAT_CONFIG_DIR="$(bat --config-dir)"
+    BAT_THEMES_DIR="$BAT_CONFIG_DIR/themes"
+    THEME_NAME="tokyonight_storm"
+    THEME_FILE="$BAT_THEMES_DIR/$THEME_NAME.tmTheme"
+    
+    if [ ! -f "$THEME_FILE" ]; then
+        echo "🎨  Installing Bat Theme: TokyoNight Storm..."
+        mkdir -p "$BAT_THEMES_DIR"
+        curl -s -o "$THEME_FILE" "https://raw.githubusercontent.com/folke/tokyonight.nvim/main/extras/sublime/tokyonight_storm.tmTheme"
+        echo "🔨  Building bat cache..."
+        bat cache --build
+    else
+        echo "✅  Bat theme already installed."
+    fi
+fi
+
+# TLDR Update
+if command -v tldr >/dev/null; then
+    echo "📚  Updating tldr cache..."
+    tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped (network issue or already running)"
 fi
 
 echo "\n✨  Dotfiles setup complete! Restart your shell."
