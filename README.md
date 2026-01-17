@@ -4,6 +4,17 @@
 
 This repository manages my configuration for **macOS** and **Linux (WSL2)**, ensuring a consistent development environment across machines.
 
+## 🪟 Windows (WSL2) Setup
+
+This automation handles the **Linux/WSL2** environment. The Windows host must be set up manually.
+
+1.  **Install WezTerm:** Install the WezTerm terminal on Windows.
+2.  **Install Fonts on Windows:**
+    *   Download [JetBrainsMono Nerd Font](https://github.com/ryanoasis/nerd-fonts/releases/download/v3.0.2/JetBrainsMono.zip).
+    *   Unzip and install the font files into Windows (Select all -> Right Click -> Install).
+    *   *Note: WezTerm running on Windows cannot see fonts installed inside WSL.*
+3.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and follow the steps below.
+
 ## 🚀 Installation
 
 ### 1. Clone the repository
