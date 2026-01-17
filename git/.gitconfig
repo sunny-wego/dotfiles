@@ -36,3 +36,6 @@
 
 [diff]
 	colorMoved = default
+
+[core]
+	excludesfile = ~/.gitignore

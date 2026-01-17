@@ -36,3 +36,7 @@ brew "lazydocker"              # Docker TUI
 brew "btop"                    # System Monitor
 brew "yazi"                    # File Manager
 brew "sevenzip"                # Archive support for Yazi
+
+# Productivity & Safety
+brew "trash-cli"               # Safe deletion (aliased to del)
+brew "fd"                      # Fast find (powers fzf)

@@ -29,6 +29,40 @@ This script will backup your existing config, create symlinks, and install depen
 ./install.sh
 ```
 
+## 🛠️ Tooling Cheatsheet
+
+Your terminal is supercharged with modern Rust-based tools. Here is how to use them.
+
+### Navigation & Files
+| Command | Tool | Description |
+| :--- | :--- | :--- |
+| `z <name>` | **zoxide** | Jump to any directory instantly (fuzzy match). |
+| `zi` | **zoxide** | Interactive directory selection with FZF. |
+| `ls` | **eza** | Modern, colorful directory listing with icons and git status. |
+| `cat <file>` | **bat** | View file with syntax highlighting and line numbers. |
+| `del <file>` | **trash-cli** | **Safely delete** files to the system trash (instead of `rm`). |
+| `y` | **yazi** | Blazing fast terminal file manager (like Finder/Explorer). |
+
+### Git & Docker
+| Command | Tool | Description |
+| :--- | :--- | :--- |
+| `lg` | **lazygit** | Full terminal UI for Git. Never type `git add` again. |
+| `ld` | **lazydocker** | Full terminal UI for Docker. View logs, restart containers easily. |
+| `delta` | **git-delta** | Beautiful side-by-side git diffs (auto-configured). |
+
+### Search
+| Command | Tool | Description |
+| :--- | :--- | :--- |
+| `Ctrl+T` | **fzf** | Fuzzy find files in current dir (with **Live Preview**). |
+| `Alt+C` | **fzf** | Fuzzy find directories and cd into them. |
+| `Ctrl+R` | **mcfly** | Smart shell history search (uses AI ranking). |
+| `help <cmd>` | **tealdeer** | Simplified man pages (e.g., `help tar`). |
+
+### Monitoring
+| Command | Tool | Description |
+| :--- | :--- | :--- |
+| `btop` | **btop** | System monitor (CPU, Mem, Network) with Tokyo Night theme. |
+
 ## 🔐 Post-Installation (Manual Steps)
 
 These files are **ignored by git** to keep your secrets safe. You must create them manually on each new machine.
@@ -56,8 +90,10 @@ alias work="cd ~/work/projects"
 
 *   **Sync:** To get the latest config on any machine:
     ```bash
-    cd ~/dotfiles && git pull && brew bundle
+    cd ~/dotfiles && git pull && ./install.sh
     ```
+    *Note: Running `./install.sh` acts as a "repair" or "update" script. It is safe to run multiple times.*
+
 *   **Update:** To save changes:
     1.  Edit your config files normally (e.g., `~/.zshrc`).
     2.  `cd ~/dotfiles`
@@ -66,8 +102,9 @@ alias work="cd ~/work/projects"
 
 ## 📂 Structure
 
-*   **`Brewfile`**: The manifest of installed tools (Git, Starship, FNM, etc.).
-*   **`zsh/`**: Shell configuration.
-*   **`wezterm/`**: WezTerm styling and keybindings.
-*   **`git/`**: Global git configuration.
-*   **`starship/`**: Prompt theme.
+*   **`Brewfile`**: The manifest of installed tools.
+*   **`zsh/`**: Shell configuration (Aliases, FZF, Tools init).
+*   **`wezterm/`**: WezTerm styling (Tokyo Night Light) and keybindings.
+*   **`git/`**: Global git configuration (Delta, Excludes).
+*   **`nvim/`**: LazyVim configuration.
+*   **`btop/`**: System monitor config.

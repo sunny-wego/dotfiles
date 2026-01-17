@@ -103,3 +103,21 @@ function y() {
 	fi
 	rm -f -- "$tmp"
 }
+
+# --- FZF (Fuzzy Finder) Configuration ---
+# Use fd instead of find (respects .gitignore, faster)
+export FZF_DEFAULT_COMMAND="fd --type f --strip-cwd-prefix --hidden --follow --exclude .git"
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_C_COMMAND="fd --type d --strip-cwd-prefix --hidden --follow --exclude .git"
+
+# Previews (requires bat and eza)
+# Ctrl+T: Preview file content
+export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always {}' --bind 'ctrl-/:change-preview-window(down|hidden|)'"
+# Alt+C: Preview directory tree
+export FZF_ALT_C_OPTS="--preview 'eza --tree --color=always {} | head -200'"
+
+# --- Safety ---
+# Use trash-cli to delete files safely
+if command -v trash >/dev/null; then
+  alias del="trash"
+fi
