@@ -67,13 +67,13 @@ echo "\n--- Post-Install Configuration ---"
 if command -v bat >/dev/null; then
     BAT_CONFIG_DIR="$(bat --config-dir)"
     BAT_THEMES_DIR="$BAT_CONFIG_DIR/themes"
-    THEME_NAME="tokyonight_storm"
+    THEME_NAME="tokyonight_day"
     THEME_FILE="$BAT_THEMES_DIR/$THEME_NAME.tmTheme"
     
     if [ ! -f "$THEME_FILE" ]; then
-        echo "🎨  Installing Bat Theme: TokyoNight Storm..."
+        echo "🎨  Installing Bat Theme: TokyoNight Day..."
         mkdir -p "$BAT_THEMES_DIR"
-        curl -s -o "$THEME_FILE" "https://raw.githubusercontent.com/folke/tokyonight.nvim/main/extras/sublime/tokyonight_storm.tmTheme"
+        curl -s -o "$THEME_FILE" "https://raw.githubusercontent.com/folke/tokyonight.nvim/main/extras/sublime/tokyonight_day.tmTheme"
         echo "🔨  Building bat cache..."
         bat cache --build
     else

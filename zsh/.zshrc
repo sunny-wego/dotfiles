@@ -84,7 +84,7 @@ fi
 
 # Bat (Modern cat)
 if command -v bat >/dev/null; then
-  export BAT_THEME="tokyonight_storm"
+  export BAT_THEME="tokyonight_day"
   alias cat="bat"
 fi
 

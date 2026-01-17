@@ -27,9 +27,9 @@
 	side-by-side = true
 	line-numbers = true
 	features = decorations
-	syntax-theme = tokyonight_storm
-	plus-style = "syntax #012800"
-	minus-style = "syntax #340001"
+	syntax-theme = tokyonight_day
+	plus-style = "syntax #d0ffd0"
+	minus-style = "syntax #ffd0d0"
 
 [merge]
 	conflictstyle = diff3
