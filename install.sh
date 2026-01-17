@@ -60,7 +60,7 @@ if [ ! -f "$HOME/.gitconfig_local" ]; then
     echo "[user]\n\tname = Your Name\n\temail = your@email.com" > "$HOME/.gitconfig_local"
 fi
 
-# 4. Post-Install Configuration (Bat Theme & TLDR)
+# 4. Post-Install Configuration
 echo "\n--- Post-Install Configuration ---"
 
 # Bat Theme (TokyoNight)
@@ -85,6 +85,18 @@ fi
 if command -v tldr >/dev/null; then
     echo "📚  Updating tldr cache..."
     tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped (network issue or already running)"
+fi
+
+# Btop Configuration (Tokyo Night)
+if command -v btop >/dev/null; then
+    mkdir -p "$HOME/.config/btop"
+    if [ ! -f "$HOME/.config/btop/btop.conf" ]; then
+        echo "📊  Configuring btop (Tokyo Night)..."
+        # Create minimal config setting the theme
+        echo 'color_theme = "tokyo-night"' > "$HOME/.config/btop/btop.conf"
+        echo 'theme_background = False' >> "$HOME/.config/btop/btop.conf"
+        echo 'vim_keys = True' >> "$HOME/.config/btop/btop.conf"
+    fi
 fi
 
 echo "\n✨  Dotfiles setup complete! Restart your shell."
