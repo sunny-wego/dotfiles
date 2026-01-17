@@ -13,10 +13,4 @@ brew "zsh-syntax-highlighting" # Shell syntax highlighting
 if OS.mac?
   cask "wezterm"
   cask "font-jetbrains-mono-nerd-font"
-  
-  # VS Code Extensions
-  vscode "codezombiech.gitignore"
-  vscode "fabiospampinato.vscode-open-in-github"
-  vscode "github.vscode-github-actions"
-  vscode "github.vscode-pull-request-github"
 end
