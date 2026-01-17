@@ -36,7 +36,7 @@ link_file "$DOTFILES_DIR/zsh/.zshrc" "$HOME/.zshrc"
 link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
 link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
 link_file "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
-
+link_file "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
 # 2. Create Local Config Templates if missing
 echo "\n--- Checking Local Configs ---"
 if [ ! -f "$HOME/.zshrc_local" ]; then

@@ -14,3 +14,8 @@ if OS.mac?
   cask "wezterm"
   cask "font-jetbrains-mono-nerd-font"
 end
+
+# Editor & Dependencies (LazyVim)
+brew "neovim"
+brew "ripgrep"                 # Fast grep (required by Telescope)
+brew "fd"                      # Fast find (required by Telescope)
