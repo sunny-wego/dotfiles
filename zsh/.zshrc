@@ -92,3 +92,14 @@ fi
 if command -v tldr >/dev/null; then
   alias help="tldr"
 fi
+
+# --- Yazi (File Manager) ---
+# Wrapper to change directory on exit
+function y() {
+	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+	yazi "$@" --cwd-file="$tmp"
+	if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+		builtin cd -- "$cwd"
+	fi
+	rm -f -- "$tmp"
+}

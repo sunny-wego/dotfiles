@@ -30,3 +30,9 @@ brew "git-delta"               # Modern git diff
 if OS.linux?
   brew "wslu"                  # WSL Utilities
 end
+
+# Terminal UIs
+brew "lazydocker"              # Docker TUI
+brew "btop"                    # System Monitor
+brew "yazi"                    # File Manager
+brew "sevenzip"                # Archive support for Yazi
