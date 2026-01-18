@@ -42,7 +42,7 @@ if command -v brew >/dev/null 2>&1; then
         # We need to initialize fnm in the subshell to use it immediately
         eval "$(fnm env --shell bash)"
         fnm install --lts
-        fnm use --lts
+        fnm alias lts-latest default
     fi
 else
     echo "⚠️  Homebrew not found. Skipping dependency installation."
