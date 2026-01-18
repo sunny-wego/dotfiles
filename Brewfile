@@ -1,7 +1,9 @@
 tap "homebrew/bundle"
+tap "anomalyco/tap"
 
 # Core Binaries (Cross-Platform)
 brew "git"
+brew "opencode"                # AI Agent
 brew "starship"                # Prompt
 brew "fnm"                     # Node manager
 brew "mcfly"                   # History search

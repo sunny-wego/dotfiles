@@ -5,6 +5,9 @@ HISTFILE=~/.zsh_history
 HISTSIZE=50000
 SAVEHIST=50000
 
+# Ensure local binaries are in PATH
+export PATH="$HOME/.local/bin:$PATH"
+
 # Options to sync history across shells immediately
 setopt INC_APPEND_HISTORY    # append commands as they’re executed
 setopt SHARE_HISTORY         # share commands between all sessions
