@@ -1,3 +1,12 @@
+# --- Environment & Tool Initialization ---
+
+# Homebrew Initialization (Early for path resolution)
+if [ -d "/home/linuxbrew/.linuxbrew/bin" ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+elif [ -f "/opt/homebrew/bin/brew" ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
 # History file path
 HISTFILE=~/.zsh_history
 
@@ -27,11 +36,7 @@ autoload -U compinit; compinit
 # Smart Source for FZF (if installed)
 if command -v fzf >/dev/null; then source <(fzf --zsh); fi
 
-# Auto-Clone & Source fzf-tab
-if [[ ! -d ~/.config/fzf-tab ]]; then
-  echo "Cloning fzf-tab..."
-  git clone https://github.com/Aloxaf/fzf-tab ~/.config/fzf-tab
-fi
+# Source fzf-tab (if installed)
 [ -f ~/.config/fzf-tab/fzf-tab.plugin.zsh ] && source ~/.config/fzf-tab/fzf-tab.plugin.zsh
 
 # Smart Source for Syntax Highlighting (Mac vs Linux)

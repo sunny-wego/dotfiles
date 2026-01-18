@@ -11,7 +11,11 @@ local config = wezterm.config_builder()
 -- config.initial_rows = 28
 
 -- or, changing the font size and color scheme.
-config.font = wezterm.font("JetBrainsMonoNL Nerd Font")
+config.font = wezterm.font_with_fallback({
+	"JetBrainsMonoNL Nerd Font",
+	"JetBrains Mono Nerd Font",
+	"JetBrains Mono",
+})
 config.font_size = 14
 config.color_scheme = "Tokyo Night Day"
 

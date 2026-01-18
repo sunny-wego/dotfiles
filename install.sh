@@ -35,6 +35,15 @@ echo "\n--- Installing Dependencies ---"
 if command -v brew >/dev/null 2>&1; then
     echo "🍺  Homebrew detected. Installing bundle..."
     brew bundle --file="$DOTFILES_DIR/Brewfile" || echo "⚠️  Some Brewfile dependencies failed to install (this is normal on Linux if using Mac-only casks)"
+    
+    # Bootstrap Node.js via fnm
+    if command -v fnm >/dev/null; then
+        echo "📦  Ensuring Node.js (LTS) is installed via fnm..."
+        # We need to initialize fnm in the subshell to use it immediately
+        eval "$(fnm env --shell bash)"
+        fnm install --lts
+        fnm use --lts
+    fi
 else
     echo "⚠️  Homebrew not found. Skipping dependency installation."
     echo "👉  Install Homebrew to use the Brewfile: https://brew.sh"
@@ -86,6 +95,12 @@ fi
 if command -v tldr >/dev/null; then
     echo "📚  Updating tldr cache..."
     tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped"
+fi
+
+# Zsh Plugins
+if [ ! -d "$HOME/.config/fzf-tab" ]; then
+    echo "⬇️  Installing fzf-tab..."
+    git clone --depth 1 https://github.com/Aloxaf/fzf-tab "$HOME/.config/fzf-tab"
 fi
 
 # --- AI Tools (Declarative Setup) ---
