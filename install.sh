@@ -88,4 +88,46 @@ if command -v tldr >/dev/null; then
     tldr --update >/dev/null 2>&1 || echo "⚠️  tldr update skipped"
 fi
 
+# --- AI Tools (Declarative Setup) ---
+ensure_installed() {
+    local cmd="$1"
+    local install_cmd="$2"
+    local name="${3:-$cmd}"
+
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "⬇️  Installing $name..."
+        eval "$install_cmd"
+    else
+        echo "✅  $name is already installed."
+    fi
+}
+
+# Define tools here
+ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
+
+# 5. WSL Integration
+if grep -q "microsoft" /proc/version 2>/dev/null || [ -n "$WSL_DISTRO_NAME" ]; then
+    echo "\n--- WSL Integration ---"
+    
+    if command -v powershell.exe >/dev/null; then
+        WEZTERM_SRC=$(wslpath -w "$DOTFILES_DIR/wezterm/wezterm.lua")
+        # Use PowerShell to get the Windows User Profile path cleanly
+        WIN_HOME=$(powershell.exe -NoProfile -Command 'Write-Host -NoNewline $env:USERPROFILE' | tr -d '\r')
+        WEZTERM_DEST="$WIN_HOME\\.wezterm.lua"
+        
+        echo "🪟  Linking WezTerm config to Windows..."
+        # Remove existing file/link first to avoid conflicts
+        powershell.exe -NoProfile -Command "if (Test-Path '$WEZTERM_DEST') { Remove-Item '$WEZTERM_DEST' -ErrorAction SilentlyContinue }"
+        
+        # Attempt to create the link
+        if powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '$WEZTERM_DEST' -Target '$WEZTERM_SRC' | Out-Null" 2>/dev/null; then
+            echo "✅  Windows Link Created: $WEZTERM_DEST"
+        else
+            echo "⚠️  Failed to create Windows symlink (Permission Denied)."
+            echo "👉  Enable 'Developer Mode' in Windows Settings OR run this in Admin PowerShell:"
+            echo "    New-Item -ItemType SymbolicLink -Path \"$WEZTERM_DEST\" -Target \"$WEZTERM_SRC\""
+        fi
+    fi
+fi
+
 echo "\n✨  Dotfiles setup complete! Restart your shell."
