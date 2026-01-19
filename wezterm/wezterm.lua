@@ -16,7 +16,7 @@ config.font = wezterm.font_with_fallback({
 	"JetBrains Mono Nerd Font",
 	"JetBrains Mono",
 })
-config.font_size = 14
+config.font_size = 13
 config.color_scheme = "Tokyo Night Day"
 
 config.enable_tab_bar = false
@@ -34,7 +34,7 @@ config.inactive_pane_hsb = {
 
 config.leader = { key = "b", mods = "CTRL" }
 config.keys = {
-	{ key = "|", mods = "LEADER", action = wezterm.action.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
+	{ key = "\\", mods = "LEADER", action = wezterm.action.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
 	{ key = "-", mods = "LEADER", action = wezterm.action.SplitVertical({ domain = "CurrentPaneDomain" }) },
 	{ key = "Enter", mods = "SHIFT", action = wezterm.action.SendString("\x1b\r") },
 
@@ -94,7 +94,7 @@ local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"
 
 -- Set default domain to WSL on Windows
 if is_windows then
-	config.default_domain = "WSL"
+	config.default_domain = "WSL:Ubuntu-24.04"
 end
 
 config.mouse_bindings = {
