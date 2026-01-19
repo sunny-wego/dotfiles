@@ -11,12 +11,6 @@ brew "fzf"                     # Fuzzy finder
 brew "lazygit"                 # Git UI
 brew "zsh-syntax-highlighting" # Shell syntax highlighting
 
-# macOS Specifics
-if OS.mac?
-  cask "wezterm"
-  cask "font-jetbrains-mono-nerd-font"
-end
-
 # Editor & Dependencies (LazyVim)
 brew "neovim"
 brew "ripgrep"                 # Fast grep (required by Telescope)
@@ -29,10 +23,6 @@ brew "eza"                     # Modern ls
 brew "bat"                     # Modern cat
 brew "git-delta"               # Modern git diff
 
-if OS.linux?
-  brew "wslu"                  # WSL Utilities
-end
-
 # Terminal UIs
 brew "lazydocker"              # Docker TUI
 brew "btop"                    # System Monitor
@@ -42,3 +32,11 @@ brew "sevenzip"                # Archive support for Yazi
 # Productivity & Safety
 brew "trash-cli"               # Safe deletion (aliased to del)
 brew "fd"                      # Fast find (powers fzf)
+
+# macOS Specifics
+if OS.mac?
+  cask "wezterm"
+  cask "font-jetbrains-mono-nerd-font"
+end
+
+
