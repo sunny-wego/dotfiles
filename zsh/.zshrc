@@ -74,13 +74,21 @@ set_wezterm_title
 # Load Local Secrets & Machine Specifics (Last to allow overrides)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local
 
-# --- Modern Tools Configuration ---
+# --- Theme Integration (Tokyo Night Day) ---
+# Sync tools with the terminal's Tokyo Night Day theme
 
-# Zoxide (Smart cd)
-if command -v zoxide >/dev/null; then
-  eval "$(zoxide init zsh)"
-  alias cd="z"
-fi
+# Eza Colors (Sync with Tokyo Night palette)
+# Blue for dirs, Magenta for links, Green for git, Red for execs
+export EZA_COLORS="di=34:ln=35:so=32:pi=33:ex=31:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=30;42:st=37;44:ur=34:uw=35:ux=31:ue=31:gr=32:gw=35:gx=31:tr=33:tw=35:tx=31:te=31:da=34"
+
+# FZF Colors (Tokyo Night Day)
+export FZF_DEFAULT_OPTS="$FZF_DEFAULT_OPTS \
+  --color=fg:#3760bf,bg:-1,hl:#b15c00 \
+  --color=fg+:#3760bf,bg+:#cfd0d7,hl+:#b15c00 \
+  --color=info:#8c6c3e,prompt:#2e7de9,pointer:#9854f1 \
+  --color=marker:#587539,spinner:#9854f1,header:#2e7de9"
+
+# --- Modern Tools Configuration ---
 
 # Eza (Modern ls)
 if command -v eza >/dev/null; then
@@ -129,3 +137,10 @@ export FZF_ALT_C_OPTS="--preview 'eza --tree --color=always {} | head -200'"
 if command -v trash >/dev/null; then
   alias del="trash"
 fi
+
+# Zoxide (Smart cd)
+if command -v zoxide >/dev/null; then
+  eval "$(zoxide init zsh)"
+  alias cd="z"
+fi
+
