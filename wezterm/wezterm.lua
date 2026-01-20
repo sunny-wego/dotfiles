@@ -11,18 +11,17 @@ config.font = wezterm.font_with_fallback({
 config.font_size = 14
 
 -- Modern Polish
-config.window_padding = { left = 10, right = 10, top = 10, bottom = 10 }
+config.window_padding = { left = 20, right = 20, top = 20, bottom = 20 }
 config.window_decorations = "RESIZE" -- Removes title bar, keeps resizing
 config.default_cursor_style = "BlinkingBar"
-config.enable_tab_bar = true
-config.use_fancy_tab_bar = false
-config.hide_tab_bar_if_only_one_tab = false
-config.tab_bar_at_bottom = true
+config.cursor_blink_ease_in = "EaseIn"
+config.cursor_blink_ease_out = "EaseOut"
+config.enable_tab_bar = false
 
 -- Pane behavior
 config.inactive_pane_hsb = {
-	saturation = 1.0,
-	brightness = 1.0,
+	saturation = 0.95,
+	brightness = 0.9,
 }
 
 -- --- Leader Key & Mappings ---
@@ -52,32 +51,56 @@ config.keys = {
 
 	-- Copy Mode
 	{ key = "[", mods = "LEADER", action = wezterm.action.ActivateCopyMode },
+
+	-- Quick Select (Hints)
+	{ key = "s", mods = "LEADER", action = wezterm.action.QuickSelect },
+
+	-- Project Launcher
+	{
+		key = "p",
+		mods = "LEADER",
+		action = wezterm.action_callback(function(window, pane)
+			local projects = {}
+			local home = wezterm.home_dir
+			local project_dir = home .. "/projects"
+
+			-- Simple list of projects (can be expanded with a proper glob)
+			local success, stdout, stderr = wezterm.run_child_process({ "ls", project_dir })
+			if success then
+				for line in stdout:gmatch("([^\n]+)") do
+					table.insert(projects, { label = line, id = project_dir .. "/" .. line })
+				end
+			end
+
+			window:perform_action(
+				wezterm.action.InputSelector({
+					title = "Projects",
+					choices = projects,
+					action = wezterm.action_callback(function(inner_window, inner_pane, id, label)
+						if id then
+							inner_window:perform_action(
+								wezterm.action.SwitchToWorkspace({
+									name = label,
+									spawn = { cwd = id },
+								}),
+								inner_pane
+							)
+						end
+					end),
+				}),
+				pane
+			)
+		end),
+	},
 }
 
--- --- Status Bar (Right Side) ---
--- Displays Leader active state, Workspace, and Time
-wezterm.on("update-right-status", function(window, pane)
-	local cells = {}
-
-	-- Leader key indicator (Visual feedback for Ctrl-b)
-	if window:leader_active() then
-		table.insert(cells, { Background = { Color = "#e0af68" } }) -- Tokyo Night Yellow
-		table.insert(cells, { Foreground = { Color = "#3760bf" } })
-		table.insert(cells, { Text = " 󱊟 LEADER " })
-	end
-
-	-- Workspace Name
-	table.insert(cells, { Background = { Color = "#cfd0d7" } })
-	table.insert(cells, { Foreground = { Color = "#3760bf" } })
-	table.insert(cells, { Text = " 󱂬 " .. window:active_workspace() .. " " })
-
-	-- Time
-	table.insert(cells, { Background = { Color = "#b7c1e3" } })
-	table.insert(cells, { Foreground = { Color = "#3760bf" } })
-	table.insert(cells, { Text = " 󱑎 " .. wezterm.strftime("%H:%M") .. " " })
-
-	window:set_right_status(wezterm.format(cells))
-end)
+-- --- Hyperlinks ---
+config.hyperlink_rules = wezterm.default_hyperlink_rules()
+-- GitHub repo clickable: user/repo
+table.insert(config.hyperlink_rules, {
+	regex = [[["]?([\w\d]{1}[-\w\d]+)(/){1}([-\w\d\.]+)["]?]],
+	format = "https://www.github.com/$1/$3",
+})
 
 -- --- Cross-Platform & OS Specifics ---
 local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"

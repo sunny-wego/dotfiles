@@ -51,6 +51,28 @@ fi
 # FZF initialization
 if command -v fzf >/dev/null; then
     source <(fzf --zsh)
+
+    # fzf-tab smart previews
+    if [[ -n "$ZSH_VERSION" ]]; then
+        # Git preview: branch history or file diffs
+        zstyle ':fzf-tab:complete:git*:*' fzf-preview \
+            'if [ -f "$word" ]; then
+                git diff --color=always "$word" | delta || bat --color=always "$word"
+            else
+                git log --oneline --graph --color=always "$word" 2>/dev/null || git show --color=always "$word" 2>/dev/null | delta
+            fi'
+        zstyle ':fzf-tab:complete:git*:*' fzf-flags --preview-window=right:60%
+
+        # Directory preview: eza tree (for cd and zoxide)
+        zstyle ':fzf-tab:complete:(cd|z|zi):*' fzf-preview 'eza --tree --level=2 --icons --color=always $realpath | head -200'
+        zstyle ':fzf-tab:complete:(cd|z|zi):*' fzf-flags --preview-window=right:50%
+
+        # Process preview: ps details
+        zstyle ':fzf-tab:complete:(kill|ps):*' fzf-preview \
+            '[[ $word =~ ^[0-9]+$ ]] && ps -p $word -o comm,pcpu,pmem,args'
+        zstyle ':fzf-tab:complete:(kill|ps):*' fzf-flags --preview-window=down:3:wrap
+    fi
+
     [ -f ~/.config/fzf-tab/fzf-tab.plugin.zsh ] && source ~/.config/fzf-tab/fzf-tab.plugin.zsh
 fi
 
@@ -121,7 +143,7 @@ if command -v fd >/dev/null; then
     export FZF_ALT_C_COMMAND="fd --type d --strip-cwd-prefix --hidden --follow --exclude .git"
 fi
 
-# Previews
+# Previews for CTRL-T
 export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always {}' --bind 'ctrl-/:change-preview-window(down|hidden|)'"
 export FZF_ALT_C_OPTS="--preview 'eza --tree --color=always {} | head -200'"
 
@@ -139,6 +161,35 @@ set_wezterm_title() {
     title=${title:-$(basename "$PWD")}
     printf '\033]0;%s\007' "$title"
 }
+
+# Transient Prompt (Shrink previous prompt after Enter)
+if command -v starship >/dev/null; then
+  function starship_accept-line() {
+    # If buffer is empty, just accept
+    if [[ -z "$BUFFER" ]]; then
+      zle .accept-line
+      return
+    fi
+
+    # Save current prompt to restore it for the next line
+    local saved_prompt=$PROMPT
+    local saved_rprompt=$RPROMPT
+
+    # Set minimal prompt for the line being accepted
+    PROMPT=$(starship module character)
+    RPROMPT=""
+    zle reset-prompt
+
+    # Restore prompt variables so the NEXT line starts with full info
+    PROMPT=$saved_prompt
+    RPROMPT=$saved_rprompt
+
+    # Execute the command
+    zle .accept-line
+  }
+  zle -N accept-line starship_accept-line
+fi
+
 
 autoload -U add-zsh-hook
 add-zsh-hook chpwd set_wezterm_title

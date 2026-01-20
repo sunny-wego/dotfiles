@@ -6,6 +6,9 @@ add_newline = true
 success_symbol = "[➜](bold #2e7de9)"
 error_symbol = "[✗](#f52a65)"
 
+[line_break]
+disabled = false
+
 [directory]
 format = "[$path]($style fg:#2e7de9) "
 read_only = " "
