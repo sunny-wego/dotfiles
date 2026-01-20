@@ -14,17 +14,10 @@ config.font_size = 14
 config.window_padding = { left = 10, right = 10, top = 10, bottom = 10 }
 config.window_decorations = "RESIZE" -- Removes title bar, keeps resizing
 config.default_cursor_style = "BlinkingBar"
-
--- Tab bar configuration (Minimalist for status bar visibility)
 config.enable_tab_bar = true
-config.hide_tab_bar_if_only_one_tab = false
 config.use_fancy_tab_bar = false
-config.tab_max_width = 32
-config.colors = {
-	tab_bar = {
-		background = "none", -- Blends with window background
-	},
-}
+config.hide_tab_bar_if_only_one_tab = false
+config.tab_bar_at_bottom = true
 
 -- Pane behavior
 config.inactive_pane_hsb = {
