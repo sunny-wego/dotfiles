@@ -1,100 +1,112 @@
--- Pull in the wezterm API
 local wezterm = require("wezterm")
-
--- This will hold the configuration.
 local config = wezterm.config_builder()
 
--- This is where you actually apply your config choices.
-
--- For example, changing the initial geometry for new windows:
--- config.initial_cols = 120
--- config.initial_rows = 28
-
--- or, changing the font size and color scheme.
+-- --- Appearance & UI ---
+config.color_scheme = "Tokyo Night Day"
 config.font = wezterm.font_with_fallback({
 	"JetBrainsMonoNL Nerd Font",
 	"JetBrains Mono Nerd Font",
 	"JetBrains Mono",
 })
-config.font_size = 13
-config.color_scheme = "Tokyo Night Day"
+config.font_size = 14
 
+-- Modern Polish
+config.window_padding = { left = 20, right = 20, top = 20, bottom = 20 }
+config.window_decorations = "RESIZE" -- Removes title bar, keeps resizing
+config.default_cursor_style = "BlinkingBar"
+config.cursor_blink_ease_in = "EaseIn"
+config.cursor_blink_ease_out = "EaseOut"
 config.enable_tab_bar = false
 
--- Force light window frame colors
--- config.window_frame = {
--- 	active_titlebar_bg = "#e1e2e7",
--- 	inactive_titlebar_bg = "#e1e2e7",
--- }
-
+-- Pane behavior
 config.inactive_pane_hsb = {
-	saturation = 1.0,
-	brightness = 1.0,
+	saturation = 0.95,
+	brightness = 0.9,
 }
 
+-- --- Leader Key & Mappings ---
 config.leader = { key = "b", mods = "CTRL" }
 config.keys = {
+	-- Split Panes
 	{ key = "\\", mods = "LEADER", action = wezterm.action.SplitHorizontal({ domain = "CurrentPaneDomain" }) },
 	{ key = "-", mods = "LEADER", action = wezterm.action.SplitVertical({ domain = "CurrentPaneDomain" }) },
 	{ key = "Enter", mods = "SHIFT", action = wezterm.action.SendString("\x1b\r") },
 
-	-- Vim-style pane navigation
+	-- Navigation (Vim-style)
 	{ key = "h", mods = "LEADER", action = wezterm.action.ActivatePaneDirection("Left") },
 	{ key = "j", mods = "LEADER", action = wezterm.action.ActivatePaneDirection("Down") },
 	{ key = "k", mods = "LEADER", action = wezterm.action.ActivatePaneDirection("Up") },
 	{ key = "l", mods = "LEADER", action = wezterm.action.ActivatePaneDirection("Right") },
 
-	-- Pane selection mode (more flexible than numbered keys)
+	-- Management
 	{ key = "q", mods = "LEADER", action = wezterm.action.PaneSelect({ alphabet = "1234567890" }) },
-
-	-- Pane zoom toggle (maximize/restore current pane)
 	{ key = "z", mods = "LEADER", action = wezterm.action.TogglePaneZoomState },
-
-	-- Show tab navigator
 	{ key = "t", mods = "LEADER", action = wezterm.action.ShowTabNavigator },
 
-	-- Vim-style pane resizing (Shift+hjkl)
+	-- Resizing (Leader + Shift + hjkl)
 	{ key = "H", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Left", 5 }) },
 	{ key = "J", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Down", 5 }) },
 	{ key = "K", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Up", 5 }) },
 	{ key = "L", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Right", 5 }) },
 
-	-- Enter copy mode (vim-like scrolling)
+	-- Copy Mode
 	{ key = "[", mods = "LEADER", action = wezterm.action.ActivateCopyMode },
+
+	-- Quick Select (Hints)
+	{ key = "s", mods = "LEADER", action = wezterm.action.QuickSelect },
+
+	-- Project Launcher
+	{
+		key = "p",
+		mods = "LEADER",
+		action = wezterm.action_callback(function(window, pane)
+			local projects = {}
+			local home = wezterm.home_dir
+			local project_dir = home .. "/projects"
+
+			-- Simple list of projects (can be expanded with a proper glob)
+			local success, stdout, stderr = wezterm.run_child_process({ "ls", project_dir })
+			if success then
+				for line in stdout:gmatch("([^\n]+)") do
+					table.insert(projects, { label = line, id = project_dir .. "/" .. line })
+				end
+			end
+
+			window:perform_action(
+				wezterm.action.InputSelector({
+					title = "Projects",
+					choices = projects,
+					action = wezterm.action_callback(function(inner_window, inner_pane, id, label)
+						if id then
+							inner_window:perform_action(
+								wezterm.action.SwitchToWorkspace({
+									name = label,
+									spawn = { cwd = id },
+								}),
+								inner_pane
+							)
+						end
+					end),
+				}),
+				pane
+			)
+		end),
+	},
 }
 
--- Custom window title showing current directory basename
--- Note: Cannot use run_child_process in format-window-title (synchronous event)
--- Commented out to allow shell integration to control window title with git repository names
--- wezterm.on("format-window-title", function(tab, pane, tabs, panes, config)
--- 	local cwd = pane.current_working_dir
--- 	if not cwd then
--- 		return nil
--- 	end
+-- --- Hyperlinks ---
+config.hyperlink_rules = wezterm.default_hyperlink_rules()
+-- GitHub repo clickable: user/repo
+table.insert(config.hyperlink_rules, {
+	regex = [[["]?([\w\d]{1}[-\w\d]+)(/){1}([-\w\d\.]+)["]?]],
+	format = "https://www.github.com/$1/$3",
+})
 
--- 	-- Extract the file path from the URL object and decode URI-encoded characters
--- 	local path = cwd.file_path or ""
--- 	if path == "" then
--- 		return nil
--- 	end
-
--- 	-- Decode URI-encoded characters (e.g., %20 for spaces)
--- 	path = path:gsub("%%(%x%x)", function(hex)
--- 		return string.char(tonumber(hex, 16))
--- 	end)
-
--- 	-- Get basename (last component of path)
--- 	local basename = path:match("([^/]+)/?$") or path
-
--- 	return basename
--- end)
-
--- Enable clickable URLs
+-- --- Cross-Platform & OS Specifics ---
 local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"
-
--- Set default domain to WSL on Windows
 if is_windows then
 	config.default_domain = "WSL:Ubuntu-24.04"
+	config.font_size = 12
 end
 
 config.mouse_bindings = {
@@ -105,5 +117,4 @@ config.mouse_bindings = {
 	},
 }
 
--- Finally, return the configuration to wezterm:
 return config

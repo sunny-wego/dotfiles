@@ -1,0 +1,30 @@
+gui:
+  theme:
+    activeBorderColor:
+      - '#2e7de9' # Tokyo Night Day Blue
+      - bold
+    inactiveBorderColor:
+      - '#6172b0' # Subdued Blue
+    searchingActiveBorderColor:
+      - '#b15c00' # Orange
+    optionsTextColor:
+      - '#8c6c3e' # Brown
+    selectedLineBgColor:
+      - '#cfd0d7' # Light Gray
+    selectedRangeBgColor:
+      - '#cfd0d7'
+    cherryPickedCommitBgColor:
+      - '#344b4e'
+    cherryPickedCommitFgColor:
+      - '#2e7de9'
+    unstagedChangesColor:
+      - '#f52a65' # Red
+    defaultFgColor:
+      - '#3760bf' # Dark Blue
+git:
+  paging:
+    colorArg: always
+    pager: delta --dark --paging=never
+os:
+  editCommand: 'nvim'
+  editCommandTemplate: '{{editor}} {{filename}}'

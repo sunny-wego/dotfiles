@@ -3,33 +3,36 @@
 add_newline = true
 
 [character]
-success_symbol = "[➜](bold #5e81ac)"
-error_symbol = "[✗](#bf616a)"
+success_symbol = "[➜](bold #2e7de9)"
+error_symbol = "[✗](#f52a65)"
+
+[line_break]
+disabled = false
 
 [directory]
-format = "[$path]($style fg:#5e81ac) "
+format = "[$path]($style fg:#2e7de9) "
 read_only = " "
 
 [cmd_duration]
-format = '[ $duration ]($style fg:#4c566a)'
+format = '[ $duration ]($style fg:#6172b0)'
 min_time = 500
 
 [git_branch]
-format = "[on]($style fg:#d08770) [$symbol$branch ]($style fg:#a3be8c)"
+format = "[on]($style fg:#8c6c3e) [$symbol$branch ]($style fg:#587539)"
 
 [git_status]
-style = "bold fg:#d08770"
+style = "bold fg:#8c6c3e"
 
 [python]
-style = "bold fg:#d08770"
+style = "bold fg:#8c6c3e"
 # Original python status doesn't have space ater it.
 # It mixed with the next status. Otherwise, we don't
 # need to override the format here.
 format = '[${symbol}${pyenv_prefix}(${version})(\($virtualenv\) )]($style)'
 
 [rust]
-style = "bold fg:#bf616a"
+style = "bold fg:#f52a65"
 
 [nodejs]
 symbol = "⬢ "
-format = '[$symbol($version)]($style fg:#a3be8c)'
+format = '[$symbol($version)]($style fg:#587539)'
