@@ -24,9 +24,9 @@ brew "bat"                     # Modern cat
 brew "git-delta"               # Modern git diff
 
 # Terminal UIs
-brew "lazydocker"
-brew "btop"
-brew "yazi"
+brew "lazydocker"              # Docker TUI
+brew "btop"                    # System Monitor
+brew "yazi"                    # File Manager
 brew "sevenzip"                # Archive support for Yazi
 
 # Productivity & Safety
