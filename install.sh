@@ -125,29 +125,14 @@ ensure_installed() {
 # Define tools here
 ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
 
-# 5. WSL Integration
-if grep -q "microsoft" /proc/version 2>/dev/null || [ -n "$WSL_DISTRO_NAME" ]; then
-  echo -e "\n--- WSL Integration ---"
-
-  if command -v powershell.exe >/dev/null; then
-    WEZTERM_SRC=$(wslpath -w "$DOTFILES_DIR/wezterm/wezterm.lua")
-    # Use PowerShell to get the Windows User Profile path cleanly
-    WIN_HOME=$(powershell.exe -NoProfile -Command 'Write-Host -NoNewline $env:USERPROFILE' | tr -d '\r')
-    WEZTERM_DEST="$WIN_HOME\\.wezterm.lua"
-
-    echo "🪟  Linking WezTerm config to Windows..."
-    # Remove existing file/link first to avoid conflicts
-    powershell.exe -NoProfile -Command "if (Test-Path '$WEZTERM_DEST') { Remove-Item '$WEZTERM_DEST' -ErrorAction SilentlyContinue }"
-
-    # Attempt to create the link
-    if powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '$WEZTERM_DEST' -Target '$WEZTERM_SRC' | Out-Null" 2>/dev/null; then
-      echo "✅  Windows Link Created: $WEZTERM_DEST"
-    else
-      echo "⚠️  Failed to create Windows symlink (Permission Denied)."
-      echo "👉  Enable 'Developer Mode' in Windows Settings OR run this in Admin PowerShell:"
-      echo "    New-Item -ItemType SymbolicLink -Path \"$WEZTERM_DEST\" -Target \"$WEZTERM_SRC\""
-    fi
-  fi
-fi
+# 5. Manual Post-Install Steps (WSL)
+# If you are on WSL and want to use WezTerm (installed on Windows),
+# you should manually link the configuration file:
+#
+# 1. Open PowerShell as Administrator
+# 2. Run:
+#    New-Item -ItemType SymbolicLink -Path "$HOME\.wezterm.lua" -Target "\\wsl.localhost\Ubuntu\home\$(whoami)\dotfiles\wezterm\wezterm.lua"
+#
+# Replace 'Ubuntu' with your distro name if different.
 
 echo -e "\n✨  Dotfiles setup complete! Restart your shell."
