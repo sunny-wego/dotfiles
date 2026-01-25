@@ -30,5 +30,6 @@ if powershell.exe -NoProfile -Command "cmd.exe /c mklink '$WIN_TARGET' '$WSL_SOU
 else
     echo "❌ Failed to create Windows symlink."
     echo "👉 Ensure 'Developer Mode' is enabled in Windows Settings."
+    echo "👉 If it is already enabled, try running 'wsl --shutdown' from PowerShell and restart your terminal."
     exit 1
 fi

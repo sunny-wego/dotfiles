@@ -6,14 +6,18 @@ This repository manages my configuration for **macOS** and **Linux (WSL2)**, ens
 
 ## 🪟 Windows (WSL2) Setup
 
-This automation handles the **Linux/WSL2** environment. The Windows host must be set up manually.
+This automation handles the **Linux/WSL2** environment and automatically bridges your configuration to the Windows host.
 
 1.  **Install WezTerm:** Install the WezTerm terminal on Windows.
-2.  **Install Fonts on Windows:**
+2.  **Enable Developer Mode (Recommended):** 
+    *   Go to **Settings > Privacy & security > For developers**.
+    *   Toggle **Developer Mode** to **ON**. This allows the installer to create symbolic links without Administrator privileges.
+    *   *Note: If the installer fails with a permission error, run `wsl --shutdown` in a Windows PowerShell and try again.*
+3.  **Install Fonts on Windows:**
     *   Download [JetBrainsMono Nerd Font](https://github.com/ryanoasis/nerd-fonts/releases/download/v3.0.2/JetBrainsMono.zip).
     *   Unzip and install the font files into Windows (Select all -> Right Click -> Install).
     *   *Note: WezTerm running on Windows cannot see fonts installed inside WSL.*
-3.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and follow the steps below.
+4.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and run `./install.sh`. The script will automatically link your config to `C:\Users\<User>\.wezterm.lua`.
 
 ## 🚀 Installation
 
@@ -102,9 +106,11 @@ alias work="cd ~/work/projects"
 
 ## 📂 Structure
 
+*   **`install.sh`**: The master idempotent setup script.
+*   **`scripts/`**: Automation utilities (Windows-WSL bridge, diagnostic tests).
 *   **`Brewfile`**: The manifest of installed tools.
 *   **`zsh/`**: Shell configuration (Aliases, FZF, Tools init).
-*   **`wezterm/`**: WezTerm styling (Tokyo Night Light) and keybindings.
+*   **`wezterm/`**: Cross-platform configuration (Dynamic titlebars, Tokyo Night theme).
 *   **`git/`**: Global git configuration (Delta, Excludes).
 *   **`nvim/`**: LazyVim configuration.
 *   **`btop/`**: System monitor config.
