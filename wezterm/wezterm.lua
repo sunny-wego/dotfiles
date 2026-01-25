@@ -12,7 +12,6 @@ config.font_size = 14
 
 -- Modern Polish
 config.window_padding = { left = 20, right = 20, top = 20, bottom = 20 }
-config.window_decorations = "RESIZE" -- Removes title bar, keeps resizing
 config.default_cursor_style = "BlinkingBar"
 config.cursor_blink_ease_in = "EaseIn"
 config.cursor_blink_ease_out = "EaseOut"
@@ -107,6 +106,8 @@ local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"
 if is_windows then
 	config.default_domain = "WSL:Ubuntu-24.04"
 	config.font_size = 12
+else
+	config.window_decorations = "RESIZE"
 end
 
 config.mouse_bindings = {

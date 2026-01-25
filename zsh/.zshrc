@@ -159,7 +159,12 @@ set_wezterm_title() {
         title="$repo_name${git_branch:+ ($git_branch)}"
     fi
     title=${title:-$(basename "$PWD")}
+
+    # OSC 0: Set window title
     printf '\033]0;%s\007' "$title"
+
+    # OSC 7: Report current working directory (required for CWD preservation on splits)
+    printf '\033]7;file://%s%s\007' "${HOST:-$(hostname)}" "$PWD"
 }
 
 # Transient Prompt (Shrink previous prompt after Enter)

@@ -125,14 +125,9 @@ ensure_installed() {
 # Define tools here
 ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
 
-# 5. Manual Post-Install Steps (WSL)
-# If you are on WSL and want to use WezTerm (installed on Windows),
-# you should manually link the configuration file:
-#
-# 1. Open PowerShell as Administrator
-# 2. Run:
-#    New-Item -ItemType SymbolicLink -Path "$HOME\.wezterm.lua" -Target "\\wsl.localhost\Ubuntu\home\$(whoami)\dotfiles\wezterm\wezterm.lua"
-#
-# Replace 'Ubuntu' with your distro name if different.
+# 5. Cross-Platform Sync (WSL)
+if grep -qi microsoft /proc/version; then
+  "$DOTFILES_DIR/scripts/sync-wezterm.sh"
+fi
 
 echo -e "\n✨  Dotfiles setup complete! Restart your shell."
