@@ -125,8 +125,9 @@ ensure_installed() {
 # Define tools here
 ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
 
-# 5. Cross-Platform Sync (WSL)
+# 5. Cross-Platform Sync & Assets (WSL)
 if grep -qi microsoft /proc/version; then
+  "$DOTFILES_DIR/scripts/install-fonts.sh"
   "$DOTFILES_DIR/scripts/sync-wezterm.sh"
 fi
 

@@ -4,9 +4,10 @@ local config = wezterm.config_builder()
 -- --- Appearance & UI ---
 config.color_scheme = "Tokyo Night Day"
 config.font = wezterm.font_with_fallback({
-	"JetBrainsMonoNL Nerd Font",
+	"JetBrainsMono NFM",
+	"JetBrainsMono Nerd Font Mono",
+	"JetBrainsMono Nerd Font",
 	"JetBrains Mono Nerd Font",
-	"JetBrains Mono",
 })
 config.font_size = 14
 
@@ -106,6 +107,8 @@ local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"
 if is_windows then
 	config.default_domain = "WSL:Ubuntu-24.04"
 	config.font_size = 12
+	config.cell_width = 0.95
+	config.front_end = "WebGpu"
 else
 	config.window_decorations = "RESIZE"
 end

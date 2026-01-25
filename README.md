@@ -13,11 +13,8 @@ This automation handles the **Linux/WSL2** environment and automatically bridges
     *   Go to **Settings > Privacy & security > For developers**.
     *   Toggle **Developer Mode** to **ON**. This allows the installer to create symbolic links without Administrator privileges.
     *   *Note: If the installer fails with a permission error, run `wsl --shutdown` in a Windows PowerShell and try again.*
-3.  **Install Fonts on Windows:**
-    *   Download [JetBrainsMono Nerd Font](https://github.com/ryanoasis/nerd-fonts/releases/download/v3.0.2/JetBrainsMono.zip).
-    *   Unzip and install the font files into Windows (Select all -> Right Click -> Install).
-    *   *Note: WezTerm running on Windows cannot see fonts installed inside WSL.*
-4.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and run `./install.sh`. The script will automatically link your config to `C:\Users\<User>\.wezterm.lua`.
+3.  **Install Fonts (Automated):** The installer now handles font installation for both WSL and Windows. You no longer need to install them manually.
+4.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and run `./install.sh`. The script will automatically link your config and install the required fonts.
 
 ## 🚀 Installation
 
