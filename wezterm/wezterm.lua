@@ -1,6 +1,38 @@
 local wezterm = require("wezterm")
 local config = wezterm.config_builder()
 
+-- Format a CWD path: replace home with ~, strip trailing slash, detect worktree name.
+-- Returns (formatted_path, worktree_name) — either may be nil.
+local function format_cwd(cwd)
+	if not cwd then
+		return nil, nil
+	end
+
+	local home = wezterm.home_dir
+	if home and cwd:sub(1, #home) == home then
+		cwd = "~" .. cwd:sub(#home + 1)
+	end
+
+	if #cwd > 1 and cwd:sub(-1) == "/" then
+		cwd = cwd:sub(1, -2)
+	end
+
+	local worktree = cwd:match("/worktrees/[^/]+/([^/]+)$") or cwd:match("/worktrees/([^/]+)$")
+
+	return cwd, worktree
+end
+
+local function get_git_branch(cwd)
+	if not cwd then
+		return nil
+	end
+	local success, stdout = wezterm.run_child_process({ "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD" })
+	if success and stdout then
+		return stdout:gsub("%s+$", "")
+	end
+	return nil
+end
+
 -- --- Appearance & UI ---
 config.color_scheme = "Tokyo Night Day"
 config.font = wezterm.font_with_fallback({
@@ -41,7 +73,74 @@ config.keys = {
 	-- Management
 	{ key = "q", mods = "LEADER", action = wezterm.action.PaneSelect({ alphabet = "1234567890" }) },
 	{ key = "z", mods = "LEADER", action = wezterm.action.TogglePaneZoomState },
-	{ key = "t", mods = "LEADER", action = wezterm.action.ShowTabNavigator },
+	-- Workspace Switcher
+	{
+		key = "t",
+		mods = "LEADER",
+		action = wezterm.action_callback(function(window, pane)
+			local current_workspace = window:active_workspace()
+			local current_tab_id = pane:tab():tab_id()
+
+			local choices = {}
+			local tab_map = {}
+
+			for _, mux_win in ipairs(wezterm.mux.all_windows()) do
+				local ws = mux_win:get_workspace()
+				for tab_index, mux_tab in ipairs(mux_win:tabs()) do
+					local active_pane = mux_tab:active_pane()
+					local uri = active_pane and active_pane:get_current_working_dir()
+					local cwd = uri and uri.file_path or nil
+
+					local path, worktree = format_cwd(cwd)
+					local context = worktree or get_git_branch(cwd)
+					local label = path or ws
+					if context then
+						label = "[" .. context .. "] " .. label
+					end
+
+					local pane_count = #mux_tab:panes()
+					if pane_count > 1 then
+						label = label .. " (" .. pane_count .. " panes)"
+					end
+
+					if mux_tab:tab_id() == current_tab_id then
+						label = label .. " *"
+					end
+
+					local key = tostring(mux_tab:tab_id())
+					tab_map[key] = { workspace = ws, tab_index = tab_index - 1 }
+					table.insert(choices, { label = label, id = key })
+				end
+			end
+
+			window:perform_action(
+				wezterm.action.InputSelector({
+					title = "Switch Tab",
+					choices = choices,
+					fuzzy = true,
+					action = wezterm.action_callback(function(inner_window, inner_pane, id, label)
+						if not id then
+							return
+						end
+
+						local entry = tab_map[id]
+						if not entry then
+							return
+						end
+
+						local actions = {}
+						if entry.workspace ~= inner_window:active_workspace() then
+							table.insert(actions, wezterm.action.SwitchToWorkspace({ name = entry.workspace }))
+						end
+						table.insert(actions, wezterm.action.ActivateTab(entry.tab_index))
+
+						inner_window:perform_action(wezterm.action.Multiple(actions), inner_pane)
+					end),
+				}),
+				pane
+			)
+		end),
+	},
 
 	-- Resizing (Leader + Shift + hjkl)
 	{ key = "H", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Left", 5 }) },
