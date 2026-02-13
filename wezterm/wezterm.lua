@@ -48,7 +48,40 @@ config.window_padding = { left = 20, right = 20, top = 20, bottom = 20 }
 config.default_cursor_style = "BlinkingBar"
 config.cursor_blink_ease_in = "EaseIn"
 config.cursor_blink_ease_out = "EaseOut"
-config.enable_tab_bar = false
+config.enable_tab_bar = true
+config.tab_bar_at_bottom = false
+config.use_fancy_tab_bar = true
+config.show_new_tab_button_in_tab_bar = false
+config.window_frame = {
+	font = wezterm.font({ family = "JetBrainsMono NFM", weight = "Bold" }),
+	font_size = 11.0,
+	active_titlebar_bg = "#e1e2e7",
+	inactive_titlebar_bg = "#e1e2e7",
+}
+config.colors = {
+	tab_bar = {
+		active_tab = {
+			bg_color = "#c8c9ce",
+			fg_color = "#3760bf",
+		},
+		inactive_tab = {
+			bg_color = "#e1e2e7",
+			fg_color = "#8990b3",
+		},
+		inactive_tab_hover = {
+			bg_color = "#d5d6db",
+			fg_color = "#3760bf",
+		},
+		new_tab = {
+			bg_color = "#e1e2e7",
+			fg_color = "#8990b3",
+		},
+		new_tab_hover = {
+			bg_color = "#d5d6db",
+			fg_color = "#3760bf",
+		},
+	},
+}
 
 -- Pane behavior
 config.inactive_pane_hsb = {
