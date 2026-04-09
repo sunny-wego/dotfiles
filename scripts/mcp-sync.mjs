@@ -461,8 +461,8 @@ function buildAddCommand(entry) {
         fail(`${context} defines auth for stdio transport. Use env/args for local process auth.`);
       }
       const stdioCommand = getStdioCommand(effectiveConfig, context);
-      command.push(...actualEnvFlags, managedName, "--", stdioCommand, ...resolvedArgs.actual);
-      display.push(...displayEnvFlags, managedName, "--", stdioCommand, ...resolvedArgs.display);
+      command.push(managedName, ...actualEnvFlags, "--", stdioCommand, ...resolvedArgs.actual);
+      display.push(managedName, ...displayEnvFlags, "--", stdioCommand, ...resolvedArgs.display);
       return { command, display };
     }
 
@@ -474,6 +474,11 @@ function buildAddCommand(entry) {
     ) {
       fail(`${context} auth header "${authHeader.name}" duplicates headers.${authHeader.name}.`);
     }
+
+    const remoteUrl = getRemoteUrl(effectiveConfig, context, transport);
+    command.push(managedName, remoteUrl);
+    display.push(managedName, remoteUrl);
+
     for (const header of headers) {
       command.push("-H", header.actual);
       display.push("-H", header.display);
@@ -483,9 +488,6 @@ function buildAddCommand(entry) {
       display.push("-H", authHeader.display);
     }
 
-    const remoteUrl = getRemoteUrl(effectiveConfig, context, transport);
-    command.push(managedName, remoteUrl);
-    display.push(managedName, remoteUrl);
     return { command, display };
   }
 
@@ -498,8 +500,8 @@ function buildAddCommand(entry) {
         fail(`${context} defines auth for stdio transport. Use env/args for local process auth.`);
       }
       const stdioCommand = getStdioCommand(effectiveConfig, context);
-      command.push(...actualEnvFlags, managedName, stdioCommand, ...resolvedArgs.actual);
-      display.push(...displayEnvFlags, managedName, stdioCommand, ...resolvedArgs.display);
+      command.push(managedName, ...actualEnvFlags, stdioCommand, ...resolvedArgs.actual);
+      display.push(managedName, ...displayEnvFlags, stdioCommand, ...resolvedArgs.display);
       return { command, display };
     }
 
@@ -511,6 +513,10 @@ function buildAddCommand(entry) {
     ) {
       fail(`${context} auth header "${authHeader.name}" duplicates headers.${authHeader.name}.`);
     }
+    const remoteUrl = getRemoteUrl(effectiveConfig, context, transport);
+    command.push(managedName, remoteUrl);
+    display.push(managedName, remoteUrl);
+
     for (const header of headers) {
       command.push("-H", header.actual);
       display.push("-H", header.display);
@@ -520,9 +526,6 @@ function buildAddCommand(entry) {
       display.push("-H", authHeader.display);
     }
 
-    const remoteUrl = getRemoteUrl(effectiveConfig, context, transport);
-    command.push(managedName, remoteUrl);
-    display.push(managedName, remoteUrl);
     return { command, display };
   }
 
