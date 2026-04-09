@@ -101,6 +101,55 @@ alias work="cd ~/work/projects"
     3.  `git commit -am "Update config"`
     4.  `git push`
 
+## 🤖 MCP Manifest
+
+Shared MCP definitions now live in [`mcp/manifest.yaml`](mcp/manifest.yaml). This is the canonical manifest for user-level MCPs that should follow you across machines and coding agents.
+
+Apply it declaratively with:
+```bash
+node scripts/mcp-sync.mjs plan
+node scripts/mcp-sync.mjs apply
+```
+
+Notes:
+*   The sync script reconciles via each agent's native `mcp add` / `mcp remove` commands instead of editing agent config files directly.
+*   This dotfiles manifest is for user-scoped shared MCPs. Project-scoped MCPs should live in the project repo that owns them.
+*   Servers are enabled for all supported agents by default. Use `excludeAgents` only when a server should be skipped for specific clients.
+*   Only environment variable names belong in the manifest. Keep actual secrets in `~/.zshrc_local` or another local secret source.
+*   The manifest supports both OAuth-capable remote MCPs and env-based authentication for servers that require API keys.
+*   Use the generic `auth` block for remote auth in a client-agnostic way.
+*   Manifest shape is defined in `mcp/manifest.schema.json` and linked from `mcp/manifest.yaml` for editor validation.
+
+### MCP Workflow
+
+Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
+
+*   Add/update a server from a client instruction (no manual YAML edits):
+    1. Preview translation:
+       `node scripts/mcp-import.mjs parse --instruction 'codex mcp add vercel --url https://mcp.vercel.com'`
+    2. Write into manifest:
+       `node scripts/mcp-import.mjs apply --instruction 'codex mcp add vercel --url https://mcp.vercel.com'`
+       Optional key override: append `--key <serverKey>`.
+    3. Preview sync changes:
+       `node scripts/mcp-sync.mjs plan`
+    4. Apply to agents:
+       `node scripts/mcp-sync.mjs apply`
+*   Remove a server:
+    1. Remove from manifest:
+       `node scripts/mcp-import.mjs remove --key <serverKey>`
+    2. Run `node scripts/mcp-sync.mjs plan` to verify remove actions.
+    3. Run `node scripts/mcp-sync.mjs apply` to remove it from all agents.
+*   Roll out to one agent first (for example, Gemini):
+    1. Preview only Gemini changes: `node scripts/mcp-sync.mjs plan --agent gemini`
+    2. Apply only Gemini changes: `node scripts/mcp-sync.mjs apply --agent gemini`
+    3. After validation, preview all agents: `node scripts/mcp-sync.mjs plan --agent all`
+    4. Then propagate to all agents: `node scripts/mcp-sync.mjs apply --agent all`
+
+`plan` is read-only. `apply` executes changes and updates `mcp/.sync-state.json`.
+`mcp-import` currently parses common `mcp add` instructions from `codex`, `claude`, and `gemini`.
+`mcp-import apply` writes only to `mcp/manifest.yaml` (source of truth).
+`mcp-sync apply` then updates agent-native configs (for example: Codex `~/.codex/config.toml`, Gemini `~/.gemini/settings.json`).
+
 ## 📂 Structure
 
 *   **`install.sh`**: The master idempotent setup script.

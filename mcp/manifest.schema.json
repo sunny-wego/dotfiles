@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/dotfiles/mcp/manifest.schema.json",
+  "title": "Dotfiles MCP Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "servers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "defaultScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "codex": {
+          "type": "string",
+          "enum": [
+            "user"
+          ]
+        },
+        "claude": {
+          "type": "string",
+          "enum": [
+            "local",
+            "user",
+            "project"
+          ]
+        },
+        "gemini": {
+          "type": "string",
+          "enum": [
+            "user",
+            "project"
+          ]
+        }
+      }
+    },
+    "servers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/serverConfig"
+      }
+    }
+  },
+  "$defs": {
+    "transport": {
+      "type": "string",
+      "enum": [
+        "stdio",
+        "http",
+        "sse"
+      ]
+    },
+    "agentName": {
+      "type": "string",
+      "enum": [
+        "codex",
+        "claude",
+        "gemini"
+      ]
+    },
+    "envRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromEnv"
+      ],
+      "properties": {
+        "fromEnv": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "suffix": {
+          "type": "string"
+        }
+      }
+    },
+    "headerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromEnv"
+      ],
+      "properties": {
+        "fromEnv": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "type": "string"
+        }
+      }
+    },
+    "argsList": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/envRef"
+          }
+        ]
+      }
+    },
+    "envMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "headersMap": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/headerRef"
+          }
+        ]
+      }
+    },
+    "authConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromEnv"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "bearer",
+            "header"
+          ]
+        },
+        "fromEnv": {
+          "type": "string",
+          "minLength": 1
+        },
+        "header": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "type": "string"
+        }
+      }
+    },
+    "serverConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "$ref": "#/$defs/argsList"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "env": {
+          "$ref": "#/$defs/envMap"
+        },
+        "headers": {
+          "$ref": "#/$defs/headersMap"
+        },
+        "auth": {
+          "$ref": "#/$defs/authConfig"
+        },
+        "excludeAgents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agentName"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "transport": {
+                "const": "stdio"
+              }
+            },
+            "required": [
+              "transport"
+            ]
+          },
+          "then": {
+            "required": [
+              "command"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transport": {
+                "enum": [
+                  "http",
+                  "sse"
+                ]
+              }
+            },
+            "required": [
+              "transport"
+            ]
+          },
+          "then": {
+            "required": [
+              "url"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

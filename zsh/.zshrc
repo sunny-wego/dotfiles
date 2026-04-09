@@ -81,6 +81,7 @@ command -v fnm >/dev/null && eval "$(fnm env --use-on-cd --shell zsh)"
 
 # Zoxide (Smart cd)
 if command -v zoxide >/dev/null; then
+    export _ZO_DOCTOR=0
     eval "$(zoxide init zsh)"
     alias cd="z"
 fi
@@ -199,6 +200,14 @@ fi
 autoload -U add-zsh-hook
 add-zsh-hook chpwd set_wezterm_title
 add-zsh-hook precmd set_wezterm_title
+
+# wgd (cached for speed - regenerate with: wgd init > ~/.cache/wgd-init.zsh)
+_wgd_cache="$HOME/.cache/wgd-init.zsh"
+if [[ ! -f "$_wgd_cache" ]] || [[ $(command -v wgd) -nt "$_wgd_cache" ]]; then
+    mkdir -p "$HOME/.cache"
+    wgd init > "$_wgd_cache"
+fi
+source "$_wgd_cache"
 
 # Load local overrides (Secrets, machine-specific)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local

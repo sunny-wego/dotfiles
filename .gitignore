@@ -33,3 +33,6 @@ vendor/
 # Build Output
 dist/
 build/
+
+# MCP Sync State
+mcp/.sync-state.json

@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=./manifest.schema.json
+# Canonical MCP manifest for user-level shared servers.
+# Project-scoped MCPs should live in the repo that owns the project.
+# Keep secrets out of git. Reference environment variable names only.
+#
+# Sync with:
+#   node scripts/mcp-sync.mjs plan
+#   node scripts/mcp-sync.mjs apply
+#
+# Notes:
+# - `namespace` prefixes managed server names so sync only touches entries it owns.
+# - Use `{ fromEnv: SOME_VAR }` inside `args` to inject a secret or token without checking it into git.
+# - Servers are enabled for all agents by default.
+# - Use `excludeAgents` only when a server should not be synced to specific clients.
+
+schemaVersion: 1
+namespace: dotfiles
+defaultScope:
+  codex: user
+  claude: user
+  gemini: user
+servers:
+  context7:
+    name: context7
+    transport: http
+    # Use /mcp for broad client compatibility. /mcp/oauth is OAuth-specific.
+    url: https://mcp.context7.com/mcp
+  chrome-devtools:
+    name: chrome-devtools
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - chrome-devtools-mcp@latest
+  figma:
+    name: figma
+    transport: http
+    url: https://mcp.figma.com/mcp
+  sonarqube:
+    name: sonarqube
+    transport: stdio
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - --init
+      - --pull=always
+      - -e
+      - SONARQUBE_TOKEN
+      - -e
+      - SONARQUBE_URL
+      - mcp/sonarqube
+    env:
+      SONARQUBE_TOKEN: SONARQUBE_TOKEN
+      SONARQUBE_URL: SONARQUBE_URL
+  posthog:
+    name: posthog
+    transport: http
+    url: https://mcp.posthog.com/mcp
+  vercel:
+    name: vercel
+    transport: http
+    url: https://mcp.vercel.com
+  codex-cli:
+    name: codex-cli
+    transport: stdio
+    command: codex
+    args:
+      - mcp-server
+    excludeAgents:
+      - codex
+      - gemini
+  linear-server:
+    name: linear-server
+    transport: http
+    url: https://mcp.linear.app/mcp
+  next-devtools:
+    name: next-devtools
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - next-devtools-mcp@latest
+  braintrust:
+    name: braintrust
+    transport: http
+    url: https://api.braintrust.dev/mcp
+    auth:
+      type: bearer
+      fromEnv: BRAINTRUST_API_KEY
