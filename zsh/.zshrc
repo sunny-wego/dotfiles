@@ -229,8 +229,8 @@ claude-alt-mcp() {
 # accounts both report to herdr as "claude" and can't be told apart there, so
 # the picker keeps its own tally of live sessions (one marker per shell, named
 # by PID and reaped when that PID dies). It routes to whichever account has
-# fewer live sessions; ties prefer the primary, so a lone session lands on
-# primary (home base) and only overflow spreads to the alt account.
+# fewer live sessions; ties round-robin (alternate from the last pick), so even
+# lone/sequential sessions alternate between the two accounts.
 #   Force an account:  CLAUDE_ACCOUNT=primary|alt claude ...   (or use `claude-alt`)
 #   Auto-pinned to primary: non-interactive (-p / piped / $CI) and resume
 #   (-c/--continue/--resume), so background work and the fleet stay on one account.
@@ -250,7 +250,11 @@ _claude_balance() {                 # -> primary|alt, by live-session count
     fi
   done
   (( counts[alt] < counts[primary] )) && { print -r -- alt; return; }
-  print -r -- primary
+  (( counts[primary] < counts[alt] )) && { print -r -- primary; return; }
+  # tie -> round-robin: alternate from the last pick (.last is a dotfile, so the
+  # marker glob above never sees it)
+  local last=""; [[ -f "$picker_dir/.last" ]] && last="$(<"$picker_dir/.last")"
+  [[ "$last" == primary ]] && print -r -- alt || print -r -- primary
 }
 
 _claude_pick_account() {            # -> primary|alt, honouring overrides + guards
@@ -270,7 +274,7 @@ claude() {
   local picker_dir="${CLAUDE_PICKER_DIR:-$HOME/.cache/claude-picker}"
   local acct; acct="$(_claude_pick_account "$@")"
   [[ "$acct" == alt ]] || acct=primary          # normalise unknown -> primary
-  mkdir -p "$picker_dir"; print -r -- "$acct" > "$picker_dir/$$"
+  mkdir -p "$picker_dir"; print -r -- "$acct" > "$picker_dir/$$"; print -r -- "$acct" > "$picker_dir/.last"
   [[ -t 2 ]] && print -u2 -r -- "claude → account: $acct"
   if [[ "$acct" == alt ]]; then
     CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" command claude "$@"

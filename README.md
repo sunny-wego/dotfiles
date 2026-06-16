@@ -186,9 +186,10 @@ identical; `claude-alt-mcp apply` keeps it in sync with the manifest thereafter.
 
 `claude` is a wrapper (in `zsh/.zshrc`) that routes each launch to whichever
 account has fewer live sessions, so you never choose by hand. It keeps a small
-per-shell marker tally (the two accounts are indistinguishable to herdr), prefers
-the **primary** on a tie — so a lone session lands on primary and only overflow
-spreads to the alt account. Non-interactive launches (`-p` / piped / `$CI`) and
+per-shell marker tally (the two accounts are indistinguishable to herdr). On a
+**tie it round-robins** (alternates from the last pick), so even lone/sequential
+sessions alternate between the two accounts; when one account is busier, the
+freer one wins. Non-interactive launches (`-p` / piped / `$CI`) and
 resume (`-c` / `--continue` / `--resume`) are pinned to the primary so background
 work and the fleet stay on one account. Force one with `CLAUDE_ACCOUNT=primary|alt`,
 or use `claude-alt`.
