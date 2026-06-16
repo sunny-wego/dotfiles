@@ -223,39 +223,5 @@ claude-alt-mcp() {
     "${1:-apply}" --agent claude --state "$CLAUDE_ALT_DIR/.mcp-sync-state.json" "${@:2}"
 }
 
-# --- Claude Code + herdr -----------------------------------------------------
-# herdr (https://herdr.dev) tracks per-pane agent state for BOTH accounts in one
-# server, so `claude-fleet` is a unified cross-account view that Claude's own
-# (per-account) FleetView can't give. Requires Claude running inside a herdr
-# pane. If these error, the herdr server is likely stale: run `herdr update --handoff`.
-
-# Open both accounts side by side as named herdr agents: "work" and "alt".
-# Pass --split down (edit below) for a stacked layout instead of side-by-side.
-claude-pair() {
-  local cc; cc="$(command -v claude)" || { echo "claude not found on PATH"; return 1; }
-  herdr agent start work -- "$cc" || return
-  herdr agent start alt --split right -- env CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" "$cc"
-}
-
-# One live table of every Claude agent across both accounts (status · name · cwd).
-claude-fleet() {
-  herdr agent list | jq -r '
-    (.result.agents // [])[]
-    | [(.agent_status // "?"),
-       (.name // .display_agent // .agent // "claude"),
-       (.cwd // .foreground_cwd // "")]
-    | @tsv' | column -t -s $'\t'
-}
-
-# Toast whenever a herdr agent becomes blocked (needs input); re-arms after you
-# respond. Target is a herdr agent name or pane id, e.g. `claude-watch alt`.
-claude-watch() {
-  local t="${1:?usage: claude-watch <agent-target>   (e.g. work | alt)}"
-  while herdr agent wait "$t" --status blocked >/dev/null 2>&1; do
-    herdr notification show "Claude needs input" --body "$t is blocked" --sound request
-    herdr agent wait "$t" --status working >/dev/null 2>&1 || break
-  done
-}
-
 # Load local overrides (Secrets, machine-specific)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local
