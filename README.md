@@ -202,6 +202,7 @@ If they error, the herdr server is stale — run `herdr update --handoff` (prese
 *   **`Brewfile`**: The manifest of installed tools.
 *   **`zsh/`**: Shell configuration (Aliases, FZF, Tools init).
 *   **`wezterm/`**: Cross-platform configuration (Dynamic titlebars, Tokyo Night theme).
+*   **`ghostty/`**: Ghostty terminal configuration (Tokyo Night Day theme).
 *   **`git/`**: Global git configuration (Delta, Excludes).
 *   **`nvim/`**: LazyVim configuration.
 *   **`btop/`**: System monitor config.

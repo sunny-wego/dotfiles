@@ -1,0 +1,5 @@
+# Ghostty configuration
+# Docs: https://ghostty.org/docs/config
+
+# Theme — TokyoNight Day (matches bat, btop, wezterm)
+theme = TokyoNight Day

@@ -45,6 +45,7 @@ brew "trash-cli"               # Safe deletion (aliased to del)
 if OS.mac?
   brew "colima"                  # Container runtime (Docker on macOS)
   cask "wezterm"
+  cask "ghostty"
   cask "font-jetbrains-mono-nerd-font"
 end
 
