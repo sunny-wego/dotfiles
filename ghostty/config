@@ -9,8 +9,8 @@ font-family = JetBrainsMono NFM
 font-size = 14
 
 # Window padding — matches wezterm (window_padding = 20)
-window-padding-x = 20
-window-padding-y = 20
+window-padding-x = 10
+window-padding-y = 10
 
 # Cursor — matches wezterm (BlinkingBar)
 cursor-style = bar
