@@ -169,8 +169,8 @@ claude-alt                               # launch 2nd account, then log in (stor
 ```
 
 Daily use (defined in `zsh/.zshrc`):
-*   `claude` — auto-picks the least-loaded account (see *Automatic account selection*).
-*   `claude-alt` — force the secondary account (`$CLAUDE_ALT_DIR`, default `~/.claude-alt`).
+*   `claude` — primary account (`~/.claude`, Keychain).
+*   `claude-alt` — secondary account (`$CLAUDE_ALT_DIR`, default `~/.claude-alt`).
 *   `claude-alt-mcp [plan|apply]` — sync the 2nd account's MCP from `mcp/manifest.yaml`.
 
 What is shared vs. per-account:
@@ -181,18 +181,6 @@ What is shared vs. per-account:
 
 The setup script seeds the 2nd account's MCP servers from the primary so it starts
 identical; `claude-alt-mcp apply` keeps it in sync with the manifest thereafter.
-
-### Automatic account selection
-
-`claude` is a wrapper (in `zsh/.zshrc`) that routes each launch to whichever
-account has fewer live sessions, so you never choose by hand. It keeps a small
-per-shell marker tally (the two accounts are indistinguishable to herdr). On a
-**tie it round-robins** (alternates from the last pick), so even lone/sequential
-sessions alternate between the two accounts; when one account is busier, the
-freer one wins. Non-interactive launches (`-p` / piped / `$CI`) and
-resume (`-c` / `--continue` / `--resume`) are pinned to the primary so background
-work and the fleet stay on one account. Force one with `CLAUDE_ACCOUNT=primary|alt`,
-or use `claude-alt`.
 
 ## 📂 Structure
 
