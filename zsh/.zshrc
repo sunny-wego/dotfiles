@@ -255,7 +255,7 @@ _claude_balance() {                 # -> primary|alt, by live-session count
 _claude_pick_account() {            # -> primary|alt, honouring overrides + guards
   emulate -L zsh
   [[ -n "$CLAUDE_ACCOUNT" ]]                && { print -r -- "$CLAUDE_ACCOUNT"; return; }
-  [[ -d "$CLAUDE_ALT_DIR" ]]                || { print -r -- primary; return; }
+  [[ -f "$CLAUDE_ALT_DIR/.credentials.json" ]] || { print -r -- primary; return; }  # alt not logged in -> primary
   [[ -t 0 && -t 1 && -z "$CI" ]]            || { print -r -- primary; return; }
   local a; for a in "$@"; do
     case "$a" in -p|--print|-c|--continue|--resume) print -r -- primary; return ;; esac
