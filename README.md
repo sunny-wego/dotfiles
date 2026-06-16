@@ -64,6 +64,22 @@ Your terminal is supercharged with modern Rust-based tools. Here is how to use t
 | :--- | :--- | :--- |
 | `btop` | **btop** | System monitor (CPU, Mem, Network) with Tokyo Night theme. |
 
+### Terminal Splits (Ghostty)
+Tmux-style **prefix** key, mirroring the WezTerm leader map. Tap and release the prefix `Ctrl+b`, then press the next key.
+
+| Shortcut | Action |
+| :--- | :--- |
+| `Ctrl+b` then `\` | Split **right** (side-by-side). |
+| `Ctrl+b` then `-` | Split **down** (stacked). |
+| `Ctrl+b` then `h` / `j` / `k` / `l` | Move to pane left / down / up / right (vim-style). |
+| `Ctrl+b` then `n` / `p` | Cycle to next / previous pane. |
+| `Ctrl+b` then `z` | Toggle **zoom** (maximize) the active pane. |
+| `Ctrl+b` then `Shift`+`h` / `j` / `k` / `l` | Resize the active pane (5 cells). |
+| `Ctrl+b` then `=` | Equalize all panes. |
+| `Cmd`+`Shift`+`,` | Reload Ghostty config (apply changes without restart). |
+
+> **Note:** Ghostty has no jump-to-pane-by-index for splits (unlike WezTerm's numbered `PaneSelect`), so `n` / `p` cycling and the directional moves replace it. Numbered jumping in Ghostty exists only for tabs.
+
 ## 🔐 Post-Installation (Manual Steps)
 
 These files are **ignored by git** to keep your secrets safe. You must create them manually on each new machine.
@@ -157,7 +173,7 @@ Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
 *   **`Brewfile`**: The manifest of installed tools.
 *   **`zsh/`**: Shell configuration (Aliases, FZF, Tools init).
 *   **`wezterm/`**: Cross-platform configuration (Dynamic titlebars, Tokyo Night theme).
-*   **`ghostty/`**: Ghostty terminal configuration (Tokyo Night Day theme).
+*   **`ghostty/`**: Ghostty terminal configuration (Tokyo Night Day theme, tmux-style split keybinds).
 *   **`git/`**: Global git configuration (Delta, Excludes).
 *   **`nvim/`**: LazyVim configuration.
 *   **`btop/`**: System monitor config.
