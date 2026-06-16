@@ -206,3 +206,4 @@ If they error, the herdr server is stale — run `herdr update --handoff` (prese
 *   **`git/`**: Global git configuration (Delta, Excludes).
 *   **`nvim/`**: LazyVim configuration.
 *   **`btop/`**: System monitor config.
+*   **`herdr/`**: Herdr agent workspace manager config (Tokyo Night Day, terminal-delivered notifications).
