@@ -223,5 +223,63 @@ claude-alt-mcp() {
     "${1:-apply}" --agent claude --state "$CLAUDE_ALT_DIR/.mcp-sync-state.json" "${@:2}"
 }
 
+# --- Claude Code: least-loaded account picker --------------------------------
+# `claude` auto-selects the freer account so you never pick by hand. The two
+# accounts both report to herdr as "claude" and can't be told apart there, so
+# the picker keeps its own tally of live sessions (one marker per shell, named
+# by PID and reaped when that PID dies). It routes to whichever account has
+# fewer live sessions; ties prefer the primary, so a lone session lands on
+# primary (home base) and only overflow spreads to the alt account.
+#   Force an account:  CLAUDE_ACCOUNT=primary|alt claude ...   (or use `claude-alt`)
+#   Auto-pinned to primary: non-interactive (-p / piped / $CI) and resume
+#   (-c/--continue/--resume), so background work and the fleet stay on one account.
+#   Marker dir override (tests): CLAUDE_PICKER_DIR
+# >>> claude-picker >>>
+_claude_balance() {                 # -> primary|alt, by live-session count
+  emulate -L zsh
+  local picker_dir="${CLAUDE_PICKER_DIR:-$HOME/.cache/claude-picker}"
+  mkdir -p "$picker_dir"
+  local f pid n; typeset -A counts=( primary 0 alt 0 )
+  for f in "$picker_dir"/*(N.); do
+    pid="${f:t}"
+    if [[ "$pid" == <-> ]] && kill -0 "$pid" 2>/dev/null; then
+      n="$(<"$f")"; [[ -n "$n" ]] && (( counts[$n]++ ))
+    else
+      rm -f "$f"                    # reap dead session marker
+    fi
+  done
+  (( counts[alt] < counts[primary] )) && { print -r -- alt; return; }
+  print -r -- primary
+}
+
+_claude_pick_account() {            # -> primary|alt, honouring overrides + guards
+  emulate -L zsh
+  [[ -n "$CLAUDE_ACCOUNT" ]]                && { print -r -- "$CLAUDE_ACCOUNT"; return; }
+  [[ -d "$CLAUDE_ALT_DIR" ]]                || { print -r -- primary; return; }
+  [[ -t 0 && -t 1 && -z "$CI" ]]            || { print -r -- primary; return; }
+  local a; for a in "$@"; do
+    case "$a" in -p|--print|-c|--continue|--resume) print -r -- primary; return ;; esac
+  done
+  _claude_balance
+}
+
+claude() {
+  emulate -L zsh
+  local picker_dir="${CLAUDE_PICKER_DIR:-$HOME/.cache/claude-picker}"
+  local acct; acct="$(_claude_pick_account "$@")"
+  [[ "$acct" == alt ]] || acct=primary          # normalise unknown -> primary
+  mkdir -p "$picker_dir"; print -r -- "$acct" > "$picker_dir/$$"
+  [[ -t 2 ]] && print -u2 -r -- "claude → account: $acct"
+  if [[ "$acct" == alt ]]; then
+    CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" command claude "$@"
+  else
+    env -u CLAUDE_CONFIG_DIR claude "$@"         # unset -> primary uses the Keychain
+  fi
+  local rc=$?
+  rm -f "$picker_dir/$$" 2>/dev/null
+  return $rc
+}
+# <<< claude-picker <<<
+
 # Load local overrides (Secrets, machine-specific)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local
