@@ -3,3 +3,7 @@
 
 # Theme — TokyoNight Day (matches bat, btop, wezterm)
 theme = TokyoNight Day
+
+# Font — matches wezterm (JetBrainsMono Nerd Font Mono @ 14)
+font-family = JetBrainsMono NFM
+font-size = 14
