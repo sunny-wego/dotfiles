@@ -7,3 +7,14 @@ theme = TokyoNight Day
 # Font — matches wezterm (JetBrainsMono Nerd Font Mono @ 14)
 font-family = JetBrainsMono NFM
 font-size = 14
+
+# Window padding — matches wezterm (window_padding = 20)
+window-padding-x = 20
+window-padding-y = 20
+
+# Cursor — matches wezterm (BlinkingBar)
+cursor-style = bar
+cursor-style-blink = true
+
+# Dim inactive split — matches wezterm (inactive_pane_hsb)
+unfocused-split-opacity = 0.9
