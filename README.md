@@ -182,6 +182,19 @@ What is shared vs. per-account:
 The setup script seeds the 2nd account's MCP servers from the primary so it starts
 identical; `claude-alt-mcp apply` keeps it in sync with the manifest thereafter.
 
+### Unified view across both accounts (herdr)
+
+Claude's own FleetView is per-account, but [herdr](https://herdr.dev) tracks
+per-pane agent state for *both* accounts in one server (both accounts share the
+same hook via `settings.json`), so you get a single cross-account view. Helpers
+in `zsh/.zshrc` (require Claude running inside a herdr pane):
+
+*   `claude-pair` — open both accounts side by side as named herdr agents (`work` + `alt`).
+*   `claude-fleet` — live table of every Claude agent across both accounts (status · name · cwd).
+*   `claude-watch <work|alt>` — OS toast whenever that agent is blocked/needs input.
+
+If they error, the herdr server is stale — run `herdr update --handoff` (preserves your session).
+
 ## 📂 Structure
 
 *   **`install.sh`**: The master idempotent setup script.
