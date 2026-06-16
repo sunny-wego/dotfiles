@@ -1,5 +1,6 @@
 local wezterm = require("wezterm")
 local config = wezterm.config_builder()
+local act = wezterm.action
 
 -- Format a CWD path: replace home with ~, strip trailing slash, detect worktree name.
 -- Returns (formatted_path, worktree_name) — either may be nil.
@@ -31,6 +32,125 @@ local function get_git_branch(cwd)
 		return stdout:gsub("%s+$", "")
 	end
 	return nil
+end
+
+local function equal_cell_sizes(total, count)
+	local base = math.floor(total / count)
+	local remainder = total - (base * count)
+	local sizes = {}
+	for i = 1, count do
+		sizes[i] = base
+		if i <= remainder then
+			sizes[i] = sizes[i] + 1
+		end
+	end
+	return sizes
+end
+
+local function panes_by_index(panes_info)
+	local map = {}
+	for _, info in ipairs(panes_info) do
+		map[info.index] = info
+	end
+	return map
+end
+
+local function adjust_boundary(window, pane, pane_index, direction, cells)
+	if cells <= 0 then
+		return
+	end
+	window:perform_action(act.ActivatePaneByIndex(pane_index), pane)
+	window:perform_action(act.AdjustPaneSize({ direction, cells }), pane)
+end
+
+local function rebalance_groups(window, pane, tab, axis)
+	local panes_info = tab:panes_with_info()
+	local groups = {}
+
+	for _, info in ipairs(panes_info) do
+		local key
+		if axis == "width" then
+			key = tostring(info.top) .. ":" .. tostring(info.height)
+		else
+			key = tostring(info.left) .. ":" .. tostring(info.width)
+		end
+		groups[key] = groups[key] or {}
+		table.insert(groups[key], info)
+	end
+
+	for _, group in pairs(groups) do
+		if #group > 1 then
+			if axis == "width" then
+				table.sort(group, function(a, b)
+					return a.left < b.left
+				end)
+			else
+				table.sort(group, function(a, b)
+					return a.top < b.top
+				end)
+			end
+
+			local total_size = 0
+			for _, info in ipairs(group) do
+				total_size = total_size + (axis == "width" and info.width or info.height)
+			end
+			local targets = equal_cell_sizes(total_size, #group)
+
+			for i = 1, #group - 1 do
+				local info_map = panes_by_index(tab:panes_with_info())
+				local current = info_map[group[i].index]
+				local next_info = info_map[group[i + 1].index]
+
+				if current and next_info then
+					local current_size = axis == "width" and current.width or current.height
+					local delta = targets[i] - current_size
+
+					if delta > 0 then
+						local direction = axis == "width" and "Right" or "Down"
+						adjust_boundary(window, pane, next_info.index, direction, delta)
+					elseif delta < 0 then
+						local direction = axis == "width" and "Left" or "Up"
+						adjust_boundary(window, pane, next_info.index, direction, -delta)
+					end
+				end
+			end
+		end
+	end
+end
+
+local function rebalance_tab_panes(window, pane)
+	local tab = pane:tab()
+	if not tab then
+		return
+	end
+
+	local panes_info = tab:panes_with_info()
+	if #panes_info < 2 then
+		return
+	end
+
+	local active_index = nil
+	local is_zoomed = false
+	for _, info in ipairs(panes_info) do
+		if info.is_active then
+			active_index = info.index
+		end
+		if info.is_zoomed then
+			is_zoomed = true
+		end
+	end
+
+	if is_zoomed then
+		window:perform_action(act.TogglePaneZoomState, pane)
+	end
+
+	rebalance_groups(window, pane, tab, "width")
+	rebalance_groups(window, pane, tab, "height")
+	rebalance_groups(window, pane, tab, "width")
+
+	if active_index ~= nil then
+		window:perform_action(act.ActivatePaneByIndex(active_index), pane)
+	end
 end
 
 -- --- Appearance & UI ---
@@ -180,6 +300,7 @@ config.keys = {
 	{ key = "J", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Down", 5 }) },
 	{ key = "K", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Up", 5 }) },
 	{ key = "L", mods = "LEADER", action = wezterm.action.AdjustPaneSize({ "Right", 5 }) },
+	{ key = "=", mods = "LEADER", action = wezterm.action_callback(rebalance_tab_panes) },
 
 	-- Copy Mode
 	{ key = "[", mods = "LEADER", action = wezterm.action.ActivateCopyMode },
