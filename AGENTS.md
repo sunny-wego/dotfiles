@@ -35,6 +35,13 @@ To apply all configurations and synchronize dependencies:
 *   **Removing Tools**: Remove from `Brewfile`.
 *   **Updating**: Run `brew bundle install` or `brew bundle cleanup`.
 
+### MCP Management
+*   **Adding or Removing MCPs**: Add or remove the server configuration in `mcp/manifest.yaml`.
+*   **Synchronizing MCPs**: After modifying the manifest, apply the changes across all local agents by running:
+    ```bash
+    node scripts/mcp-sync.mjs plan && node scripts/mcp-sync.mjs apply
+    ```
+
 ## 4. Testing & Verification
 
 Automated testing is not currently implemented. Verification must be performed manually after every change.

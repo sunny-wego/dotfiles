@@ -282,6 +282,9 @@ function resolveAuth(authConfig, context) {
   if (prefix === undefined && type === "bearer") {
     prefix = "Bearer ";
   }
+  if (prefix === undefined && type === "header") {
+    prefix = "";
+  }
   if (typeof prefix !== "string") {
     fail(`${context} auth.prefix must be a string.`);
   }
@@ -395,6 +398,10 @@ function buildDesiredEntries(manifest, selectedAgent) {
   return desired;
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
 function buildAddCommand(entry) {
   const { agent, managedName, scope, transport, effectiveConfig, serverKey } = entry;
   const context = `${agent}.${serverKey}`;
@@ -435,6 +442,39 @@ function buildAddCommand(entry) {
     }
 
     const remoteUrl = getRemoteUrl(effectiveConfig, context, transport);
+
+    if (auth && auth.type === "header") {
+      // `codex mcp add` has no flag for custom headers, but config.toml supports
+      // env_http_headers (header name -> env var name, resolved at runtime). Add the
+      // base URL entry via the CLI, then append the env_http_headers table so the
+      // credential stays in the environment instead of being baked into config.toml.
+      if (auth.prefix !== "") {
+        fail(
+          `${context} Codex header auth cannot apply a prefix; store the full header value (e.g. "Basic <token>") in env var ${auth.fromEnv} and omit prefix.`,
+        );
+      }
+      const addArgs = ["codex", "mcp", "add", managedName, "--url", remoteUrl];
+      const configPath = '"${CODEX_HOME:-$HOME/.codex}/config.toml"';
+      const headerBlock =
+        `\n[mcp_servers.${managedName}.env_http_headers]\n` + `${auth.header} = "${auth.fromEnv}"\n`;
+      const shellScript =
+        `${addArgs.map(shellQuote).join(" ")} && cat >> ${configPath} <<'CODEX_MCP_EOF'\n` +
+        `${headerBlock}CODEX_MCP_EOF`;
+      return {
+        command: ["sh", "-c", shellScript],
+        display: [
+          "codex",
+          "mcp",
+          "add",
+          managedName,
+          "--url",
+          remoteUrl,
+          "+env_http_headers",
+          `${auth.header}=<env:${auth.fromEnv}>`,
+        ],
+      };
+    }
+
     command.push("--url", remoteUrl);
     display.push("--url", remoteUrl);
 

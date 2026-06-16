@@ -73,3 +73,22 @@ servers:
     auth:
       type: bearer
       fromEnv: BRAINTRUST_API_KEY
+  langfuse:
+    name: langfuse
+    transport: http
+    url: https://us.cloud.langfuse.com/api/public/mcp
+    # Basic auth: store the full header value ("Basic <base64 of pk:sk>") in the
+    # env var. Codex reads it at runtime via env_http_headers; claude/gemini bake
+    # the resolved header in at sync time.
+    auth:
+      type: header
+      header: Authorization
+      fromEnv: LANGFUSE_MCP_AUTH
+  neon:
+    name: neon
+    transport: http
+    url: https://mcp.neon.tech/mcp
+  anya:
+    name: anya
+    transport: http
+    url: https://internal-mcp.wego.com/mcp/anya
