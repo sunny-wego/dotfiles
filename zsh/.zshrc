@@ -209,5 +209,19 @@ if [[ ! -f "$_wgd_cache" ]] || [[ $(command -v wgd) -nt "$_wgd_cache" ]]; then
 fi
 source "$_wgd_cache"
 
+# --- Claude Code: second account ------------------------------------------
+# The primary account uses ~/.claude (credentials in the macOS Keychain). The
+# secondary account uses an isolated config dir whose credentials live in a file
+# (<dir>/.credentials.json), so both accounts can be logged in and run at the
+# same time. One-time setup: ~/dotfiles/scripts/claude-account-setup.sh
+export CLAUDE_ALT_DIR="${CLAUDE_ALT_DIR:-$HOME/.claude-alt}"
+# Run Claude Code as the secondary account.
+claude-alt() { CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" command claude "$@"; }
+# Sync the secondary account's MCP servers from the declarative manifest.
+claude-alt-mcp() {
+  CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" node "$HOME/dotfiles/scripts/mcp-sync.mjs" \
+    "${1:-apply}" --agent claude --state "$CLAUDE_ALT_DIR/.mcp-sync-state.json" "${@:2}"
+}
+
 # Load local overrides (Secrets, machine-specific)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local

@@ -150,6 +150,38 @@ Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
 `mcp-import apply` writes only to `mcp/manifest.yaml` (source of truth).
 `mcp-sync apply` then updates agent-native configs (for example: Codex `~/.codex/config.toml`, Gemini `~/.gemini/settings.json`).
 
+## 👥 Two Claude Code Accounts
+
+Run two Claude accounts at the same time, in separate terminals, sharing one
+setup (skills, agents, commands, plugins, settings, hooks, and conversation
+history) — only identity and credentials differ.
+
+**How it works:** Claude Code reads the macOS Keychain for credentials *only*
+when `CLAUDE_CONFIG_DIR` is unset. Point `CLAUDE_CONFIG_DIR` at a custom dir and
+it reads/writes `<dir>/.credentials.json` instead, never touching the Keychain.
+So the primary account stays in the Keychain and the secondary lives in a file —
+no collision, both usable simultaneously.
+
+One-time setup:
+```bash
+scripts/claude-account-setup.sh          # provisions ~/.claude-alt (symlinks shared config)
+claude-alt                               # launch 2nd account, then log in (creates .credentials.json)
+```
+
+Daily use (defined in `zsh/.zshrc`):
+*   `claude`  — primary account (`~/.claude`, Keychain).
+*   `claude-alt` — secondary account (`$CLAUDE_ALT_DIR`, default `~/.claude-alt`).
+*   `claude-alt-mcp [plan|apply]` — sync the 2nd account's MCP from `mcp/manifest.yaml`.
+
+What is shared vs. per-account:
+*   **Shared** (symlinked to one source of truth): `CLAUDE.md`, `skills`, `agents`,
+    `commands`, `plugins`, `rules`, `hooks`, `settings.json`, and history (`projects/`).
+*   **Per-account** (never shared): credentials, identity + per-project state
+    (`.claude.json`), `settings.local.json`, and runtime caches.
+
+The setup script seeds the 2nd account's MCP servers from the primary so it starts
+identical; `claude-alt-mcp apply` keeps it in sync with the manifest thereafter.
+
 ## 📂 Structure
 
 *   **`install.sh`**: The master idempotent setup script.
