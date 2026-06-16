@@ -150,38 +150,6 @@ Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
 `mcp-import apply` writes only to `mcp/manifest.yaml` (source of truth).
 `mcp-sync apply` then updates agent-native configs (for example: Codex `~/.codex/config.toml`, Gemini `~/.gemini/settings.json`).
 
-## 👥 Two Claude Code Accounts
-
-Run two Claude accounts at the same time, in separate terminals, sharing one
-setup (skills, agents, commands, plugins, settings, hooks, and conversation
-history) — only identity and credentials differ.
-
-**How it works:** each `CLAUDE_CONFIG_DIR` keeps its own credentials. On macOS
-they live in the Keychain under a per-config-dir service name — `Claude Code-credentials`
-for the default dir, `Claude Code-credentials-<hash>` for a custom one — so the two
-accounts use distinct Keychain entries with no collision, both usable simultaneously.
-(On Linux, each dir uses its own `<dir>/.credentials.json` file instead.)
-
-One-time setup:
-```bash
-scripts/claude-account-setup.sh          # provisions ~/.claude-alt (symlinks shared config)
-claude-alt                               # launch 2nd account, then log in (stores creds in its own Keychain entry)
-```
-
-Daily use (defined in `zsh/.zshrc`):
-*   `claude` — primary account (`~/.claude`, Keychain).
-*   `claude-alt` — secondary account (`$CLAUDE_ALT_DIR`, default `~/.claude-alt`).
-*   `claude-alt-mcp [plan|apply]` — sync the 2nd account's MCP from `mcp/manifest.yaml`.
-
-What is shared vs. per-account:
-*   **Shared** (symlinked to one source of truth): `CLAUDE.md`, `skills`, `agents`,
-    `commands`, `plugins`, `rules`, `hooks`, `settings.json`, and history (`projects/`).
-*   **Per-account** (never shared): credentials, identity + per-project state
-    (`.claude.json`), `settings.local.json`, and runtime caches.
-
-The setup script seeds the 2nd account's MCP servers from the primary so it starts
-identical; `claude-alt-mcp apply` keeps it in sync with the manifest thereafter.
-
 ## 📂 Structure
 
 *   **`install.sh`**: The master idempotent setup script.
