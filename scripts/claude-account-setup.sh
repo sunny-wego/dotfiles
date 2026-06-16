@@ -5,19 +5,19 @@
 #
 # Why this works
 # --------------
-# Claude Code reads the macOS Keychain for credentials ONLY when CLAUDE_CONFIG_DIR
-# is unset. When CLAUDE_CONFIG_DIR points at a custom directory, it reads/writes
-# <dir>/.credentials.json (file-based) instead and never touches the Keychain.
-# So the primary account stays in the Keychain, the secondary account lives in a
-# file inside its own config dir, and the two never collide — both can be logged
-# in and running at the same time in separate terminals.
+# Each CLAUDE_CONFIG_DIR keeps its own credentials. On macOS they are stored in
+# the Keychain under a per-config-dir service name (Claude Code-credentials for
+# the default dir, Claude Code-credentials-<hash> for a custom one); on Linux each
+# dir uses its own <dir>/.credentials.json. Either way the two accounts use
+# separate credential stores and never collide — both can be logged in and running
+# at the same time in separate terminals.
 #
 # What is SHARED (symlinked to a single source of truth):
 #   CLAUDE.md, skills, agents, commands, plugins, rules, hooks, output-styles,
 #   settings.json, and conversation history (projects/).
 # What is PER-ACCOUNT (never shared):
-#   credentials (.credentials.json), identity + per-project state (.claude.json),
-#   settings.local.json, and runtime caches (auto-created on first run).
+#   credentials (own Keychain entry on macOS / .credentials.json on Linux),
+#   identity + per-project state (.claude.json), settings.local.json, and caches.
 #
 # Usage:
 #   scripts/claude-account-setup.sh [CONFIG_DIR]
@@ -115,7 +115,7 @@ cat <<EOF
 Done.
 
 Next steps:
-  1. Launch the 2nd account and log in (writes $CONFIG_DIR/.credentials.json):
+  1. Launch the 2nd account and log in (stores creds in its own Keychain entry on macOS):
        claude-alt          # or: CLAUDE_CONFIG_DIR=$CONFIG_DIR claude
   2. Use the primary account as usual:
        claude

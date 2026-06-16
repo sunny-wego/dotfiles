@@ -156,16 +156,16 @@ Run two Claude accounts at the same time, in separate terminals, sharing one
 setup (skills, agents, commands, plugins, settings, hooks, and conversation
 history) — only identity and credentials differ.
 
-**How it works:** Claude Code reads the macOS Keychain for credentials *only*
-when `CLAUDE_CONFIG_DIR` is unset. Point `CLAUDE_CONFIG_DIR` at a custom dir and
-it reads/writes `<dir>/.credentials.json` instead, never touching the Keychain.
-So the primary account stays in the Keychain and the secondary lives in a file —
-no collision, both usable simultaneously.
+**How it works:** each `CLAUDE_CONFIG_DIR` keeps its own credentials. On macOS
+they live in the Keychain under a per-config-dir service name — `Claude Code-credentials`
+for the default dir, `Claude Code-credentials-<hash>` for a custom one — so the two
+accounts use distinct Keychain entries with no collision, both usable simultaneously.
+(On Linux, each dir uses its own `<dir>/.credentials.json` file instead.)
 
 One-time setup:
 ```bash
 scripts/claude-account-setup.sh          # provisions ~/.claude-alt (symlinks shared config)
-claude-alt                               # launch 2nd account, then log in (creates .credentials.json)
+claude-alt                               # launch 2nd account, then log in (stores creds in its own Keychain entry)
 ```
 
 Daily use (defined in `zsh/.zshrc`):

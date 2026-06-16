@@ -210,10 +210,11 @@ fi
 source "$_wgd_cache"
 
 # --- Claude Code: second account ------------------------------------------
-# The primary account uses ~/.claude (credentials in the macOS Keychain). The
-# secondary account uses an isolated config dir whose credentials live in a file
-# (<dir>/.credentials.json), so both accounts can be logged in and run at the
-# same time. One-time setup: ~/dotfiles/scripts/claude-account-setup.sh
+# The primary account uses ~/.claude; the secondary uses an isolated config dir.
+# On macOS each config dir gets its OWN Keychain entry (Claude Code-credentials
+# for the default dir, Claude Code-credentials-<hash> for a custom one), so both
+# accounts can be logged in and run at the same time without colliding.
+# One-time setup: ~/dotfiles/scripts/claude-account-setup.sh
 export CLAUDE_ALT_DIR="${CLAUDE_ALT_DIR:-$HOME/.claude-alt}"
 # Run Claude Code as the secondary account.
 claude-alt() { CLAUDE_CONFIG_DIR="$CLAUDE_ALT_DIR" command claude "$@"; }
@@ -255,7 +256,8 @@ _claude_balance() {                 # -> primary|alt, by live-session count
 _claude_pick_account() {            # -> primary|alt, honouring overrides + guards
   emulate -L zsh
   [[ -n "$CLAUDE_ACCOUNT" ]]                && { print -r -- "$CLAUDE_ACCOUNT"; return; }
-  [[ -f "$CLAUDE_ALT_DIR/.credentials.json" ]] || { print -r -- primary; return; }  # alt not logged in -> primary
+  { [[ -d "$CLAUDE_ALT_DIR" ]] && grep -q '"oauthAccount"' "$CLAUDE_ALT_DIR/.claude.json" 2>/dev/null; } \
+    || { print -r -- primary; return; }    # alt not set up / not logged in -> primary
   [[ -t 0 && -t 1 && -z "$CI" ]]            || { print -r -- primary; return; }
   local a; for a in "$@"; do
     case "$a" in -p|--print|-c|--continue|--resume) print -r -- primary; return ;; esac
