@@ -4,6 +4,13 @@ set -e
 DOTFILES_DIR="$HOME/dotfiles"
 BACKUP_DIR="$HOME/.dotfiles_backup/$(date +%Y%m%d_%H%M%S)"
 
+# Detect Windows (WSL). Some tools (e.g. Ghostty) are unsupported there.
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=true
+else
+  IS_WSL=false
+fi
+
 echo "🚀 Starting Dotfiles Setup..."
 
 # Function to backup and link
@@ -54,7 +61,10 @@ echo -e "\n--- Linking Configuration Files ---"
 link_file "$DOTFILES_DIR/zsh/.zshrc" "$HOME/.zshrc"
 link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
 link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
-link_file "$DOTFILES_DIR/ghostty/config" "$HOME/.config/ghostty/config"
+# Ghostty is unsupported on Windows — skip its config link under WSL.
+if [ "$IS_WSL" != true ]; then
+  link_file "$DOTFILES_DIR/ghostty/config" "$HOME/.config/ghostty/config"
+fi
 link_file "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
 link_file "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
 link_file "$DOTFILES_DIR/btop" "$HOME/.config/btop"
@@ -128,7 +138,7 @@ ensure_installed() {
 ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
 
 # 5. Cross-Platform Sync & Assets (WSL)
-if grep -qi microsoft /proc/version; then
+if [ "$IS_WSL" = true ]; then
   "$DOTFILES_DIR/scripts/install-fonts.sh"
   "$DOTFILES_DIR/scripts/sync-wezterm.sh"
 fi
