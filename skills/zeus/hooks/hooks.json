@@ -1,0 +1,28 @@
+{
+  "description": "Zeus workflow hooks: auto-link the active investigation's PR into its Epic (from /zeus:investigate), and re-ping review after a push (from /zeus:address-pr). Both no-op instantly when their skill isn't active, so they cost ~nothing on unrelated work.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/investigate/hooks/stop-autolink.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/address-pr/hooks/post-push-review.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

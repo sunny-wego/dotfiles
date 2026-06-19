@@ -1,0 +1,7 @@
+{
+  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (the engine is vendored identically across the family; this file is where request-review differs). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
+  "skill": "request-review",
+  "notes": [
+    "Sending needs the Slack MCP (slack_send_message / slack_send_message_draft); only the harness can check MCP availability. Envelope formatting, policy, and dedup all work without it."
+  ]
+}

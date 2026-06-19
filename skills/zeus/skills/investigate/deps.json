@@ -1,0 +1,12 @@
+{
+  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (the engine is vendored identically across the family; this file is where investigate differs). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
+  "skill": "investigate",
+  "gh_scopes": [
+    {
+      "scope": "project",
+      "pattern": "'project'|read:project",
+      "fix": "gh auth refresh -s project",
+      "missing": "token lacks the project scope — board attach degrades to issues-only"
+    }
+  ]
+}

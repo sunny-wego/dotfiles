@@ -178,3 +178,4 @@ Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
 *   **`nvim/`**: LazyVim configuration.
 *   **`btop/`**: System monitor config.
 *   **`herdr/`**: Herdr agent workspace manager config (Tokyo Night Day, terminal-delivered notifications).
+*   **`skills/`**: Hand-authored agent skills/plugins (e.g. `zeus`, an issue→code→PR→review workflow). Symlinked into `~/.agents/skills/` by `install.sh` so the source of truth stays in git.

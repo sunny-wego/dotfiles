@@ -1,0 +1,13 @@
+{
+  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (the engine is vendored identically across the family; this file is where create-pr differs). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
+  "skill": "create-pr",
+  "optional_any": [
+    {
+      "name": "ccusage-runner",
+      "cmds": ["bunx", "npx"],
+      "install": "see https://nodejs.org",
+      "present": "npx/bun present",
+      "missing": "no npx/bun — token-usage footer is skipped"
+    }
+  ]
+}

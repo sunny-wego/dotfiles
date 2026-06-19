@@ -20,6 +20,7 @@ Agents operating here must respect the existing structure, symlink logic, and ae
 - **`nvim/`**: Neovim configuration. Based on **LazyVim**.
 - **`starship/`**: Prompt configuration via `starship.toml`.
 - **`lazygit/`**: Git TUI configuration.
+- **`skills/`**: Hand-authored agent skills/plugins (e.g. `zeus`). Symlinked into `~/.agents/skills/` by `install.sh`; internal `scripts/*.sh` are relative symlinks into the skill's own `lib/`, so the tree stays portable across machines.
 
 ## 3. Build & Installation
 
