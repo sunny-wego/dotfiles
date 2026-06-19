@@ -1,5 +1,5 @@
 {
-  "description": "Zeus workflow hooks: auto-link the active investigation's PR into its Epic (from /zeus:investigate), and re-ping review after a push (from /zeus:address-pr). Both no-op instantly when their skill isn't active, so they cost ~nothing on unrelated work.",
+  "description": "Zeus workflow hooks: auto-link the active investigation's PR into its Epic (from /zeus:investigate), and nudge /zeus:address-pr after a push LANDS on a PR branch (from /zeus:address-pr). The push hook is `if`-gated to push-ish commands and decides from git/PR state, so it no-ops instantly on unrelated work.",
   "hooks": {
     "Stop": [
       {
@@ -18,6 +18,13 @@
         "hooks": [
           {
             "type": "command",
+            "if": "Bash(git push *)",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/address-pr/hooks/post-push-review.sh\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(bash *)",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/address-pr/hooks/post-push-review.sh\"",
             "timeout": 10
           }

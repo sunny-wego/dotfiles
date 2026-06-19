@@ -1,0 +1,7 @@
+{
+  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (engine vendored across the family). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
+  "skill": "improve",
+  "notes": [
+    "Validation of a candidate fix MAY use the SonarQube MCP (analyze_code_snippet); only the harness can check MCP availability. Harvest, the ledger, grading, and landing all work without it."
+  ]
+}

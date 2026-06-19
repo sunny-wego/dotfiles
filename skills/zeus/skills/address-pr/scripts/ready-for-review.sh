@@ -5,7 +5,8 @@
 # checked and nothing is blocking a human reviewer":
 #   1. PR is open and not a draft
 #   2. mergeable == "MERGEABLE" and not behind base
-#   3. No FAILURE checks on head SHA (PENDING is a soft warning, not a blocker)
+#   3. No FAILURE and no PENDING checks on head SHA (a still-running check means
+#      "not settled" — pinging then risks a head whose gating checks later fail)
 #   4. Zero unresolved review threads + GraphQL/REST consistency is OK
 #
 # Emits a structured answer the agent can branch on without parsing prose.
@@ -29,8 +30,9 @@
 #     "checks": { "passing": N, "failing": N, "pending": N, "failed_names": [...] },
 #     "reviews": { "unresolved_threads": N, "consistency_ok": true },
 #     "linked_issue": { "number": 123, "url": "...", "title": "..." } | null,
-#     "blockers": [],    // hard reasons "ready" is false
-#     "warnings": []     // soft signals worth surfacing (e.g. ci_pending)
+#     "blockers": [],    // hard reasons "ready" is false (incl. ci_pending — a
+#                        // ci_pending-only set means "wait", not "escalate")
+#     "warnings": []     // soft signals worth surfacing
 #   }
 #
 # Exit codes:
@@ -199,7 +201,11 @@ esac
 [ "$behind_base" = "true" ] && add_blocker "behind_base"
 
 [ "$failing_count" -gt 0 ] && add_blocker "ci_failing"
-[ "$pending_count" -gt 0 ] && add_warning "ci_pending"
+# A still-running check means "not settled" — a reviewer pinged now may review a
+# head whose gating checks then fail. So PENDING is a blocker, not a soft warning.
+# Callers that drive a loop (address-pr Report) should treat a ci_pending-only
+# blocker as "wait/re-probe", not as a reason to escalate to the user.
+[ "$pending_count" -gt 0 ] && add_blocker "ci_pending"
 
 if [ "$unresolved_threads" = "-1" ]; then
   add_blocker "review_fetch_failed"

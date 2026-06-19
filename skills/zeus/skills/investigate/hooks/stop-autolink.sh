@@ -9,12 +9,22 @@
 # investigation is closed (state cleared). Install per hooks/INSTALL.md.
 #
 # Hooks must stay silent on success and never fail the turn — all errors swallowed.
-set -uo pipefail
+set +e   # never fail the turn; every path exits 0 (matches review-ping-stop-guard.sh)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$HERE/.." && pwd)"
 
 # Resolve the worktree this hook is firing in. The hook runs from the project cwd.
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+# Session-isolation gate — only act from inside a linked git worktree, where the
+# current-branch->PR mapping can't be swapped underneath the session by a concurrent
+# agent in the shared checkout. Without this, a read-only session sitting in the
+# shared checkout could link the WRONG PR into the active investigation. (Matches
+# review-ping-stop-guard.sh.)
+abs_gitdir=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
+case "$abs_gitdir" in
+  */worktrees/*) : ;;   # linked worktree — branch->PR mapping is trustworthy
+  *) exit 0 ;;          # primary/shared checkout — don't link
+esac
 # shellcheck source=../scripts/lib.sh
 source "$SKILL_DIR/scripts/lib.sh" 2>/dev/null || exit 0
 

@@ -232,10 +232,14 @@ a one-line Original-Intent note if captured.
   hand-off below unconditionally. The callee answers the gap question itself — its envelope comes back
   `should_send:false` with `skip_reason: already_pinged_at_<sha>` (or a disabled repo) when no gap
   exists, so the hand-off is a safe no-op on an already-pinged SHA. A settled run is not complete until
-  the hand-off has run and its envelope was honored. `READY.warnings` (e.g. `ci_pending`) are
-  informational. Then proceed to **Watch** (or stop if merged).
+  the hand-off has run and its envelope was honored. `READY.warnings` are informational. Then
+  proceed to **Watch** (or stop if merged).
 - `READY.ready == false` (exit 1) — the loop reached `report` with blockers still present
   (`READY.blockers`): hand those blockers to the user via AskUserQuestion rather than re-looping.
+  **Exception — a `ci_pending`-only blocker set is transient, not a real blocker:** a still-running
+  check means "not settled yet," not "stuck." Do NOT escalate or ping; re-probe with one more
+  `wait-and-evaluate.sh` cycle (bounded by the iteration cap) and re-read the verdict once checks
+  finish. Only escalate a `ci_pending` blocker if the iteration cap is hit with it still pending.
 
 **Request review (delegated — REQUIRED when auto-ping is enabled).** Reviewer notification lives in the
 **`request-review`** skill, the *notifier*. address-pr is the *arbiter*: it produces the readiness verdict
