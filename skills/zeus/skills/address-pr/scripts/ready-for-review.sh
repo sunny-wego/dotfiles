@@ -5,8 +5,12 @@
 # checked and nothing is blocking a human reviewer":
 #   1. PR is open and not a draft
 #   2. mergeable == "MERGEABLE" and not behind base
-#   3. No FAILURE and no PENDING checks on head SHA (a still-running check means
-#      "not settled" — pinging then risks a head whose gating checks later fail)
+#   3. No REQUIRED check FAILURE and no PENDING checks on head SHA. "Required" =
+#      in the base branch's branch-protection / ruleset required set; a failing
+#      check outside it (e.g. an advisory bot review) is a warning, not a
+#      blocker. If the required set is unreadable/empty, any failure blocks
+#      (conservative). A still-running check means "not settled" — pinging then
+#      risks a head whose gating checks later fail.
 #   4. Zero unresolved review threads + GraphQL/REST consistency is OK
 #
 # Emits a structured answer the agent can branch on without parsing prose.
@@ -200,7 +204,43 @@ esac
 
 [ "$behind_base" = "true" ] && add_blocker "behind_base"
 
-[ "$failing_count" -gt 0 ] && add_blocker "ci_failing"
+# A failing check is only a hard blocker if it actually GATES the merge. Determine
+# the base branch's REQUIRED status checks from classic branch protection + the
+# rulesets engine (union; either source alone may define them). A failure whose
+# name is NOT in a successfully-determined required set is non-gating (e.g. an
+# advisory bot review check failing on rate-limit/billing) — surface it as a
+# warning, not a blocker, so it can't force a spurious escalation or block a
+# reviewer ping. If the required set is empty or unreadable (no admin token),
+# stay CONSERVATIVE: any failure blocks, since a non-required check can still be
+# a de-facto gate (a repo-level fact zeus can't know generically).
+required_known=false
+required_contexts='[]'
+if [ "$failing_count" -gt 0 ] && [ -n "$owner" ] && [ -n "$repo_name" ] && [ -n "$base_branch" ]; then
+  classic=$(gh api "repos/$owner/$repo_name/branches/$base_branch/protection/required_status_checks" 2>/dev/null || echo "")
+  rules=$(gh api "repos/$owner/$repo_name/rules/branches/$base_branch" 2>/dev/null || echo "")
+  if [ -n "$classic" ] || [ -n "$rules" ]; then
+    required_known=true
+    required_contexts=$(jq -nc \
+      --argjson c "${classic:-null}" \
+      --argjson r "${rules:-null}" '
+      ( ( ($c.contexts // []) )
+        + ( ($c.checks // []) | map(.context) )
+        + ( ($r // []) | map(select(.type == "required_status_checks")
+              | .parameters.required_status_checks // []) | add // [] | map(.context) )
+      ) | map(select(. != null)) | unique' 2>/dev/null || echo '[]')
+  fi
+fi
+if [ "$failing_count" -gt 0 ]; then
+  if [ "$required_known" = "true" ] && [ "$(echo "$required_contexts" | jq 'length')" -gt 0 ]; then
+    required_failing_count=$(echo "$checks" | jq --argjson req "$required_contexts" \
+      '[.[] | select(.state == "FAILURE") | select(.name as $n | ($req | index($n)) != null)] | length')
+    [ "$required_failing_count" -gt 0 ] && add_blocker "ci_failing"
+    [ "$((failing_count - required_failing_count))" -gt 0 ] && add_warning "ci_failing_nonrequired"
+  else
+    # Required set empty/unreadable -> conservative: treat every failure as gating.
+    add_blocker "ci_failing"
+  fi
+fi
 # A still-running check means "not settled" — a reviewer pinged now may review a
 # head whose gating checks then fail. So PENDING is a blocker, not a soft warning.
 # Callers that drive a loop (address-pr Report) should treat a ci_pending-only

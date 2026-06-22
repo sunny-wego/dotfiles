@@ -11,7 +11,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Vercel MCP optional.
 metadata:
   author: sunnywong
-  version: "4.0"
+  version: "4.1"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__* mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 

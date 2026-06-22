@@ -32,6 +32,15 @@ Common categories — the examples span ecosystems; match your project's actual 
 
 **SKIP** infrastructure failures (runner OOM, network timeout), flaky tests, permission/secrets — flag in outcome.
 
+**SKIP a review-bot status check failing for a non-code reason.** AI reviewers (CodeRabbit, Greptile,
+Codex, …) post a commit *status/check* that can read FAILURE when the bot itself couldn't run — rate
+limit, prepaid-credits / billing exhausted, "review in progress", account disabled. None of these are
+fixable by editing code: it's a reviews-domain (account/billing) signal, not a CI failure. SKIP with that
+note rather than diagnosing logs. Two corollaries: (1) such a check is usually **non-required** —
+`ready-for-review.sh` already demotes a non-required failure to a warning, so it won't gate merge or block
+a reviewer ping; (2) the bot may re-review on your next push once its limit clears, so a later green is
+expected, not something to chase here.
+
 Append outcome:
 
 ```bash
