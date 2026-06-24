@@ -4,11 +4,15 @@
 # frequency/severity. The PRIMARY source (a) — the live conversation, where the
 # *why* lives — is the agent's job in SKILL.md, not this script.
 #
-# Reads only durable, machine-readable state (no transcript parsing):
+# Reads only durable, machine-readable state (no transcript parsing). Covers the
+# whole issue→code→PR→review family, not just the PR pair:
+#   .git/<wt>/journey/issue.json            issue number/url/title  — propose
+#   .git/<wt>/journey/investigation/epic    active epic (+ report)  — investigate
+#   .git/<wt>/journey/pr.json               PR number/url           — create-pr
+#   git log --grep "#<issue>"               commits closing the spec — implement
 #   .git/<wt>/address-pr/state.json    iteration depth, handler outcomes
 #   .git/<wt>/address-pr/status.json   failed/pending checks at last snapshot
 #   .git/<wt>/request-review/          ping markers (stop-nudged-<sha>) + thread
-#   .git/<wt>/journey/pr.json          PR number/url
 #   git log --grep "address-pr iteration" + reflog   fix-cycle count, churn
 #
 # Usage: harvest.sh [--pr <n>] [--repo <owner/repo>]   (both optional; defaults
@@ -22,11 +26,34 @@ resolve_target "$@"
 GITDIR="$(git rev-parse --absolute-git-dir)"
 AP="$GITDIR/address-pr"
 RR="$GITDIR/request-review"
+JD="$GITDIR/journey"
 
 # PR: explicit flag > journey > none.
 pr="${PR:-}"
 if [ -z "$pr" ] && [ -x "$SCRIPT_DIR/journey.sh" ]; then
   pr="$(bash "$SCRIPT_DIR/journey.sh" pr-number 2>/dev/null || true)"
+fi
+
+# propose state: was an issue opened, and its number/url (to query gh for revision
+# churn). One file per fact under journey/ (see journey.sh).
+issue=null; issue_num=""
+if [ -f "$JD/issue.json" ]; then
+  issue=$(jq -c '{number, url, title}' "$JD/issue.json" 2>/dev/null || echo null)
+  issue_num=$(jq -r '.number // empty' "$JD/issue.json" 2>/dev/null || echo "")
+fi
+
+# investigate state: the active epic number and whether a report was published.
+epic=""; report_present=false
+if [ -f "$JD/investigation/epic" ]; then
+  epic=$(tr -d '[:space:]' < "$JD/investigation/epic" 2>/dev/null || echo "")
+fi
+[ -f "$JD/investigation/report" ] && report_present=true
+
+# implement state: commits that reference the spec issue (#N) — a proxy for how
+# much code the issue took to land. Only meaningful when an issue is known.
+impl_commits=0
+if [ -n "$issue_num" ]; then
+  impl_commits=$(git log --grep="#${issue_num}\b" --oneline 2>/dev/null | wc -l | tr -d ' ')
 fi
 
 # address-pr run state (iteration depth + handler outcomes).
@@ -62,6 +89,10 @@ merges=$(git log --merges --oneline -n 50 2>/dev/null | wc -l | tr -d ' ')
 jq -nc \
   --arg repo "${REPO_SLUG:-}" \
   --arg pr "$pr" \
+  --arg epic "$epic" \
+  --argjson issue "${issue:-null}" \
+  --argjson report_present "$report_present" \
+  --argjson impl_commits "${impl_commits:-0}" \
   --argjson iteration "${iteration:-0}" \
   --argjson outcomes "$outcomes" \
   --argjson failed "$failed" \
@@ -73,6 +104,10 @@ jq -nc \
   '{
     repo: $repo,
     pr: (if $pr == "" then null else ($pr|tonumber? // $pr) end),
+    propose: { issue: $issue },
+    investigate: { epic: (if $epic == "" then null else ($epic|tonumber? // $epic) end),
+                   report_present: $report_present },
+    implement: { spec_commits: $impl_commits },
     address_pr: { iteration: $iteration, outcomes: $outcomes,
                   last_failed_checks: $failed, last_pending: $pending,
                   all_passed: $all_passed },

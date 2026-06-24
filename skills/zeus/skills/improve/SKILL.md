@@ -1,13 +1,15 @@
 ---
 name: improve
 description: >-
-  Retrospective that turns a coding session's zeus PR-workflow friction into
+  Retrospective that turns a coding session's zeus-workflow friction into
   durable improvements to the zeus skills themselves, plus repo-level guidance.
   Use this whenever the user wants to improve or iterate on the workflow/tooling
-  after driving a PR through create-pr / address-pr / request-review — triggers:
+  after using any zeus skill — issue (propose / investigate), code (implement),
+  PR (create-pr / address-pr), or review (request-review) — triggers:
   "/zeus:improve", "improve the workflow", "what should we fix in zeus", "retro
-  this session", "iterate on the skills", "capture what we learned this session",
-  "make zeus faster". It harvests friction signals, grades them real-vs-imaginary,
+  this session", "iterate on the skills", "retro the proposal", "improve
+  investigate", "capture what we learned this session", "make zeus faster". It
+  harvests friction signals, grades them real-vs-imaginary,
   classifies each as skill-level (lands in the zeus source) vs repo-level (lands
   in the repo's AGENTS.md), validates before shipping, and lands fixes on your
   confirmation — accumulating learnings in a cross-session ledger. NOT for
@@ -17,7 +19,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. SonarQube MCP optional (validation only).
 metadata:
   author: sunnywong
-  version: "0.1"
+  version: "0.2"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Edit Write Grep AskUserQuestion ScheduleWakeup Skill Task Agent mcp__sonarqube__*
 ---
 
@@ -41,10 +43,13 @@ live at `$SKILL_DIR/scripts/`.
 
 ## When this fits
 
-Run it at the **end of (or right after) a session** that drove a PR — while the
-conversation is still in context, because that conversation is the richest input.
+Run it at the **end of (or right after) a session** that used any zeus skill —
+issue, code, PR, or review — while the conversation is still in context, because
+that conversation is the richest input. It applies equally whether the session
+opened a proposal, ran an investigation, implemented an issue, or drove a PR.
 Running it cold in a fresh session still works but degrades to the durable signals
-(see Harvest). It is **not** for improving product code — only the zeus workflow.
+(see Harvest), which are richest for the PR pair and thinner for the issue-side
+skills. It is **not** for improving product code — only the zeus workflow.
 
 ## The loop
 
@@ -70,7 +75,7 @@ is — don't hardcode a path.
 - **(b) Durable signals (corroboration).** Run the harvester for the recurrence/severity numbers:
 
   ```bash
-  bash "$SKILL_DIR/scripts/harvest.sh"   # → friction JSON (iterations, failed checks, ping markers, cycle count)
+  bash "$SKILL_DIR/scripts/harvest.sh"   # → friction JSON across the family: issue/epic pointers, spec-commits, iterations, failed checks, ping markers, cycle count
   ```
 
 The conversation surfaces candidates and rationale; the signals quantify them.

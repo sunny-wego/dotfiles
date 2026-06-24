@@ -17,14 +17,25 @@ Optionally invoke `/reflect` for a structured pass, then layer the zeus-specific
 
 ## (b) Durable signals — SECONDARY, quantitative (the recurrence/severity)
 
-`scripts/harvest.sh` reads these (no transcript parsing). All per-worktree under `$(git rev-parse --absolute-git-dir)`:
+`scripts/harvest.sh` reads these (no transcript parsing). They span the whole
+issue→code→PR→review family, not just the PR pair. All per-worktree under
+`$(git rev-parse --absolute-git-dir)`:
 
-| Signal | Path | What it tells you |
-|---|---|---|
-| Iteration depth + handler outcomes | `address-pr/state.json` (`.iteration`, `.outcomes[]`) | how many fix cycles the PR took |
-| Last check snapshot | `address-pr/status.json` (`.failed[]`, `.pending`, `.all_passed`) | which checks blocked, how often |
-| Reviewer-ping markers | `request-review/stop-nudged-<sha>` (one file per nudged head) + `review-thread.json` | premature pings / re-pings: multiple distinct SHAs = the head moved under the reviewer; a nudge on a SHA that later failed = a premature-ping signal |
-| PR pointer | `journey/pr.json` | the PR number/url to query `gh` for full history |
-| Fix-cycle markers | `git log --grep "address-pr iteration"` + `git log --merges` | cycle count and merge/reset churn |
+| Source skill | Signal | Path | What it tells you |
+|---|---|---|---|
+| `propose` | Issue pointer | `journey/issue.json` (`.number`, `.url`, `.title`) | an issue was opened; query `gh` for revision/amend churn |
+| `investigate` | Active epic + report | `journey/investigation/epic` (+ `…/report`) | an investigation/postmortem was maintained |
+| `implement` | Spec-commit count | `git log --grep "#<issue>"` | how many commits referenced the spec issue (code-effort proxy) |
+| `create-pr` | PR pointer | `journey/pr.json` | the PR number/url to query `gh` for full history |
+| `address-pr` | Iteration depth + handler outcomes | `address-pr/state.json` (`.iteration`, `.outcomes[]`) | how many fix cycles the PR took |
+| `address-pr` | Last check snapshot | `address-pr/status.json` (`.failed[]`, `.pending`, `.all_passed`) | which checks blocked, how often |
+| `address-pr` | Fix-cycle markers | `git log --grep "address-pr iteration"` + `git log --merges` | cycle count and merge/reset churn |
+| `request-review` | Reviewer-ping markers | `request-review/stop-nudged-<sha>` (one file per nudged head) + `review-thread.json` | premature pings / re-pings: multiple distinct SHAs = the head moved under the reviewer; a nudge on a SHA that later failed = a premature-ping signal |
 
 The agent cross-references these against the conversation: e.g. "3 distinct nudge SHAs (signal) + the user said the ping fired too early (conversation) → premature-ping, real, high-severity."
+
+**Coverage caveat:** the issue-side skills leave thinner durable trails than the PR
+pair (a pointer, not an iteration log), so a `propose`/`investigate`/`implement`
+candidate often rests mostly on conversation evidence (source a) plus a `gh` query
+off the pointer. That's still *real* — it just reaches "ripe" via `severity:high`
+or repeated logging across sessions rather than a rich per-run signal count.
