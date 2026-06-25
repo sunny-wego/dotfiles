@@ -17,7 +17,7 @@ license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
-  version: "0.2"
+  version: "0.4"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Write Edit AskUserQuestion Task Agent
 ---
 
@@ -277,5 +277,5 @@ Load these references when you need the detail; the headings above are enough fo
 - **Preserve voice when possible.** Issue-ready plans get lifted verbatim; only summarise when the source is unstructured.
 - **Pin code references.** Long-lived decision docs reference code by `blob/<sha>/path#L`, not by moving `path:line` (which rots).
 - **Tables stay scannable.** Body table cells are short phrases — no permalinks, no multi-sentence grounding. Evidence goes in the `code_grounding` appendix; rationale goes in a `<details>` block under the table. A reader should get the whole decision from the visible layer and only expand for proof.
-- **Progressive disclosure by default.** Visible layer: status → context findings (bullets) → decision tables → discussion questions → scope/acceptance. Collapsed layer: per-item rationale, code grounding, long fixtures.
+- **Progressive disclosure by default.** Visible layer: status → context findings (bullets) → decision tables → discussion questions → scope/acceptance. Collapsed layer: per-item rationale, code grounding, long fixtures. For substantial / decision-bearing docs, also lead Context with a TL;DR + a "Decisions needed" digest and size any phases (see `references/house-style.md` → "Lead substantial proposals with a skim layer").
 - **Cancel is free.** The draft is always written to disk before the post step, so "Save draft only" or "Cancel" never loses work.
