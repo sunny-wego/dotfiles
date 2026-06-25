@@ -16,7 +16,8 @@ vendored identically by all four skills.
   "branch": "feat/foo",
   "issue":    { "number": 123, "url": "https://github.com/o/r/issues/123", "title": "..." },
   "pr":       { "number": 456, "url": "https://github.com/o/r/pull/456" },
-  "investigation": { "epic": 789, "report": "docs/reports/2026-06-09-x.md" }
+  "investigation": { "epic": 789, "report": "docs/reports/2026-06-09-x.md" },
+  "accepted_checks": ["SonarQube Code Analysis"]
 }
 ```
 
@@ -26,6 +27,7 @@ vendored identically by all four skills.
 | `issue.*` | **propose** | create-pr (seeds `Closes #N`, Original Intent) | |
 | `pr.*` | **create-pr** | address-pr / investigate hook (best-effort) | |
 | `investigation.*` | **investigate** | create-pr (apply `investigation` label when active) | **optional** namespace; absent unless an investigation is open |
+| `accepted_checks` | **address-pr** | address-pr `monitor-probe.sh` | check **names** the human explicitly accepted as non-blocking at *settled-by-decision* (e.g. a removal/move PR's coverage gate). Watch subtracts these from the FAILURE set, escalating only on a NEW failing check. A stable human-adjudication fact GitHub can't re-derive; staleness is benign (only matters while that check is failing) |
 
 ## Invariants that keep it shared *and* skills independent
 1. **Namespace ownership** — a skill writes only its own namespace; `write-pr` never touches `.issue`.
@@ -64,7 +66,8 @@ To make a PR self-describing, `create-pr` embeds a hidden, machine-only marker a
 - **Accessor:** `scripts/journey-marker.sh` (`emit`/`parse`/`splice`/`read`/`write`), vendored identically by
   create-pr and address-pr. Writes MERGE — a `slack` write never clobbers `.issue`.
 - **Written:** `create-pr` (via `post-pr.sh`) seeds `issue`/`investigation` at create time; `address-pr` writes
-  `slack` once, right after the initial reviewer ping is stamped.
+  `slack` once, right after the initial reviewer ping is stamped, and `accepted_checks` at *settled-by-decision*
+  (when the human accepts a failing de-facto-gate check as non-blocking).
 - **Read:** `address-pr/scripts/rehydrate.sh` (run automatically by `setup.sh`) reconstructs `journey.json`
   and the Slack thread (`request-review`'s `review-thread.sh`) from the marker — **filling gaps only**, never
   overwriting local state, so a worktree that drove the PR from the start is unaffected. The reviewed SHA is

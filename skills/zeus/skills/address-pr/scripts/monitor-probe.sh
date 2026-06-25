@@ -82,15 +82,31 @@ if [ "$mergeable" = "false" ] || [ "$mergeable_state" = "dirty" ] || [ "$mergeab
   exit 0
 fi
 
-# CI regression — escalate to full flow. Any FAILURE check on head SHA
-# triggers. gh pr checks respects the repo flag, so this works even when
-# the worktree isn't on the PR branch.
-ci_failed=$(gh pr checks "$pr" --repo "$owner/$repo" --json state \
-  --jq '[.[] | select(.state == "FAILURE")] | length' 2>/dev/null || echo "0")
-if [ -n "$ci_failed" ] && [ "$ci_failed" != "0" ]; then
-  jq -nc --arg ls "$last_seen" --arg pu "$pr_updated" --argjson n "$ci_failed" \
-    '{action: "escalate", reason: "ci_failed", failed_count: $n, last_seen: $ls, pr_updated_at: $pu}'
-  exit 0
+# CI regression — escalate to full flow on any FAILURE check whose NAME is not in
+# the user-accepted set. gh pr checks respects the repo flag, so this works even
+# when the worktree isn't on the PR branch. The marker is read only when something
+# is actually failing, so the common all-green wake keeps its single-call cost.
+failed_names=$(gh pr checks "$pr" --repo "$owner/$repo" --json name,state \
+  --jq '[.[] | select(.state == "FAILURE") | .name]' 2>/dev/null) || failed_names="[]"
+[ -n "$failed_names" ] || failed_names="[]"
+if [ "$(echo "$failed_names" | jq 'length')" != "0" ]; then
+  # Subtract the user-accepted set (durable in the PR-body journey marker).
+  # Accepted checks are de-facto-gate failures the human explicitly chose to
+  # proceed past (settled-by-decision in SKILL.md); re-escalating on them would
+  # loop straight back to the same already-answered AskUserQuestion. The set
+  # survives a fresh session/worktree wake via the marker; a NEW failing check
+  # beyond the accepted set still escalates.
+  accepted_checks=$(bash "$SCRIPT_DIR/journey-marker.sh" read "$pr" "$owner/$repo" 2>/dev/null \
+    | jq -c '.accepted_checks // []' 2>/dev/null) || accepted_checks="[]"
+  [ -n "$accepted_checks" ] || accepted_checks="[]"
+  unaccepted=$(jq -nc --argjson f "$failed_names" --argjson a "$accepted_checks" \
+    '($a | map({key: ., value: true}) | from_entries) as $acc
+     | [ $f[] | select($acc[.] // false | not) ]' 2>/dev/null || echo "[]")
+  if [ "$(echo "$unaccepted" | jq 'length')" != "0" ]; then
+    jq -nc --arg ls "$last_seen" --arg pu "$pr_updated" --argjson names "$unaccepted" \
+      '{action: "escalate", reason: "ci_failed", failed_count: ($names|length), failed_names: $names, last_seen: $ls, pr_updated_at: $pu}'
+    exit 0
+  fi
 fi
 
 # String comparison is safe for ISO8601 timestamps (lexicographic == chronological).
@@ -128,7 +144,17 @@ filtered=$(echo "$all" | jq --arg ls "$last_seen" --argjson acked "$last_acked" 
       threads:               [ .threads[]               | select(($ack[(.id | tostring)] // false) | not) ],
       reviews:               [ .reviews[]               | select((.submitted_at // .updated_at // "") >= $ls) | select(($ack[((.id // .databaseId) | tostring)] // false) | not) ],
       inline_comments:       [ .inline_comments[]       | select((.updated_at // .created_at // "") >= $ls) | select(($ack[(.id | tostring)] // false) | not) ],
-      conversation_comments: [ .conversation_comments[] | select((.updated_at // .created_at // "") >= $ls) | select(($ack[(.id | tostring)] // false) | not) ]
+      conversation_comments: [ .conversation_comments[]
+        | select((.updated_at // .created_at // "") >= $ls)
+        | select(($ack[(.id | tostring)] // false) | not)
+        # Drop in-place-edited bot STATUS comments (deploy preview, quality gate,
+        # auto-generated review summary / in-progress / rate-limit notes): they
+        # re-edit on every push and would re-surface as comment_activity, pinning
+        # the watch at the floor delay so the idle backoff never engages.
+        # Author-scoped, never a blanket drop — human top-level comments are kept,
+        # and actionable review feedback arrives as threads/inline/reviews (above).
+        | select(((.user // "") | test("vercel\\[bot\\]$|sonar.*\\[bot\\]$")) | not)
+        | select((((.user // "") == "coderabbitai[bot]") and ((.body // "") | test("auto-generated comment|review in progress|rate limited"; "i"))) | not) ]
     }
 ')
 

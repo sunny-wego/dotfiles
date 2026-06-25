@@ -11,7 +11,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Vercel MCP optional.
 metadata:
   author: sunnywong
-  version: "4.1"
+  version: "4.4"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__* mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 
@@ -240,6 +240,20 @@ a one-line Original-Intent note if captured.
   check means "not settled yet," not "stuck." Do NOT escalate or ping; re-probe with one more
   `wait-and-evaluate.sh` cycle (bounded by the iteration cap) and re-read the verdict once checks
   finish. Only escalate a `ci_pending` blocker if the iteration cap is hit with it still pending.
+  **Second exception — the user adjudicates the remaining blocker(s) as accepted.** When the human
+  answers the escalation by choosing to proceed despite a blocker (e.g. "merge as-is" for a non-required
+  de-facto gate, or a structurally-unsatisfiable gate like new-code coverage on a removal/move PR), treat
+  the PR as **settled-by-decision** — the acceptance resolves the Escalate, it does **not** end the run.
+  Re-run the verdict with the accepted blocker(s) cleared (`ready=true`, accepted check names moved to
+  `warnings`), hand THAT verdict to the Request-review ping below, then **proceed to Watch**. Persist the
+  accepted check name(s) to the journey marker (`accepted_checks`, merged alongside the Slack record) so
+  Watch — including a fresh-session wake in another worktree — honors them and surfaces only NEW
+  regressions:
+  ```bash
+  jq -nc --argjson c '["<failing check name>"]' '{accepted_checks: $c}' \
+    | bash ${CLAUDE_SKILL_DIR}/scripts/journey-marker.sh write "$PR_NUMBER" "$OWNER/$REPO"
+  ```
+  Do not stop at the ping.
 
 **Request review (delegated — REQUIRED when auto-ping is enabled).** Reviewer notification lives in the
 **`request-review`** skill, the *notifier*. address-pr is the *arbiter*: it produces the readiness verdict
@@ -284,6 +298,12 @@ step. See `references/journey-schema.md` → "Picking a PR up from scratch".
 ## Watch (stay settled)
 
 A settled PR can regress — a new push, a fresh review, the base moving on. Run one probe and dispatch it:
+
+**Accepted-failing-check watches (native).** A *settled-by-decision* run re-enters the **same** dynamic
+Watch as any other settled PR — no tailored loop. `monitor-probe.sh` reads `accepted_checks` from the
+journey marker and escalates only on a FAILURE check whose name is **not** in that set, so an accepted
+de-facto-gate failure (e.g. a removal/move PR's coverage gate) no longer triggers `escalate` → `restart`.
+A genuinely new failing check beyond the accepted set still escalates as normal.
 
 ```bash
 MONITOR_PROBE=$(bash ${CLAUDE_SKILL_DIR}/scripts/monitor-step.sh --pr "$PR_NUMBER" --repo "$OWNER/$REPO")
