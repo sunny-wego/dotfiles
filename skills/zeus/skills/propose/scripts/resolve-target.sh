@@ -25,7 +25,11 @@
 # amended in the current session IS the target; don't run this when you have it.
 #
 # Usage: resolve-target.sh ["<user phrase>"] [--repo <owner/name>] [--limit N]
-# Output: {"candidates":[{number,title,source,has_state,updated_at}],"confidence":"..."}
+# Output: {"candidates":[{provider,ref,number,title,source,has_state,updated_at}],"confidence":"..."}
+#   provider/ref identify the destination (parity): "github"/"<n>" or
+#   "confluence"/"confluence:<id>". The agent amends via the matching path.
+#   The state store surfaces BOTH destinations; the gh-search fallback is GitHub-only
+#   (a Confluence CQL fallback for pages authored outside the skill is a follow-up).
 
 set -euo pipefail
 
@@ -73,8 +77,8 @@ if [ "$(printf '%s' "$candidates" | jq 'length')" -eq 0 ] && [ -n "$phrase" ]; t
   search=(issue list --search "$phrase" --state open --json number,title,updatedAt --limit "$limit")
   [ -n "$repo" ] && search+=(--repo "$repo")
   gh_rows=$(gh "${search[@]}" 2>/dev/null || echo "[]")
-  candidates=$(printf '%s' "$gh_rows" | jq '[.[] | {number, title, source: "gh",
-    has_state: false, updated_at: .updatedAt}]')
+  candidates=$(printf '%s' "$gh_rows" | jq '[.[] | {provider: "github", ref: (.number|tostring),
+    number, title, source: "gh", has_state: false, updated_at: .updatedAt}]')
 fi
 
 n=$(printf '%s' "$candidates" | jq 'length')

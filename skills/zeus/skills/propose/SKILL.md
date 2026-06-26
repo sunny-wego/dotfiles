@@ -38,7 +38,9 @@ The output style is modelled on a small set of exemplars (see `references/exempl
 5. **A topic phrase, no pin/session** → `resolve-target.sh "<phrase>"`: `high` → confirm then UPDATE; `ambiguous` → one AskUserQuestion with the candidates; `none` → **CREATE**.
 6. **No argument at all** → resume the worktree pin / session target if one exists (step 3–4); otherwise **CREATE** (interview for the source).
 
-Any branch that resolves to **UPDATE** then passes an **ownership gate**: an amend rewrites the whole body, so it's only allowed on an issue you authored. Not yours → it becomes a **comment** instead (see *Updating → amend only your own issue*). This is enforced in `post-issue.sh`, not just advised.
+Any branch that resolves to **UPDATE** then passes an **ownership gate**: an amend rewrites the whole artifact, so it's only allowed on a proposal you authored. Not yours → it becomes a **comment** instead (see *Updating → amend only your own proposal*). On GitHub this is enforced in `post-issue.sh`; on the Confluence path (no post-issue.sh backstop) the agent MUST honour `ownership.sh` before `updateConfluencePage`.
+
+This skill spans **two destinations** (GitHub issues, Confluence pages — see *Destination*), and routing is destination-agnostic: the worktree pin (`state.sh current`) and `resolve-target.sh` candidates each carry a `provider` + `ref` (a bare `<number>` for GitHub, `confluence:<id>` for a page), so an explicit `#N`, a resumed pin, or a resolved phrase lands on whichever destination that proposal lives in. The UPDATE then follows the matching sequence in *Updating*.
 
 **Confirm an inferred target before any write** — routing is an inference and a wrong target is invisible to every downstream gate (the drift gate compares an issue to its *own* body). An **explicit `#N`** or a **this-session target** is trusted and only echoed: *"Amending **#840**."* A target reached by **inference** — the worktree pin (step 4) or a `resolve-target.sh` match (step 5) — is **confirmed, not just announced**: state it and get a yes before amending (*"Resuming **#840** (this worktree's active proposal) — amend it?"*), so a stale pin can't silently redirect the next task. Non-interactive + unconfirmable inference → don't guess; CREATE or ask. Posting (create or update) pins the issue as this worktree's active proposal automatically (`post-issue.sh`), so the next bare `/zeus:propose` resumes it.
 
@@ -55,6 +57,28 @@ Triggers (any one): `discussion_questions` non-empty · `code_grounding` non-emp
 
 Override with the state's `review` field when the heuristic misfires: `"always"` (force it) or `"never"` (skip it — legitimate for a paste-dump tracking issue, but it MUST appear as a visible choice in the step-5 confirmation, never a silent default). Full review playbook (Stage 1 prompt template, Stage 2 grounding, Stage 3 steelman, amend vs supersede, the Amendment Log, invariants-in-content): **`references/rfc-mode.md`**. Conventions and *why*: **`references/house-style.md`**.
 
+## Destination: GitHub, Confluence, or both
+
+The same `state → render → gate` pipeline is destination-neutral; only the **render + post tail** forks. GitHub is always the default. A repo may additionally opt in to publishing its proposals to **Confluence** (as child pages under a parent page) — this is the *only* thing the destination changes.
+
+Resolution is **per repo**, from personal-tooling config (the `auto-ping.sh` store style — user config dir, keyed by `owner/repo`, **not** committed):
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/confluence-target.sh "$REPO"
+# unconfigured → {"configured":false}            (GitHub-only — today's behaviour, no new surface)
+# configured   → {"configured":true,"cloudId":…,"spaceKey":…,"spaceId":…|null,
+#                 "parentId":…|null,"mode":"mirror"|"native","defaultStatus":…}
+```
+
+A repo absent from the store behaves **exactly as before**. Enable one with `confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> [--parent <pageId>] [--mode mirror|native] [--status current|draft]`.
+
+`mode` decides what posting means:
+
+- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff, `/zeus:implement`); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the issue→code→PR chain is untouched.
+- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be `/zeus:implement`ed. The page becomes the proposal's identity.
+
+The **gate is shared and runs once.** Validate, audit, and the Stage-1 reader test all operate on `render(state)` as canonical markdown; Confluence is just a transport encoding of that same approved state, so the reader test is **not** re-run against the Confluence body — the existing `reader_test_hash` (keyed on state) covers both surfaces. Nothing in *Review gating* changes.
+
 ## Inputs
 
 | Source | When | How |
@@ -69,6 +93,7 @@ Picking order: **explicit argument → plan file → conversation**.
 
 - **Required:** `git` (run inside a repo), `gh` (GitHub CLI, authenticated), `jq`, and `python3` (used by `pin-refs.sh` to pin file citations to blob URLs).
 - **Optional:** a JS runner — `npx` (bundled with Node) or `bun` — enables the token-usage footer; safely skipped if absent.
+- **Confluence destination (optional):** the **Atlassian MCP** server, for repos configured to publish to Confluence (see *Destination* below). It's an agent tool, not a CLI, so it can't be probed from a script and is **unavailable in headless / cron runs** — confirm it with a live `getAccessibleAtlassianResources` call before relying on it, and fall back to GitHub-only when it's absent.
 
 ## Workflow
 
@@ -102,6 +127,8 @@ Returns JSON:
 - `branch` — current branch
 - `head_sha` — `git rev-parse HEAD`, used to pin all code references
 - `related_issues` — open issues whose titles share keywords (best-effort)
+
+Then resolve the destination once (cache it like the context): `bash ${CLAUDE_SKILL_DIR}/scripts/confluence-target.sh "$REPO"`. `{"configured":false}` → GitHub-only, nothing else changes. Configured → also publish to Confluence at step 6 per its `mode` (see *Destination*).
 
 Cache this once per invocation; every code reference in the draft must use `head_sha`.
 
@@ -235,9 +262,35 @@ The wrapper appends a best-effort Claude Code session-usage footer via `telemetr
 
 Persist the state so a later amend can reload it: pass `--state "$STATE_FILE"` to `post-issue.sh` (it stores the JSON under the issue number via `state.sh`).
 
-## Updating an existing issue (amend / supersede)
+#### 6b. Also publish to Confluence (only when the destination resolved `configured: true`)
 
-Triggers: "fold this into #N", "amend the issue", "update #N", "amend the RFC" (no number), `/zeus:propose <#N> "<change>"`. An amend is the **same compose pipeline entered from a rehydrated state** — edit the **state**, never the live body — so it reuses steps 3–4b above. Sequence (scripts under `${CLAUDE_SKILL_DIR}/scripts/`):
+The Confluence post is **agent-driven MCP calls**, not a script — `createConfluencePage` can't be invoked from bash. The render stays a script; only the network half diverges. Confluence has **full parity** with the GitHub path (create / amend in place / comment-when-not-yours / supersede / resume via the pin) — the bash helpers do the destination-neutral logic, the agent does the MCP I/O.
+
+1. **Confirm the MCP is reachable** (it's absent in headless/cron): a `getAccessibleAtlassianResources` call. If it fails, report it and stop after the GitHub post — don't silently drop the Confluence half.
+2. **For `mode: "mirror"`** run step 6 (the GitHub `post-issue.sh`) FIRST so the page can backlink the canonical issue. **For `mode: "native"`** skip the GitHub post entirely.
+3. **Render the Confluence body** from the same approved state:
+   ```bash
+   BODY=$(bash ${CLAUDE_SKILL_DIR}/scripts/render-confluence.sh "$STATE_FILE" \
+     --sha "$HEAD_SHA" --repo "$REPO" [--issue-url "<github-issue-url>"])   # --issue-url only in mirror mode
+   ```
+4. **Resolve `spaceId`** if config only has `spaceKey`: `getConfluenceSpaces` with `keys:[spaceKey]`. Persist it back so the next post skips the lookup: `confluence-target.sh enable <repo> … --space-id <id>`.
+5. **Publish.** New proposal → `createConfluencePage` with `cloudId`, `spaceId`, `parentId` (the resolved parent — proposals are **child pages** under it), `title`, `body` (the file contents), `contentFormat:"markdown"`, `status` (the config's `defaultStatus`; map "Save draft only" → `status:"draft"`).
+6. **Record identity + version, then pin.** From the response capture `id` and `version.number`, write both to state, and persist/pin under the Confluence ref so a later bare `/zeus:propose` resumes it:
+   ```bash
+   jq --arg id "<page-id>" --argjson v <version-number> \
+     '.confluence_page_id=$id | .confluence_version=$v' "$STATE_FILE" > t && mv t "$STATE_FILE"
+   bash ${CLAUDE_SKILL_DIR}/scripts/state.sh save "confluence:<page-id>" "$STATE_FILE"
+   bash ${CLAUDE_SKILL_DIR}/scripts/state.sh pin  "confluence:<page-id>"
+   ```
+   (In `mirror` mode also keep the GitHub `--state` persistence from step 6 — the issue stays the canonical resume target; the page id rides along on the same state.) Print both URLs.
+
+Amend, comment, and supersede for a Confluence page are in **Updating an existing proposal** below — they have full parity with the GitHub sequence.
+
+## Updating an existing proposal (amend / supersede)
+
+Triggers: "fold this into #N", "amend the issue/page", "update #N", "amend the RFC" (no number), `/zeus:propose <#N> "<change>"`. An amend is the **same compose pipeline entered from a rehydrated state** — edit the **state**, never the live artifact — so it reuses steps 3–4b above. The shape is identical for both destinations; only the resolve/ownership/drift/post calls differ by `provider` (which `resolve-target.sh` and the worktree pin both carry).
+
+**GitHub** sequence (scripts under `${CLAUDE_SKILL_DIR}/scripts/`):
 
 ```bash
 resolve-target.sh "<phrase>" [--repo R]                 # 0. resolve + CONFIRM the target
@@ -251,11 +304,31 @@ post-issue.sh --update <N> --title "<t>" --body-file "$DRAFT" --state "$STATE_FI
 supersede.sh --old <N> --title "<t>" --body-file "$DRAFT" --state "$STATE_FILE"        # 5b. or supersede (body: "Supersedes #N")
 ```
 
+**Confluence** sequence — same skeleton; the network steps (★) are agent MCP calls, the rest are the same bash helpers keyed on `confluence:<id>`:
+
+```bash
+resolve-target.sh "<phrase>"                            # 0. resolve + CONFIRM (a confluence: candidate)
+# 0.5 ownership: ★ getConfluencePage(authorId) + ★ atlassianUserInfo(accountId), then:
+ownership.sh --author <pageAuthorId> --viewer <myAccountId>     # mine? else footer-comment (below)
+STATE_FILE=$(rehydrate.sh "confluence:<id>" [--body-file <★ fetched-page-md>])   # 1. state, or re-ingest
+# 2. drift gate: ★ fetch live version.number, then:
+confluence-drift.sh --stored "$(jq -r .confluence_version "$STATE_FILE")" --current <liveVersion>
+# 3. edit state + append an Amendment Log line
+BODY=$(render-confluence.sh "$STATE_FILE" --sha "$HEAD_SHA" --repo "$REPO")       # 4. render + check + Stage-1 re-stamp
+check.sh "$BODY" [--kind …]
+# 5a. amend in place: ★ updateConfluencePage(pageId, body=$BODY, contentFormat:markdown,
+#     versionMessage=<latest Amendment Log line>) → capture new version.number, then:
+jq --argjson v <newVersion> '.confluence_version=$v' "$STATE_FILE" > t && mv t "$STATE_FILE"
+state.sh save "confluence:<id>" "$STATE_FILE"           # re-persist (pin already set at create)
+# 5b. supersede: ★ createConfluencePage(new) ; ★ updateConfluencePage(old) prepending the banner
+#     > ⚠️ **Superseded by** [<new title>](<new url>)    — pages don't close; no MCP delete
+```
+
 Two things the sequence rests on, with the rationale and the disposition-comment template in **`references/rfc-mode.md`** → *Amend vs supersede*:
 
-- **Amend only your own issue (step 0.5).** `ownership.sh <N>` compares the issue author to the `gh` viewer. **Mine → amend** (the full sequence). **Not mine → comment, never edit the body** — composing a review against a teammate's issue is fine, but rewriting their authored body isn't. Run the review you want (reader test / grounding / objector steelman from step 4b) on *their* body, write the findings to a file, and post with `post-issue.sh --comment <N> --body-file <path>` — no `rehydrate`/`drift-check`/`--update`. `post-issue --update` hard-refuses a non-owned issue regardless, so this is also a real guardrail, not just guidance; `--force-amend` is the explicit escape hatch for a genuinely co-owned body.
-- **Confirm the target before any write** (step 0) and **run the drift gate before editing** (step 2) — a wrong-target amend and an out-of-band body edit are both invisible to every other gate. Re-run Stage 1 + re-stamp on **every** amend; `post-issue --update` refuses without a matching stamp.
-- **Amend vs supersede:** decision unchanged → amend; the decision itself changed → supersede (new issue, `Supersedes #<N>`, close the old). When the amend answers **reviewer feedback**, post **one** disposition comment afterward (`gh issue comment`) quoting each concern by its verbatim header with what changed — the body is the latest truth, the comment is the audit trail.
+- **Amend only your own proposal (step 0.5).** `ownership.sh` compares author to viewer — **GitHub:** `ownership.sh <N>` (issue author vs `gh` viewer); **Confluence:** `ownership.sh --author <pageAuthorId> --viewer <myAccountId>` (the agent fetches both via MCP). **Mine → amend** (the full sequence). **Not mine → comment, never edit** — composing a review against a teammate's proposal is fine, rewriting their authored artifact isn't. Run the review on *their* body, write the findings to a file, and post a **GitHub** comment with `post-issue.sh --comment <N> --body-file <path>` or a **Confluence** footer comment with `★ createConfluenceFooterComment(pageId, body)` — no `rehydrate`/drift/`--update`/`updateConfluencePage`. `post-issue --update` hard-refuses a non-owned issue regardless (`--force-amend` is the escape hatch); for Confluence the agent MUST honour the `ownership.sh` verdict before calling `updateConfluencePage` — there's no post-issue.sh in that path to backstop it.
+- **Confirm the target before any write** (step 0) and **run the drift gate before editing** (step 2) — a wrong-target amend and an out-of-band edit are both invisible to every other gate. **GitHub** drift is a text diff (`drift-check.sh`, render vs live body); **Confluence** drift is a version check (`confluence-drift.sh`, stored `confluence_version` vs live `version.number`) — Confluence reformats markdown on round-trip, so a text diff would false-positive; the version number is the reliable signal. Re-run Stage 1 + re-stamp on **every** amend, both destinations.
+- **Amend vs supersede:** decision unchanged → amend; the decision itself changed → supersede. **GitHub:** new issue, `Supersedes #<N>`, **close** the old. **Confluence:** new page, `Supersedes <old url>`, and prepend a **"⚠️ Superseded by"** banner to the old page (pages have no close, and the MCP has no delete). When the amend answers **reviewer feedback**, post **one** disposition comment afterward (`gh issue comment` / `createConfluenceFooterComment`) quoting each concern by its verbatim header with what changed — the artifact is the latest truth, the comment is the audit trail.
 
 ## Progressive disclosure
 

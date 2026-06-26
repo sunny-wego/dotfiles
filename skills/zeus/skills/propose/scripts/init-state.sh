@@ -48,6 +48,14 @@
 #   reader_test_hash string — state-hash.sh value at stamp time; post-issue refuses when the
 #                            current state hash differs (state edited after the test → fixes are
 #                            untested). Stamp both together; rehydrate clears both.
+#   confluence_page_id string — set by the post step after publishing to Confluence (see
+#                            confluence-target.sh). Its presence makes a later amend UPDATE that
+#                            page (updateConfluencePage) instead of creating a duplicate. Empty
+#                            when the repo has no Confluence destination or hasn't been published.
+#   confluence_version number — the page version WE last wrote (Confluence bumps it on every
+#                            edit). The amend drift gate (confluence-drift.sh) compares the live
+#                            version against this: live ahead ⇒ out-of-band edit ⇒ STOP. 0 until
+#                            first publish.
 #
 # Usage:
 #   init-state.sh                       # empty skeleton (conversation source)
@@ -71,7 +79,8 @@ skeleton=$(jq -nc '{
   discussion_questions: [], discussion_banner: "", mermaid: "",
   whats_excluded: [], verification: [], references: [],
   amendment_log: [], code_grounding: [], mention_once: [],
-  review: "auto", reader_test: false, reader_test_hash: ""
+  review: "auto", reader_test: false, reader_test_hash: "",
+  confluence_page_id: "", confluence_version: 0
 }')
 
 if [ -n "$from" ]; then
