@@ -11,7 +11,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Vercel MCP optional.
 metadata:
   author: sunnywong
-  version: "4.4"
+  version: "4.6"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__* mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 
@@ -232,8 +232,11 @@ a one-line Original-Intent note if captured.
   hand-off below unconditionally. The callee answers the gap question itself — its envelope comes back
   `should_send:false` with `skip_reason: already_pinged_at_<sha>` (or a disabled repo) when no gap
   exists, so the hand-off is a safe no-op on an already-pinged SHA. A settled run is not complete until
-  the hand-off has run and its envelope was honored. `READY.warnings` are informational. Then
-  proceed to **Watch** (or stop if merged).
+  the hand-off has run and its envelope was honored **and — for an OPEN PR — the Watch wake-up has been
+  scheduled**. `READY.warnings` are informational. Then proceed to **Watch** (or stop if merged). **The
+  reviewer ping is the last step of Report, not the end of the run: do not emit a completion / `result`
+  after pinging an open PR without arming Watch — that abandons the skill's promise to keep the PR settled
+  until it merges.**
 - `READY.ready == false` (exit 1) — the loop reached `report` with blockers still present
   (`READY.blockers`): hand those blockers to the user via AskUserQuestion rather than re-looping.
   **Exception — a `ci_pending`-only blocker set is transient, not a real blocker:** a still-running
@@ -333,7 +336,19 @@ two commands. Read `MONITOR_DECISION.action`:
 On each watch pass, also run the **Re-review** check below — that's what re-pings the configured reviewer when you push
 changes after her first review, without you having to ask.
 
-Watch mode uses GitHub / `gh api` as operational truth; it never treats the PR body as a state store.
+**Also reconcile the request-review Slack thread.** The reviewer may respond in the Slack thread the notifier
+owns — a verdict, a question, or an approval-equivalent — *without* advancing GitHub state, and the per-SHA
+ping dedup will not re-ping a commit already pinged, so a GitHub-only watch idles while the reviewer is in
+fact waiting on you. On each pass, read that thread (`channel` + `thread_ts` from the journey marker's
+`slack` record, via the Slack MCP) and reconcile it against GitHub: a reviewer reply with **no** corresponding
+GitHub review of the current HEAD — a stale verdict echoing already-fixed concerns, a direct question, or a
+"looks good" with no GitHub approval — is **actionable**, not idle. Re-nudge in-thread pointing at the current
+SHA (a manual nudge legitimately overrides the per-SHA dedup), or surface to the human; don't wait for a
+GitHub signal that may never come. If the thread is unreachable (no Slack MCP / no marker), fall back to
+GitHub-only silently.
+
+Watch mode uses GitHub / `gh api` as operational truth for PR state (checks, reviews, merge), and the
+request-review Slack thread as the reviewer back-channel; it never treats the PR body as a state store.
 
 ## Re-review (delegated to `request-review`)
 
