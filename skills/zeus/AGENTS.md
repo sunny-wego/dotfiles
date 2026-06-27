@@ -172,8 +172,9 @@ update docs) when you add or edit a script.
 
 ## CLI reference — `review-pr`
 
-`review-pr` reviews either an open PR (**remote**) or the current branch's working
-diff (**local**, pre-PR) — **auto-detected**, with `--local`/`--base` and a PR arg as
+`review-pr` runs one engine on two **auto-detected** axes: `source` (local working
+diff vs an open PR) and `role` (self = my work, hand findings back; peer = someone
+else's PR, post comments). `--local`/`--base`, a PR arg, and `--as self|peer` are
 overrides. `--base` takes a ref, so (per rule 5) it is parsed by these scripts
 directly and never routed through the identifier parser.
 
@@ -181,12 +182,12 @@ directly and never routed through the identifier parser.
 
 | Script | Signature |
 |---|---|
-| `detect-target.sh` | `[<url\|number>] [--repo <owner/repo>] [--local] [--base <ref>]` — emits `{mode:"local"\|"remote", …}`. Auto by default; flags/arg are overrides. |
+| `detect-target.sh` | `[<url\|number>] [--repo <owner/repo>] [--local] [--base <ref>] [--as self\|peer]` — emits `{source:"local"\|"remote", role:"self"\|"peer", …}`. Auto by default (source from branch/PR state; role from PR authorship); flags/arg are overrides. |
 | `identify-pr.sh` | `<url\|number> [--repo <owner/repo>]` — resolve a PR to metadata (remote mode only; one network call). |
 | `ensure-checkout.sh` | `--pr <n> --repo <owner/repo> [--foreign <bool>] [--sha <head>]` — isolate the PR head in a worktree / blobless clone (remote only). |
 | `extract-diff.sh` | `--pr <n> --repo <owner/repo>` (remote)  •  `--local [--base <ref>] [--include-dirty]` (local, no network) — writes the diff + anchorable lines. |
 | `select-mode.sh` | `[--deep\|--single]` — reads the extracted diff; emits `{mode:single\|parallel, applicable_handlers, …}`. |
-| `post-review.sh` | `[--dry-run\|--submit\|--local] [--request-changes] [--findings <file>]` — render the review; `--submit` posts (remote), `--local` renders only (refused on a PR-less local review). |
+| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` (dry-run; `--submit` posts) `[--findings <file>]` — output keyed on role; a local diff is forced to `--self`. |
 
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
 by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
