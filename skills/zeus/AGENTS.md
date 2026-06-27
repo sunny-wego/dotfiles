@@ -170,20 +170,33 @@ update docs) when you add or edit a script.
 `watermark.sh` (`--tag <skill>` | `<skill> <file>|-|--in-place <file>`),
 `preflight.sh` (`[--fix]`), `lib.sh` (sourced).
 
-> The other skills (`propose`, `investigate`, `implement`, `review-pr`, `create-pr`,
+## CLI reference — `review-pr`
+
+`review-pr` reviews either an open PR (**remote**) or the current branch's working
+diff (**local**, pre-PR) — **auto-detected**, with `--local`/`--base` and a PR arg as
+overrides. `--base` takes a ref, so (per rule 5) it is parsed by these scripts
+directly and never routed through the identifier parser.
+
+**Target detection & diff** (run in order; pre-isolation scripts take no state dir):
+
+| Script | Signature |
+|---|---|
+| `detect-target.sh` | `[<url\|number>] [--repo <owner/repo>] [--local] [--base <ref>]` — emits `{mode:"local"\|"remote", …}`. Auto by default; flags/arg are overrides. |
+| `identify-pr.sh` | `<url\|number> [--repo <owner/repo>]` — resolve a PR to metadata (remote mode only; one network call). |
+| `ensure-checkout.sh` | `--pr <n> --repo <owner/repo> [--foreign <bool>] [--sha <head>]` — isolate the PR head in a worktree / blobless clone (remote only). |
+| `extract-diff.sh` | `--pr <n> --repo <owner/repo>` (remote)  •  `--local [--base <ref>] [--include-dirty]` (local, no network) — writes the diff + anchorable lines. |
+| `select-mode.sh` | `[--deep\|--single]` — reads the extracted diff; emits `{mode:single\|parallel, applicable_handlers, …}`. |
+| `post-review.sh` | `[--dry-run\|--submit\|--local] [--request-changes] [--findings <file>]` — render the review; `--submit` posts (remote), `--local` renders only (refused on a PR-less local review). |
+
+**Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
+by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+
+> The other skills (`propose`, `investigate`, `implement`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
 > same house rules (identifiers as `--pr/--repo`, verbs positional, payloads via
 > stdin); the detailed per-script reference above covers the PR-workflow pair where
 > the parser currently lives. New or edited scripts in any skill should route
 > identifiers through `resolve_pr`/`resolve_target` and pass `check-arg-conventions.sh`.
->
-> `review-pr` adds **target auto-detection**: `detect-target.sh "$@"` emits
-> `{mode:"local"|"remote", …}` (local pre-PR, remote once a PR exists; `--local`/
-> `--base <ref>` and a PR arg are overrides). In local mode `extract-diff.sh --local
-> [--base <ref>] [--include-dirty]` diffs the working branch vs its base with **no
-> network** and `post-review.sh --local` renders findings without posting. `--base`
-> takes a ref, so it is parsed by those scripts directly and never routed through the
-> identifier parser (rule 5).
 
 ## Structure & shared lib
 
