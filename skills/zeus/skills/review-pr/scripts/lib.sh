@@ -35,6 +35,8 @@ source "$ZEUS_LIB_DIR/pr-ident.sh"
 source "$ZEUS_LIB_DIR/lock.sh"
 # shellcheck source=../../../lib/repo.sh
 source "$ZEUS_LIB_DIR/repo.sh"
+# shellcheck source=../../../lib/config.sh
+source "$ZEUS_LIB_DIR/config.sh"
 
 STATE_DIR="$(git rev-parse --absolute-git-dir)/review-pr"
 PR_FILE="$STATE_DIR/pr.json"

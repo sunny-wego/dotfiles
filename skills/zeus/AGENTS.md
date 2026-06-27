@@ -142,7 +142,7 @@ update docs) when you add or edit a script.
 **Helpers / no-identifier** (stdin / files / no args): `capture-conflicts.sh`,
 `classify-checks.sh` (stdin: pr-status JSON), `dispatch-monitor.sh` (`<probe-json>|-`),
 `fetch-failed-logs.sh` (`<branch> [commit]`), `find-sonar-project-key.sh`,
-`identify-pr.sh` (`[--checkout]`), `resolve-threads.sh` (`<thread_id> …`),
+`pr-for-branch.sh` (`[--checkout]` — the open PR for the current branch), `resolve-threads.sh` (`<thread_id> …`),
 `review-digest.sh` (`<reviews_json> [excerpt_chars]`), `safe-stage.sh`,
 `preflight.sh` (`[--fix]`), `lib.sh` (sourced).
 
@@ -203,33 +203,50 @@ by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_targe
 ```
 zeus/
 ├── .claude-plugin/        plugin manifest
-├── lib/                   shared script TEMPLATES, vendored into each skill's scripts/
-│   ├── journey-marker.sh  journey.sh  preflight.sh  watermark.sh  telemetry.sh  preview.sh
-│   └── check-arg-conventions.sh   ← the CLI-convention lint (run from anywhere)
+├── lib/                   the family's single source for shared code, two kinds:
+│   ├── (sourced fragments) pr-ident.sh  lock.sh  run.sh  repo.sh  config.sh
+│   │      ↳ sourced by each skill's scripts/lib.sh — define functions, no top-level code
+│   ├── (vendored scripts)  journey.sh  journey-marker.sh  preflight.sh
+│   │      watermark.sh  telemetry.sh  preview.sh   ↳ symlinked into skills' scripts/
+│   ├── config.defaults.json          shipped config defaults (the only config in the repo)
+│   └── check-arg-conventions.sh      the CLI-convention lint (run from anywhere)
 ├── hooks/hooks.json
 └── skills/<skill>/
     ├── SKILL.md           the behavioral contract (read this for flow)
     ├── scripts/           the skill's CLI (each sources scripts/lib.sh)
-    │   └── lib.sh         per-skill helpers + resolve_pr / resolve_target
+    │   └── lib.sh         a thin shim: sources the lib/ fragments it needs + the
+    │                      skill's own STATE_DIR / helpers (NO copied family helpers)
     ├── handlers/          (address-pr) per-operation playbooks
     └── references/        long-form contracts
 ```
 
-- **`resolve_pr` / `resolve_target` live in each skill's `scripts/lib.sh`.** The two
-  PR-workflow copies are kept identical; if you change one, change the other.
-- **`zeus/lib/` is the source for shared scripts** (`journey.sh`, `journey-marker.sh`,
-  `preflight.sh`, `watermark.sh`, `telemetry.sh`, `preview.sh`), each **symlinked** into
-  the skills' `scripts/` dirs that use it — so editing the source in `zeus/lib/` updates
-  every skill at once (there are no separate copies to keep in sync). The per-skill
-  `lib.sh` (which carries `resolve_pr`/`resolve_target`) is the exception: it is a real
-  per-skill file, and the PR-workflow copies are kept identical by hand.
-- **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`,
-  `.git/request-review/`), isolated across worktrees.
+- **One copy of every shared helper, in `zeus/lib/`.** `resolve_pr`/`resolve_target`
+  (pr-ident.sh), `with_lock`/`acquire_lock` (lock.sh), `run` (run.sh), and the repo/
+  base-branch helpers (repo.sh) are defined ONCE and **sourced** by each skill's
+  `lib.sh` — never pasted (the old per-skill copies drifted; `check-arg-conventions.sh`
+  rule [4] now forbids re-defining them). The vendored *scripts* (journey.sh, …) are
+  **symlinked** into `scripts/`, so editing `lib/` updates every skill at once.
+- **Config: one home, nothing committed.** `lib/config.sh` reads merged config —
+  `env ZEUS_<KEY>` > repo `.git/zeus/config.json` > user `$ZEUS_CONFIG_DIR/config.json`
+  (default `~/.config/zeus/`) > shipped `lib/config.defaults.json`. Per-concern blobs
+  (Slack handles, ping policy, Confluence) live as their own files under
+  `$ZEUS_CONFIG_DIR/<concern>/`. The repo holds only `*.default.json` templates.
+- **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`),
+  isolated across worktrees, never committed.
 
 ## House conventions
 
 - Skills call skills **by name** with JSON contracts — never another skill's scripts
   by path. GitHub / `gh` is the source of truth; the PR body is never a state store
   (except the hidden journey marker, which is durable cross-session context).
+- **Script I/O contract:** machine output is JSON on **stdout**; logs and human text
+  go to **stderr**; errors are `{"error":"…"}` on stderr; exit `0` ok / `1` runtime /
+  `2` usage. Identifiers route through `resolve_pr`/`resolve_target`; sub-commands are
+  positional; bulk payloads come via stdin or `--from <file|->`; refs/branches never
+  go through the identifier parser.
+- **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
+  via `config.sh`, never hard-coded; user/repo config is never committed.
+- **Stay agnostic:** no language/stack/CI assumptions — detect at runtime and degrade
+  gracefully; resolve the base branch via `repo.sh` (never hard-code `main`/`master`).
 - When you add or change a script's CLI, update its `Usage:` header, the call-sites in
   the owning `SKILL.md`, and run `bash zeus/lib/check-arg-conventions.sh`.

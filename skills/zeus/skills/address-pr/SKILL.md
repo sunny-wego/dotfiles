@@ -316,7 +316,7 @@ MONITOR_DECISION=$(echo "$MONITOR_PROBE" | bash ${CLAUDE_SKILL_DIR}/scripts/disp
 For `/zeus:address-pr monitor` invoked directly, first **isolate** (the `process` path edits files and pushes):
 run `ensure-worktree.sh` — passing the PR number if the wake carries one, else inferring from the current
 branch — and `EnterWorktree` to its `.path` when `already_inside` is false (see **Setup → Isolate in a
-worktree**). Then reconstruct `OWNER`/`REPO`/`PR_NUMBER` with `identify-pr.sh --checkout` and run the same
+worktree**). Then reconstruct `OWNER`/`REPO`/`PR_NUMBER` with `pr-for-branch.sh --checkout` and run the same
 two commands. Read `MONITOR_DECISION.action`:
 
 - `stop` — PR merged or closed; schedule nothing.
@@ -362,14 +362,14 @@ Same shape as the initial hand-off — produce the verdict
 `request-review` skill** (`re-review` mode) with it. The callee scopes, dedups per SHA, posts the
 **threaded** reply, and re-stamps its own thread state; its envelope's skip reasons and the full contract
 live in its `references/reviewer-ping.md`. For `/zeus:address-pr re-review`, identify the PR first
-(`identify-pr.sh`, no checkout) and run the same.
+(`pr-for-branch.sh`, no checkout) and run the same.
 
 ## Ready (read-only probe)
 
 `/zeus:address-pr ready [<pr_number>]` — skip the loop and watch; print the verdict and exit.
 
 ```bash
-PR_JSON=$(bash ${CLAUDE_SKILL_DIR}/scripts/identify-pr.sh)
+PR_JSON=$(bash ${CLAUDE_SKILL_DIR}/scripts/pr-for-branch.sh)
 PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number'); OWNER=$(echo "$PR_JSON" | jq -r '.owner')
 REPO=$(echo "$PR_JSON" | jq -r '.repo')
 bash ${CLAUDE_SKILL_DIR}/scripts/ready-for-review.sh --pr "$PR_NUMBER" --repo "$OWNER/$REPO" --plain

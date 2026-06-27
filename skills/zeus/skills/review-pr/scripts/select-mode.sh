@@ -18,8 +18,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-LOC_THRESHOLD="${REVIEW_PR_LOC_THRESHOLD:-400}"
-FILE_THRESHOLD="${REVIEW_PR_FILE_THRESHOLD:-8}"
+# Thresholds come from the unified config (lib/config.sh, sourced via lib.sh):
+# repo .git/zeus/config.json > user ~/.config/zeus/config.json > shipped default.
+# Env ZEUS_REVIEW_LOC_THRESHOLD / ZEUS_REVIEW_FILE_THRESHOLD override for one-offs.
+LOC_THRESHOLD="$(config_get review.loc_threshold 400)"
+FILE_THRESHOLD="$(config_get review.file_threshold 8)"
 override="none"
 for a in "$@"; do
   case "$a" in

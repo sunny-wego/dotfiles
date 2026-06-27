@@ -13,7 +13,8 @@
 #                1 = nothing to commit/push
 #
 # Iteration is read from $STATE_FILE (state.sh init must have been called).
-# Max iterations is configurable via MAX_ITERATIONS env var (default 5).
+# Max iterations: the MAX_ITERATIONS env (set by the caller) wins; otherwise the
+# unified config supplies it (address.max_iterations; repo/user/default via config.sh).
 #
 # On --watch timeout, exits deterministically with {action: "wait", reason: "check-watch timeout"}.
 #
@@ -28,7 +29,7 @@ source "$SCRIPT_DIR/lib.sh"
 resolve_pr "$@"
 pr="${PR:?Usage: wait-and-evaluate.sh --pr <n> <push_exit>}"
 push_exit="${REST[0]:?push_exit required (-1, 0, or 1)}"
-max_iter="${MAX_ITERATIONS:-5}"
+max_iter="${MAX_ITERATIONS:-$(config_get address.max_iterations 5)}"
 
 iteration=$(bash "$SCRIPT_DIR/state.sh" iteration 2>/dev/null || echo 0)
 

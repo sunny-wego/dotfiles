@@ -5,7 +5,8 @@
 # must not share a lifecycle):
 #   defaults — <skill-dir>/auto-ping.json          (ships with the skill; template)
 #   override — $CONFIG_DIR/auto-ping.json          (user-owned; where edits land)
-# with CONFIG_DIR = ${REQUEST_REVIEW_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/request-review}.
+# with CONFIG_DIR = ${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/zeus}/request-review
+# (the unified Zeus config home; never committed; `migrate-config.sh` relocates the old path).
 # Reads merge override repos over defaults (override wins per repo); all writes
 # go to the override file only — the in-skill file is never mutated.
 #
@@ -37,7 +38,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULTS="$SCRIPT_DIR/../auto-ping.json"
-CONFIG_DIR="${REQUEST_REVIEW_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/request-review}"
+CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/request-review"
 OVERRIDE="$CONFIG_DIR/auto-ping.json"
 
 merged_repos() {

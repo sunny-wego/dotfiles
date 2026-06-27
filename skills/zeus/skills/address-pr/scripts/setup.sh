@@ -37,7 +37,7 @@ case "$_top" in
     ;;
 esac
 
-pr_json=$(bash "$SCRIPT_DIR/identify-pr.sh" --checkout)
+pr_json=$(bash "$SCRIPT_DIR/pr-for-branch.sh" --checkout)
 pr=$(echo "$pr_json" | jq -r '.number')
 branch=$(echo "$pr_json" | jq -r '.branch')
 base=$(echo "$pr_json" | jq -r '.base')

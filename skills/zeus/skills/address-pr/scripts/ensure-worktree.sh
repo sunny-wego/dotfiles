@@ -15,7 +15,7 @@
 # is false, calls the EnterWorktree tool with that path BEFORE running setup.sh.
 #
 # Fork-safe: creation delegates the actual branch checkout to `gh pr checkout`
-# (same mechanism identify-pr.sh uses), so head refs on forks resolve correctly.
+# (same mechanism pr-for-branch.sh uses), so head refs on forks resolve correctly.
 #
 # Usage: ensure-worktree.sh [--pr <n>]   (a bare number is also accepted)
 #   <pr_number>  the PR to isolate. Omitted → inferred from the current branch

@@ -8,7 +8,7 @@
 # no merge: every `cloudId`/`spaceKey`/`parentId`/`mode` is identical for everyone
 # on a repo, so a single user-owned file with a flat per-repo lookup is enough.
 #
-#   store: ${PROPOSE_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/propose}/confluence.json
+#   store: ${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/zeus}/propose/confluence.json
 #   shape: { "repos": { "owner/repo": { cloudId, spaceKey, spaceId?, parentId?,
 #                                       mode, defaultStatus } } }
 #
@@ -46,7 +46,7 @@
 
 set -euo pipefail
 
-CONFIG_DIR="${PROPOSE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/propose}"
+CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/propose"
 STORE="$CONFIG_DIR/confluence.json"
 
 repos() {
