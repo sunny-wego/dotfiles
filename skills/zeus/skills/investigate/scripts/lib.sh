@@ -4,24 +4,23 @@ set -euo pipefail
 
 DRY_RUN="${DRY_RUN:-0}"
 
+# Shared family helpers (one copy in zeus/lib/, sourced — never pasted). run() and
+# the repo identity/default-branch helpers come from here (this skill's old run()
+# was `set -u`-unsafe and its base_branch had no offline fallback).
+ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
+# shellcheck source=../../../lib/run.sh
+source "$ZEUS_LIB_DIR/run.sh"
+# shellcheck source=../../../lib/repo.sh
+source "$ZEUS_LIB_DIR/repo.sh"
+
 die() { echo "investigate: $*" >&2; exit 1; }
 log() { echo "investigate: $*" >&2; }
 
-# Run a mutating command, or print it under --dry-run / DRY_RUN=1.
-run() {
-  if [ "$DRY_RUN" = "1" ]; then
-    echo "[dry-run] $*" >&2
-    return 0
-  fi
-  "$@"
-}
-
 require() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
-repo_slug() { gh repo view --json nameWithOwner --jq .nameWithOwner; }
-repo_owner() { repo_slug | cut -d/ -f1; }
-repo_name()  { repo_slug | cut -d/ -f2; }
-base_branch() { gh repo view --json defaultBranchRef --jq .defaultBranchRef.name; }
+# base_branch — investigate's name for the repo default branch (now the resilient,
+# stack-agnostic resolver from repo.sh; callers unchanged).
+base_branch() { repo_default_branch; }
 
 # ── Per-worktree investigation state ────────────────────────────────────────
 # Stored under <gitdir>/investigate/ as ONE FILE PER FIELD (epic, project, report,

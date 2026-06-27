@@ -6,6 +6,12 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+# Shared family helpers (one copy in zeus/lib/, sourced — never pasted). repo.sh
+# provides repo_default_branch (resilient; this skill's old copy failed hard offline).
+ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
+# shellcheck source=../../../lib/repo.sh
+source "$ZEUS_LIB_DIR/repo.sh"
+
 # shellcheck disable=SC2034  # REPO_ROOT/MANAGED_* are consumed by scripts that source this lib
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 CURRENT_BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
@@ -13,10 +19,6 @@ CURRENT_BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
 MANAGED_START='<!-- create-pr:managed:start -->'
 # shellcheck disable=SC2034
 MANAGED_END='<!-- create-pr:managed:end -->'
-
-repo_default_branch() {
-  gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
-}
 
 branch_merge_base() {
   if [ -n "$CURRENT_BRANCH" ]; then
