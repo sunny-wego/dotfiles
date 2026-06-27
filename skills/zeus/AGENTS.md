@@ -247,6 +247,16 @@ zeus/
   go through the identifier parser.
 - **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
   via `config.sh`, never hard-coded; user/repo config is never committed.
+- **Optional external integrations have exactly ONE owner skill, reached by name.**
+  Slack lives in `request-review`, Confluence in `propose`; SonarQube / Vercel are
+  `address-pr` handlers. Other skills never post to a channel directly or call the
+  owner's scripts by path — they invoke the owner skill with a JSON contract, so its
+  `allowed-tools` are the *only* place that integration's MCP tools appear (e.g.
+  `address-pr` carries no Slack tools — it hands the verdict to `request-review`).
+  Each integration is **MCP-gated and degrades gracefully**: MCP reachability can't
+  be probed from a script, so the owning skill confirms it live and falls back to the
+  GitHub-only path when it's absent (never a hard failure). A *new* integration
+  (e.g. Jira) follows the same shape — pick an owner, don't add a posting lib.
 - **Stay agnostic:** no language/stack/CI assumptions — detect at runtime and degrade
   gracefully; resolve the base branch via `repo.sh` (never hard-code `main`/`master`).
 - When you add or change a script's CLI, update its `Usage:` header, the call-sites in

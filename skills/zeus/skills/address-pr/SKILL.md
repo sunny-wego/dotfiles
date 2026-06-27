@@ -12,7 +12,7 @@ compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Ve
 metadata:
   author: sunnywong
   version: "4.6"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__* mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__*
 ---
 
 # Address PR
@@ -261,7 +261,9 @@ a one-line Original-Intent note if captured.
 **Request review (delegated — REQUIRED when auto-ping is enabled).** Reviewer notification lives in the
 **`request-review`** skill, the *notifier*. address-pr is the *arbiter*: it produces the readiness verdict
 and hands it over — it does not own channels, handles, dedup, or thread state, and it does **not** call
-request-review's scripts by path. The hand-off is a **skill invocation by name** carrying data:
+request-review's scripts by path. (This is why address-pr carries **no Slack tools** in `allowed-tools`:
+the Slack send happens inside `request-review`, under *its* permissions — address-pr literally can't post
+Slack, only hand off the verdict.) The hand-off is a **skill invocation by name** carrying data:
 
 1. Produce the verdict: `READY=$(bash ${CLAUDE_SKILL_DIR}/scripts/ready-for-review.sh --pr "$PR_NUMBER" --repo "$OWNER/$REPO")`.
 2. **Invoke the `request-review` skill** (Skill tool, `ping` mode), passing as input: the verdict JSON
