@@ -18,7 +18,7 @@ metadata:
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) AskUserQuestion mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 
-# Review Handoff
+# Request Review
 
 Notify a PR's **code owners** that it is ready, and keep them in sync with a threaded re-review when it
 changes. The skill has two states per repo: **ping the code owners** (enabled) or **ping no-one**
@@ -30,9 +30,11 @@ only format.
 
 ## The verdict contract (input)
 Callers pipe a readiness verdict JSON (the shape `ready-for-review.sh` emits):
-`{ ready, blockers, warnings, head_sha, pr_url, pr_number, title, branch, linked_issue? }`.
-Every entry point takes it via `--from <file>` or `--from-stdin`. This skill computes nothing about
-CI/merge/review state itself — feed it from an arbiter, a CI job, or a test fixture.
+`{ ready: bool, blockers: [...], warnings: [...], head_sha, pr_url, pr_number, title, branch, linked_issue? }`.
+Only `ready` gates the ping (`false` → no send); `blockers`/`warnings` are informational and never appear
+in the message (the ping is terse by design). Every entry point takes it via `--from <file>` or
+`--from-stdin`. This skill computes nothing about CI/merge/review state itself — feed it from an arbiter,
+a CI job, or a test fixture.
 
 ## Invocation contract (for sibling skills)
 
