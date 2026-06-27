@@ -8,16 +8,16 @@ description: >-
   (checks it out in an isolated worktree, posts findings as comments) OR — when
   you're pre-PR — the local working diff vs its base (renders findings locally,
   posts nothing). Read-only either way: it diagnoses and hands findings back, never
-  edits. Use when asked to review a PR, do a code review, critique a pull request,
-  or review your local changes before opening a PR. Triggers on: "review pr",
-  "review this pr", "code review", "critique this pr", "review my changes/diff
-  before PR", a PR URL, or "/zeus:review-pr [url|number|--local]".
+  edits. Use when asked to review a pull request, critique a PR, or review your
+  local changes before opening a PR. Triggers on: "review pr", "review this pr",
+  "code review this pr", "critique this pr", "review my changes/diff before PR", a
+  PR URL, or "/zeus:review-pr [url|number|--local]".
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier.
 metadata:
   author: sunnywong
   version: "0.1"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup Skill Task Agent
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent
 
 ---
 

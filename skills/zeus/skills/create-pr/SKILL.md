@@ -16,7 +16,7 @@ compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
   version: "1.2"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*) Skill
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*) AskUserQuestion Skill
 ---
 
 # Create PR

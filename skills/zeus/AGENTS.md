@@ -204,9 +204,12 @@ zeus/
 
 - **`resolve_pr` / `resolve_target` live in each skill's `scripts/lib.sh`.** The two
   PR-workflow copies are kept identical; if you change one, change the other.
-- **`zeus/lib/` is the vendoring source**, not a runtime import — shared scripts
-  (e.g. `journey-marker.sh`) are copied into each skill's `scripts/`. Edit the source
-  in `zeus/lib/` AND the vendored copies together.
+- **`zeus/lib/` is the source for shared scripts** (`journey.sh`, `journey-marker.sh`,
+  `preflight.sh`, `watermark.sh`, `telemetry.sh`, `preview.sh`), each **symlinked** into
+  the skills' `scripts/` dirs that use it — so editing the source in `zeus/lib/` updates
+  every skill at once (there are no separate copies to keep in sync). The per-skill
+  `lib.sh` (which carries `resolve_pr`/`resolve_target`) is the exception: it is a real
+  per-skill file, and the PR-workflow copies are kept identical by hand.
 - **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`,
   `.git/request-review/`), isolated across worktrees.
 
