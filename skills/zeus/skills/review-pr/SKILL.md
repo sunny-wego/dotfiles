@@ -1,14 +1,17 @@
 ---
 name: review-pr
 description: >-
-  Review a GitHub pull request and post findings as comments (inline where
-  possible), each clearly labeled Confirmed (with reproduction evidence) or
-  Hypothesis (for the author to verify). Checks the PR out in an isolated
-  worktree, reviews across correctness, concurrency, resilience, data/migrations,
-  API contract, security, and tests, and verifies what it cheaply and safely can.
-  Use when asked to review a PR, do a code review, or critique a pull request.
-  Triggers on: "review pr", "review this pr", "code review", "critique this pr",
-  a PR URL, or "/zeus:review-pr <url|number>".
+  Review code and report findings, each clearly labeled Confirmed (with
+  reproduction evidence) or Hypothesis (to verify). Reviews across correctness,
+  concurrency, resilience, data/migrations, API contract, security, and tests, and
+  verifies what it cheaply and safely can. Auto-detects its target: an open PR
+  (checks it out in an isolated worktree, posts findings as comments) OR — when
+  you're pre-PR — the local working diff vs its base (renders findings locally,
+  posts nothing). Read-only either way: it diagnoses and hands findings back, never
+  edits. Use when asked to review a PR, do a code review, critique a pull request,
+  or review your local changes before opening a PR. Triggers on: "review pr",
+  "review this pr", "code review", "critique this pr", "review my changes/diff
+  before PR", a PR URL, or "/zeus:review-pr [url|number|--local]".
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier.
 metadata:
@@ -20,46 +23,82 @@ allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP
 
 # Review PR
 
-Review a pull request and leave findings the author can act on. Every finding is
-posted with an honest trust label — **Confirmed** (reproduced, with evidence) or
-**Hypothesis** (a concern to verify) or **Nit** — so nothing is hidden and
-nothing is overstated. This skill is read-only on the PR's code: it diagnoses and
-comments, it never edits, commits, or pushes.
+Review code and leave findings the author can act on. Every finding carries an
+honest trust label — **Confirmed** (reproduced, with evidence), **Hypothesis** (a
+concern to verify), or **Nit** — so nothing is hidden and nothing is overstated.
+This skill is **read-only**: it diagnoses and reports, it never edits, commits, or
+pushes. Its terminal action is a **handoff** — it hands the findings back; fixing is
+the caller's job (the LLM, in its normal flow).
+
+It works in two targets, **auto-detected** so you never have to say which:
+
+- **Remote (open PR)** — the reviewer role: checks the PR out in an isolated
+  worktree and posts findings as comments (the inverse of `address-pr`).
+- **Local (pre-PR)** — the author's self-review: reviews the current branch's
+  working diff vs its base with the **same** engine, renders findings locally, and
+  **posts nothing** (there's no PR yet). This is the pre-PR gate `/zeus:implement`
+  and `/zeus:create-pr` invoke before a PR is opened.
 
 State lives under the checkout's `.git/review-pr/` (created by `scripts/lib.sh`).
 Prefer the scripts in `scripts/` over hand-rolled `gh`/`git` — they own the
-diff/anchor extraction and the review assembly you'd otherwise reproduce by hand.
+target detection, diff/anchor extraction, and review assembly.
 
 ## Modes
 
+The default — **no flag, no arg** — auto-detects the target via `detect-target.sh`
+(see Flow step 1): local when you're pre-PR, remote once a PR exists for the branch.
+Flags are overrides.
+
 | Invocation | Intent |
 |---|---|
-| `/zeus:review-pr <url\|number>` | Full review. **`select-mode.sh` picks single-context vs parallel fan-out from the diff size** (parallel when reviewable LOC ≥ 400 or files ≥ 8). Dry-run: renders the review, posts nothing. |
+| `/zeus:review-pr` | **Auto-detect.** No open PR for the branch → review the **local** working diff (pre-PR). Open PR exists and the branch matches its head → review that **PR**. Open PR but local has uncommitted/unpushed changes → **local** (review the real on-disk state, not the stale pushed head). |
+| `… <url\|number>` | Force **remote** review of that PR (explicit override). |
+| `… --local [--base <ref>] [--include-dirty]` | Force **local** review (override — even if a PR is open). `--base` picks the diff base (default: repo default branch); `--include-dirty` includes uncommitted changes. |
 | `… --deep` | Force parallel fan-out regardless of size. |
 | `… --single` | Force single-context regardless of size. |
 | `… <handler>` | Run one dimension standalone (`correctness`, `concurrency-idempotency`, `resilience`, `data-migrations`, `api-contract`, `security`, `tests`) — always single-context. |
-| `… --submit` | Post the review (event `COMMENT`). Default without this flag is dry-run. |
+| `… --submit` | (remote only) Post the review (event `COMMENT`). Default without this flag is dry-run; refused in local mode (no PR to post to). |
 | `… --submit --request-changes` | Post as `REQUEST_CHANGES` (explicit only; the skill never auto-blocks). |
+
+In both `select-mode.sh` picks single-context vs parallel fan-out from the diff
+size (parallel when reviewable LOC ≥ 400 or files ≥ 8).
 
 ## Flow
 
-### 1. Resolve & isolate
+### 1. Detect the target (local vs remote), then resolve
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/identify-pr.sh <url|number> > /tmp/rp-pr.json   # → owner/repo/number/head_sha/foreign
+bash ${CLAUDE_SKILL_DIR}/scripts/detect-target.sh "$@" > /tmp/rp-target.json   # → {mode:"local"|"remote", ...}
+```
+`detect-target.sh` is the deterministic decision (auto by default; `--local`/`--base`
+and a PR arg are overrides — see its header). Read `.mode` and branch:
+
+**`.mode == "local"` (pre-PR self-review):** you're already on the branch, so there's
+no PR to resolve and no checkout. Extract the working diff and pick the run mode:
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --local [--base <ref>] [--include-dirty]
+bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]
+```
+If `detect-target.sh` returned a `.note` (e.g. an open PR exists but the branch has
+unpushed/uncommitted changes), surface it so the user knows local was chosen on
+purpose. Skip `identify-pr.sh` / `ensure-checkout.sh` entirely.
+
+**`.mode == "remote"` (review an open PR):**
+```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/ensure-checkout.sh --pr <n> --repo <owner/repo> --foreign <bool>
 ```
 - If `.mode == "worktree"` and `.already_inside == false`: call the **EnterWorktree**
   tool with `.path` before reading any code, so you review the PR head — not
   whatever branch the launch checkout is on.
 - If `.mode == "foreign-clone"`: read and run from `.path` directly (absolute paths).
-- Then extract the diff + anchorable lines (the single source of truth for where
-  inline comments may land):
+- Then extract the diff + anchorable lines:
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --pr <n> --repo <owner/repo>
 bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]   # → {mode, applicable_handlers, reviewable_loc, ...}
 ```
-`select-mode.sh` is the deterministic decision: read `.mode` (`single`|`parallel`)
-and `.applicable_handlers`. Log the line it prints so misfires are tunable.
+Either way `extract-diff.sh` writes the diff + anchorable lines (the single source of
+truth for where inline comments may land), and `select-mode.sh` deterministically
+reads `.mode` (`single`|`parallel`) and `.applicable_handlers`. Log the line it
+prints so misfires are tunable.
 
 ### 2. Read the contract once
 Read `references/review-contract.md` before the first handler — it owns the
@@ -109,21 +148,32 @@ output** into `evidence`, then set `status: confirmed`; otherwise leave
 serial** even under `--deep` (the parallel agents only diagnose) — never touch
 shared/long-lived infra; on any denial, stay `hypothesis`.
 
-### 6. Render & post (dry-run by default)
+### 6. Render & hand off
 ```bash
+# remote PR:
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --dry-run        # default: render, post nothing
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --submit         # explicit: post one COMMENT review
+# local (pre-PR):
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --local          # render findings locally, post nothing
 ```
-Show the dry-run to the user. Only `--submit` on explicit instruction. The script
-validates labels (confirmed⇒evidence, hypothesis⇒verify), demotes off-diff
-anchors to the summary, and dedups already-posted ids on re-review.
+The script validates labels (confirmed⇒evidence, hypothesis⇒verify) and demotes
+off-diff anchors to the summary in either mode.
+
+- **Remote:** show the dry-run to the user; only `--submit` on explicit instruction
+  (it dedups already-posted ids on re-review).
+- **Local:** `post-review.sh` always renders and **posts nothing** (it refuses
+  `--submit` — there's no PR). **Hand the findings back to the caller** — summarize
+  the Confirmed findings and worthwhile Hypotheses so the LLM can fix them in its
+  normal flow. review-pr does not fix, loop, or re-review; that's the caller's job.
 
 ### 7. Cleanup
 Remove the per-run state and any throwaway verify resources. Leave the worktree
 (reused on a re-review of the same PR) unless asked to remove it.
 
 ## Scope discipline
-- Diagnose only — no edits/commits/pushes to the PR.
-- Don't post pre-existing issues (true on the base branch) as this PR's findings.
+- **Diagnose only — no edits/commits/pushes, in either mode.** Local mode reviews the
+  author's own diff but still never fixes it: it renders findings and hands them back.
+  Fixing belongs to the caller (`/zeus:implement`, `/zeus:create-pr`, or the user).
+- Don't report pre-existing issues (true on the base branch) as this change's findings.
 - Default review event is `COMMENT`; never auto-`REQUEST_CHANGES`.
 - A clean pass (no findings) is a valid result — say so; don't manufacture noise.

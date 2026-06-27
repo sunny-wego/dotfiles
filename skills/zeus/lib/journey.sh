@@ -7,12 +7,13 @@
 #   .git/journey/branch                 last branch that wrote (advisory)
 #   .git/journey/issue.json             {number,url,title}   — written by propose
 #   .git/journey/pr.json                {number,url}         — written by create-pr
+#   .git/journey/review.json            {sha}                — written by implement (pre-PR review watermark)
 #   .git/journey/investigation/epic     epic number          — written by investigate
 #   .git/journey/investigation/report   report path          — written by investigate (optional)
 #
 # WHY one-file-per-fact instead of a single journey.json + advisory lock:
 #   - Each fact has exactly ONE writer class (propose writes issue, create-pr writes pr,
-#     investigate writes investigation). Giving each its own file means no two writers ever
+#     investigate writes investigation, implement writes review). Giving each its own file means no two writers ever
 #     touch the same file, and every write is published by ATOMIC RENAME (tmp -> mv): a
 #     reader sees the whole old or whole new value, and concurrent writers can't lose each
 #     other's data. That removes BOTH the hand-rolled mkdir-lock AND the merge-into-namespace
@@ -30,12 +31,14 @@
 # Usage:
 #   journey.sh write-issue <number> <url> <title>
 #   journey.sh write-pr    <number> <url>
+#   journey.sh write-review <sha>      # implement records the SHA it reviewed pre-PR
 #   journey.sh write-investigation <epic> [report]   # investigate publishes the active Epic
 #   journey.sh lookup                  # full JSON ({} if nothing written)
 #   journey.sh issue-number            # bare number or empty
 #   journey.sh issue-url               # bare URL or empty
 #   journey.sh pr-number               # bare number or empty
 #   journey.sh pr-url                  # bare URL or empty
+#   journey.sh reviewed-sha            # bare SHA of the last pre-PR review, or empty
 #   journey.sh investigation-epic      # bare Epic number or empty
 #   journey.sh clear                   # remove the store
 
@@ -85,7 +88,7 @@ migrate_legacy() {
   rm -f "$LEGACY"
 }
 
-cmd="${1:?Usage: journey.sh <write-issue|write-pr|write-investigation|lookup|issue-number|issue-url|pr-number|pr-url|investigation-epic|clear> ...}"
+cmd="${1:?Usage: journey.sh <write-issue|write-pr|write-review|write-investigation|lookup|issue-number|issue-url|pr-number|pr-url|reviewed-sha|investigation-epic|clear> ...}"
 
 migrate_legacy
 
@@ -107,6 +110,16 @@ case "$cmd" in
       "$(jq -nc --argjson n "$number" --arg u "$url" '{number:$n, url:$u}')"
     ;;
 
+  write-review)
+    # implement records the SHA it ran the pre-PR review against, so create-pr's
+    # backstop can skip a redundant review when HEAD hasn't moved. Single writer
+    # (implement), so a plain atomic_write is race-free like the other facts.
+    sha="${2:?reviewed sha required}"
+    atomic_write "$DIR/branch" "$BRANCH"
+    atomic_write "$DIR/review.json" \
+      "$(jq -nc --arg s "$sha" '{sha:$s}')"
+    ;;
+
   write-investigation)
     epic="${2:?epic number required}"
     pm="${3:-}"
@@ -125,15 +138,16 @@ case "$cmd" in
     branch=""; [ -f "$DIR/branch" ] && branch="$(cat "$DIR/branch")"
     issue='{}'; [ -f "$DIR/issue.json" ] && issue="$(cat "$DIR/issue.json")"
     pr='{}'; [ -f "$DIR/pr.json" ] && pr="$(cat "$DIR/pr.json")"
+    review='{}'; [ -f "$DIR/review.json" ] && review="$(cat "$DIR/review.json")"
     if [ -f "$DIR/investigation/epic" ]; then
       epic="$(cat "$DIR/investigation/epic")"
       rep=""; [ -f "$DIR/investigation/report" ] && rep="$(cat "$DIR/investigation/report")"
       inv="$(jq -nc --argjson e "$epic" --arg r "$rep" '{epic:$e} + (if $r != "" then {report:$r} else {} end)')"
-      jq -nc --arg b "$branch" --argjson i "$issue" --argjson p "$pr" --argjson v "$inv" \
-        '{branch:$b, issue:$i, pr:$p, investigation:$v}'
+      jq -nc --arg b "$branch" --argjson i "$issue" --argjson p "$pr" --argjson r "$review" --argjson v "$inv" \
+        '{branch:$b, issue:$i, pr:$p, review:$r, investigation:$v}'
     else
-      jq -nc --arg b "$branch" --argjson i "$issue" --argjson p "$pr" \
-        '{branch:$b, issue:$i, pr:$p}'
+      jq -nc --arg b "$branch" --argjson i "$issue" --argjson p "$pr" --argjson r "$review" \
+        '{branch:$b, issue:$i, pr:$p, review:$r}'
     fi
     ;;
 
@@ -151,6 +165,10 @@ case "$cmd" in
 
   pr-url)
     if [ -f "$DIR/pr.json" ]; then jq -r '.url // empty' "$DIR/pr.json"; else echo ""; fi
+    ;;
+
+  reviewed-sha)
+    if [ -f "$DIR/review.json" ]; then jq -r '.sha // empty' "$DIR/review.json"; else echo ""; fi
     ;;
 
   clear)

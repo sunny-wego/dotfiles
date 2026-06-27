@@ -2,11 +2,20 @@
 
 The **issue → code → PR → review** workflow as one skill family. Align on work as
 GitHub issues (`propose`, `investigate`), turn an issue into code on a branch
-(`implement`), surface it as a reviewer-friendly PR (`create-pr`), drive it to
-mergeable (`address-pr`), and hand off to a reviewer (`request-review`). Skills
+(`implement`) — which reviews its own diff via `review-pr` before handing off —
+surface it as a reviewer-friendly PR (`create-pr`, which backstops the same review),
+drive it to mergeable (`address-pr`), and hand off to a reviewer (`request-review`).
+`review-pr` is the shared review engine: auto-detected **local** (pre-PR working
+diff) or **remote** (an open PR). `improve` retrospects on the family itself. Skills
 share durable facts through a per-worktree `journey.json` (and a hidden journey
 marker in the PR body), and invoke each other **by name** through JSON contracts —
 never by calling one another's scripts directly.
+
+```
+propose / investigate → implement ──(review-pr: local)──▶ create-pr ──(backstop)──▶ address-pr → request-review
+                          self-verify + review own diff      review gate          drive to settled   ping reviewer
+review-pr ── one engine, auto-detected: local (pre-PR) | remote (open PR)        improve ── retro on the family
+```
 
 This file documents the **shell-script CLI surface** of the family: the shared
 argument convention, the parser every script uses, and a per-skill reference.
@@ -18,10 +27,12 @@ For the *behavioral* flow of a given skill, read its `SKILL.md`.
 |---|---|---|
 | [`propose`](./skills/propose/SKILL.md) | "propose X", "open an issue", "write an RFC" | Put a proposal/decision doc up for alignment as a GitHub issue. |
 | [`investigate`](./skills/investigate/SKILL.md) | "investigate X", "open a postmortem", "record this finding" | Evidence-driven investigation maintained as a GitHub issue. |
-| [`implement`](./skills/implement/SKILL.md) | "do #N", "implement the issue", "ship the proposal" | Read an issue as the spec, write the code on a branch, hand off to `create-pr`. |
-| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section). |
+| [`implement`](./skills/implement/SKILL.md) | "do #N", "implement the issue", "ship the proposal" | Read an issue as the spec, write the code on a branch, **review the diff** (`review-pr`) and fix, hand off to `create-pr`. |
+| [`review-pr`](./skills/review-pr/SKILL.md) | "review pr", "code review", "review my changes before PR", a PR URL | Read-only review across 7 dimensions; **auto-detects** local (pre-PR working diff) vs remote (open PR). Diagnoses + hands findings back — never fixes. |
+| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section); **backstops** the pre-PR review when invoked directly. |
 | [`address-pr`](./skills/address-pr/SKILL.md) | "fix pr", "address feedback", "resolve merge conflicts" | Drive a PR to **settled** (mergeable, checks green, reviews resolved), then watch. |
 | [`request-review`](./skills/request-review/SKILL.md) | "ping reviewers", "request review", "re-review" | Notify a PR's code owners it's ready; re-ping in-thread when the head advances. |
+| [`improve`](./skills/improve/SKILL.md) | "/zeus:improve", "retro this session", "iterate on the skills" | Meta/orthogonal: harvest a session's friction and land fixes in zeus or the repo's guidance. |
 
 ## CLI argument convention
 
@@ -122,7 +133,7 @@ update docs) when you add or edit a script.
 |---|---|
 | `state.sh` | `init <pr> <branch> <base>` · `iteration` · `bump-iteration` · `append <handler> <json>` · `read` · `clear` · `queue-reply` · `queue-review-body-reply` · `queue-resolve` · `queue-reaction` · `flush-queue` |
 | `monitor-state.sh` | `init <pr> <head_sha> [last_seen]` · `get` · `set-last-seen <ts>` · `pr` · `last-seen` · `bump-idle` · `reset-idle` · `idle-streak` · `bump-probe-failure` · `reset-probe-failures` · `probe-failures` · `set-last-acked` · `last-acked` · `clear` |
-| `journey.sh` | `write-issue` · `write-pr` · `write-investigation` · `lookup` · `issue-number` · `issue-url` · `pr-number` · `pr-url` · `investigation-epic` · `clear` |
+| `journey.sh` | `write-issue` · `write-pr` · `write-review <sha>` · `write-investigation` · `lookup` · `issue-number` · `issue-url` · `pr-number` · `pr-url` · `reviewed-sha` · `investigation-epic` · `clear` |
 | `journey-marker.sh` | `emit` · `parse` · `splice` · `read <pr> [owner/repo]` · `write <pr> [owner/repo]` (stdin JSON) |
 | `check-pr-relevance-llm.sh` | `snapshot <pr> <pre\|post>` · `build-prompt <pr> [conflict_files]` · `gate - [threshold]` |
 | `original-intent.sh` | `capture <pr>` · `parse` · `read` |
@@ -159,12 +170,20 @@ update docs) when you add or edit a script.
 `watermark.sh` (`--tag <skill>` | `<skill> <file>|-|--in-place <file>`),
 `preflight.sh` (`[--fix]`), `lib.sh` (sourced).
 
-> The other four skills (`propose`, `investigate`, `implement`, `create-pr`) carry
-> their own scripts under `skills/<skill>/scripts/`. They follow the same house
-> rules (identifiers as `--pr/--repo`, verbs positional, payloads via stdin); the
-> detailed per-script reference above covers the PR-workflow pair where the parser
-> currently lives. New or edited scripts in any skill should route identifiers
-> through `resolve_pr`/`resolve_target` and pass `check-arg-conventions.sh`.
+> The other skills (`propose`, `investigate`, `implement`, `review-pr`, `create-pr`,
+> `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
+> same house rules (identifiers as `--pr/--repo`, verbs positional, payloads via
+> stdin); the detailed per-script reference above covers the PR-workflow pair where
+> the parser currently lives. New or edited scripts in any skill should route
+> identifiers through `resolve_pr`/`resolve_target` and pass `check-arg-conventions.sh`.
+>
+> `review-pr` adds **target auto-detection**: `detect-target.sh "$@"` emits
+> `{mode:"local"|"remote", …}` (local pre-PR, remote once a PR exists; `--local`/
+> `--base <ref>` and a PR arg are overrides). In local mode `extract-diff.sh --local
+> [--base <ref>] [--include-dirty]` diffs the working branch vs its base with **no
+> network** and `post-review.sh --local` renders findings without posting. `--base`
+> takes a ref, so it is parsed by those scripts directly and never routed through the
+> identifier parser (rule 5).
 
 ## Structure & shared lib
 

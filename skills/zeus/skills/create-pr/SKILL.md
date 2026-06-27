@@ -106,6 +106,29 @@ INVESTIGATION_EPIC=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh investigation-e
 
 If `$INVESTIGATION_EPIC` is non-empty, pass `--label investigation` to `post-pr.sh` (step 3) so the PR self-files under the investigation, and consider noting "Part of investigation #$INVESTIGATION_EPIC" in the body. If empty (the common case), this is a no-op — `/zeus:create-pr` is unchanged and needs no `/zeus:investigate`.
 
+### 1c. Pre-PR review backstop (optional)
+
+Don't open a PR on un-reviewed code. `/zeus:implement` normally reviews the diff before
+handing off (and records the reviewed SHA); this is the **backstop** for when
+`/zeus:create-pr` is invoked directly. It's a gate, not a fixer — create-pr never edits code.
+
+```bash
+REVIEWED=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh reviewed-sha 2>/dev/null || true)
+HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || true)
+```
+
+- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed upstream by `/zeus:implement`).
+- Otherwise (empty or stale) → **invoke `/zeus:review-pr` by name** (the skill, never its
+  scripts — family doctrine). It auto-detects, and since the PR isn't open yet it reviews
+  the **local working diff** and hands the findings back. Keep a short summary of the
+  Confirmed findings (and notable Hypotheses) to show in the confirm step (2c).
+- If `/zeus:review-pr` isn't installed → **skip silently** (independence preserved, same
+  as the journey lookups above being no-ops).
+
+create-pr does **not** fix anything here. If findings warrant changes, the user picks
+"Fix first" at the confirm step and control returns to the LLM (or `/zeus:implement`) to
+fix them normally; re-run `/zeus:create-pr` afterward.
+
 ### 2. Generate title + body
 
 #### Title
@@ -187,9 +210,15 @@ Required sections: `## Original Intent` (with at least `- Purpose:` and `- Scope
 bash ${CLAUDE_SKILL_DIR}/scripts/preview.sh "<title>" "$BODY_FILE" 60
 ```
 
+If the backstop review (1c) produced findings, show a one-line-per-finding summary
+above the preview so the decision is informed, and offer the **Fix first** option.
+
 Options:
 
 - **Post as-is** — runs step 3.
+- **Fix first** — *(offer only when 1c surfaced findings)* stop without posting and
+  hand control back to the LLM (or `/zeus:implement`) to fix the findings normally;
+  re-run `/zeus:create-pr` afterward. create-pr does not fix code itself.
 - **Edit** — open the draft for inline edits, then re-ask.
 - **Save draft only** — print `$BODY_FILE` and stop.
 - **Cancel** — discard.

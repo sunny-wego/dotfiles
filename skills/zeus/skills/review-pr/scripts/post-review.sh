@@ -6,9 +6,11 @@
 # Default is --dry-run: render the whole review to stdout, post nothing.
 #
 # Usage:
-#   post-review.sh [--dry-run|--submit] [--request-changes] [--findings <file>]
+#   post-review.sh [--dry-run|--submit|--local] [--request-changes] [--findings <file>]
 #     --dry-run         (default) print preview + payload, post nothing
 #     --submit          actually POST the review (event COMMENT)
+#     --local           pre-PR local review: render findings to stdout, post NOTHING
+#                       (there is no PR to post to). Read-only — the caller fixes.
 #     --request-changes with --submit, use event REQUEST_CHANGES (explicit only)
 #
 # Requires $PR_FILE, $ANCHORS_FILE, $FINDINGS_FILE to exist (setup steps run first).
@@ -22,6 +24,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) mode="dry-run"; shift ;;
     --submit) mode="submit"; shift ;;
+    --local) mode="local"; shift ;;
     --request-changes) event="REQUEST_CHANGES"; shift ;;
     --findings) findings="${2:?}"; shift 2 ;; --findings=*) findings="${1#*=}"; shift ;;
     *) shift ;;
@@ -30,6 +33,14 @@ done
 [ -f "$PR_FILE" ]      || { echo "post-review: missing $PR_FILE (run identify/setup first)" >&2; exit 2; }
 [ -f "$findings" ]     || { echo "post-review: missing findings file $findings" >&2; exit 2; }
 [ -f "$ANCHORS_FILE" ] || echo '{}' > "$ANCHORS_FILE"
+
+# A local (pre-PR) review has no PR to post to — posting is meaningless and unsafe.
+is_local=$(jq -r '.local // false' "$PR_FILE" 2>/dev/null || echo false)
+if [ "$is_local" = "true" ] && [ "$mode" = "submit" ]; then
+  echo "post-review: refusing --submit on a local (pre-PR) review — there is no PR. Use --local (render only)." >&2
+  exit 2
+fi
+[ "$is_local" = "true" ] && mode="local"   # local metadata always renders, never posts
 
 python3 - "$PR_FILE" "$ANCHORS_FILE" "$findings" "$mode" "$event" "$REVIEW_FILE" <<'PY'
 import sys, json
@@ -123,9 +134,14 @@ review = {"commit_id": pr.get("head_sha"), "event": event, "body": body, "commen
 # Always persist the machine payload; stdout stays human-only.
 json.dump(review, open(review_file, "w"))
 
-if mode == "dry-run":
+if mode in ("dry-run", "local"):
     print("="*72)
-    print(f"DRY RUN — nothing posted. PR {pr.get('owner')}/{pr.get('repo')}#{pr.get('number')} @ {pr.get('head_sha','')[:12]}")
+    if mode == "local":
+        target = f"{pr.get('owner')}/{pr.get('repo')} branch {pr.get('title') or '(detached)'} @ {pr.get('head_sha','')[:12]} vs {pr.get('base','')}"
+        print(f"LOCAL REVIEW (pre-PR) — read-only, nothing posted. {target}")
+        print("Findings are handed back for the caller to fix; review-pr never edits.")
+    else:
+        print(f"DRY RUN — nothing posted. PR {pr.get('owner')}/{pr.get('repo')}#{pr.get('number')} @ {pr.get('head_sha','')[:12]}")
     print(f"event={event}  inline={len(inline)}  summary={len(summary)}  total={len(items)}")
     print(f"payload written to: {review_file}")
     print("="*72)

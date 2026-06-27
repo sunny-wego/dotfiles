@@ -127,6 +127,34 @@ This is the high-value step and the mirror of `/zeus:propose`'s reader test: the
 
 Full procedure, including how to package the captured output as PR test evidence: `references/self-verify.md`.
 
+### 5.5 Review the diff before handoff
+
+Self-verify (step 5) proves the code does what the *issue* promised; this step catches
+bugs in *how* it's written — the correctness, concurrency, resilience, migration,
+API-contract, and security problems a reviewer would flag — **before** the PR is
+public, so the PR goes out clean instead of accumulating review rounds.
+
+1. **Make sure the work is committed** (the review runs against a SHA).
+2. **Invoke `/zeus:review-pr` by name** (the skill, never its scripts — family
+   doctrine). No flag needed: review-pr auto-detects, and since you're pre-PR it
+   reviews the **local working diff**, renders findings, and **hands them back**. If
+   `/zeus:review-pr` isn't installed, skip this step and continue to handoff (same
+   graceful fallback as step 6's create-pr check).
+3. **Act on the findings as normal implement work.** Fix the Confirmed findings (and
+   any Hypothesis worth acting on) the same way you fix anything else in this skill —
+   edit, commit. This is ordinary coding, not a special loop: there's no fixed round
+   cap and review-pr never auto-applies anything. Re-running `/zeus:review-pr` on the
+   new SHA to confirm a fix is a fine option, not a mandate. Carry any findings you
+   deliberately leave unfixed (e.g. a Hypothesis you judged a non-issue) into the
+   handoff report so they're visible, not silently dropped.
+4. **Record the reviewed SHA** so `/zeus:create-pr`'s backstop doesn't re-review the
+   same tree:
+   ```bash
+   bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh write-review "$(git rev-parse HEAD)"
+   ```
+   Write this **after** the last fix commit, so the watermark names the tree that was
+   actually reviewed.
+
 ### 6. Hand off to /zeus:create-pr
 
 Leave the branch in exactly the state `/zeus:create-pr` expects, then invoke it.
@@ -144,7 +172,7 @@ Leave the branch in exactly the state `/zeus:create-pr` expects, then invoke it.
    `/zeus:create-pr` isn't installed, say so and stop with the branch ready — don't open the PR by hand.
 
 End by reporting: the issue implemented, what you decided autonomously (and why), the verification result,
-and the PR (or the ready-to-PR branch).
+the diff-review outcome (findings fixed, and any you deliberately left), and the PR (or the ready-to-PR branch).
 
 ## Constraints
 
@@ -153,6 +181,7 @@ and the PR (or the ready-to-PR branch).
 - **Verify before handoff, always.** A green self-verify with captured evidence is what makes the PR
   trustworthy and the `/zeus:create-pr → /zeus:address-pr → /zeus:request-review` chain meaningful.
 - **Stay in your lane.** No worktree creation (caller's job), no PR fixing (`/zeus:address-pr`'s job), no
-  reaching into sibling skills' files (invoke them by name, pass data).
+  reaching into sibling skills' files (invoke them by name, pass data). Acting on `/zeus:review-pr` findings
+  is in-lane — it's your own pre-PR diff — but you call review-pr for the diagnosis; you don't re-implement its review.
 - **Autonomy with a brake.** Default to acting; the brake is reserved for major, ambiguous, or
   irreversible decisions — and every autonomous call gets reported at handoff so nothing is a surprise.
