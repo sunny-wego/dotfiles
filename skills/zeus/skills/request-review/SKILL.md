@@ -1,12 +1,15 @@
 ---
 name: request-review
 description: >-
-  Notify a PR's code owners that it is ready for review, and re-ping them
-  in-thread when the PR changes. Use after a PR is
+  Notify an existing PR's code owners that it is ready for review, and re-ping
+  them in-thread when the PR changes. Use after a PR is
   settled / ready for review, or to re-request review after pushing changes. Triggers
   on: "ask for review", "ping reviewers", "request review in slack", "request a
-  re-review", "tell the reviewers it's ready", "notify reviewers". Pairs with /zeus:address-pr
-  (which produces the readiness verdict) and /zeus:create-pr, but runs standalone.
+  re-review", "tell the reviewers it's ready", "notify reviewers". This only
+  *notifies* an already-open PR's reviewers — it does not create or modify the PR
+  (authoring/opening is /zeus:create-pr) or fix its checks (/zeus:address-pr).
+  Pairs with /zeus:address-pr (which produces the readiness verdict) and
+  /zeus:create-pr, but runs standalone.
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. Slack MCP for sending.
 metadata:

@@ -7,13 +7,16 @@ description: >-
   generate a PR description, open a new pull request, update an existing PR's
   body, or prepare a branch for human review. Triggers on: "create pr", "open a
   pr", "draft pr", "write pr description", "update pr body", "wrap up this
-  feature", "ready for review".
+  feature", "ready for review" (in the sense of *preparing/opening* the PR). This
+  authors and opens the PR (and reviews the diff first via /zeus:review-pr);
+  *notifying* reviewers that an existing PR is ready is /zeus:request-review, and
+  *fixing* an open PR's checks/feedback is /zeus:address-pr.
 license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
   version: "1.2"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*)
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*) Skill
 ---
 
 # Create PR

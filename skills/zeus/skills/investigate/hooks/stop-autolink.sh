@@ -9,7 +9,7 @@
 # investigation is closed (state cleared). Install per hooks/INSTALL.md.
 #
 # Hooks must stay silent on success and never fail the turn — all errors swallowed.
-set +e   # never fail the turn; every path exits 0 (matches review-ping-stop-guard.sh)
+set +e   # never fail the turn; every path exits 0 (matches address-pr's post-push-review.sh)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$HERE/.." && pwd)"
 
@@ -19,7 +19,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 # current-branch->PR mapping can't be swapped underneath the session by a concurrent
 # agent in the shared checkout. Without this, a read-only session sitting in the
 # shared checkout could link the WRONG PR into the active investigation. (Matches
-# review-ping-stop-guard.sh.)
+# address-pr's post-push-review.sh.)
 abs_gitdir=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
 case "$abs_gitdir" in
   */worktrees/*) : ;;   # linked worktree — branch->PR mapping is trustworthy

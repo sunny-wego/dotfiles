@@ -13,7 +13,7 @@
 #     - HEAD is actually on a remote branch  → a push really landed
 #       (a --dry-run / rejected / failed push never advances the remote ref)
 #     - an open PR exists for the branch      → address-pr has something to do
-#   This mirrors review-ping-stop-guard.sh, which is likewise state-driven.
+#   This mirrors investigate's stop-autolink.sh, which is likewise state-driven.
 #
 # Design constraints (same as the Stop guard):
 #   - Best-effort: ANY unexpected condition exits 0. A PostToolUse hook must never
@@ -36,7 +36,7 @@ head=$(git rev-parse HEAD 2>/dev/null) || exit 0
 # shared primary checkout a concurrent agent can swap the branch underneath a
 # session, making current-branch->PR untrustworthy. A linked worktree is 1:1 with
 # its branch. A linked worktree's git-dir is `.../.git/worktrees/<name>`; the
-# primary checkout's never is. (Matches review-ping-stop-guard.sh.)
+# primary checkout's never is. (Matches investigate's stop-autolink.sh.)
 abs_gitdir=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
 case "$abs_gitdir" in
   */worktrees/*) : ;;   # linked worktree — trustworthy
