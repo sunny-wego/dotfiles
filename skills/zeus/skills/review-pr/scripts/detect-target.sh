@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
-# detect-target.sh — decide whether review-pr reviews a LOCAL working diff (pre-PR)
-# or a REMOTE open PR, WITHOUT the caller having to say which. Runs pre-isolation
-# (like identify-pr.sh): pure resolution, no checkout, no state dir.
+# detect-target.sh — decide WHAT review-pr reviews and WHOSE work it is, without
+# the caller having to say. Runs pre-isolation (no checkout, no state dir).
 #
-# Auto is the default; flags are overrides. Decision order — FIRST MATCH WINS:
-#   1. --local / --base <ref>   → LOCAL   (explicit override; wins even if a PR exists)
-#   2. a PR number / URL arg    → REMOTE  (explicit override; delegates to identify-pr.sh)
-#   3. no flag, no arg          → auto-detect from the CURRENT branch:
-#        - no open PR                                  → LOCAL  (you're pre-PR)
-#        - open PR, but local diverges from its head
-#          (dirty tree OR HEAD != pushed PR head)      → LOCAL  (review real on-disk state)
-#        - open PR, clean tree AND HEAD == PR head      → REMOTE (review the PR)
-#   The divergence check stops us reviewing a stale pushed PR head while local work
-#   has moved on. The --local override (1) and a PR arg (2) still win.
+# Two orthogonal axes:
+#   source = local | remote   — WHERE the diff is (local working tree vs an open PR)
+#   role   = self  | peer     — WHOSE work it is (mine → hand findings back; someone
+#                               else's → post comments as a reviewer)
+# Locality is NOT authorship: reviewing my OWN open PR is source=remote, role=self.
+#
+# Auto by default; flags/arg are overrides. Decision order — FIRST MATCH WINS:
+#   1. --local / --base <ref>   → source=local (role self; pre-PR work is always mine)
+#   2. a PR number / URL arg    → source=remote
+#   3. no flag, no arg          → auto from the CURRENT branch:
+#        - no open PR                              → source=local (pre-PR)
+#        - open PR, local diverges from its head
+#          (dirty tree OR HEAD != pushed head)     → source=local (review on-disk state)
+#        - open PR, clean & HEAD == pushed head     → source=remote
+#   role: source=local ⇒ self. source=remote ⇒ self if the PR author is the
+#   authenticated user, else peer. `--as self|peer` overrides role explicitly.
 #
 # Output JSON:
-#   LOCAL : { "mode":"local",  head_sha, base, branch, note? }
-#   REMOTE: { "mode":"remote", owner, repo, number, head_sha, base, url, title, foreign }
-#           (identify-pr.sh's shape, plus "mode")
+#   { "source":"local"|"remote", "role":"self"|"peer",
+#     local : head_sha, base, branch, note?
+#     remote: owner, repo, number, head_sha, base, url, title, author, foreign }
 # Exit: 0 on success; non-zero with {"error":...} on stderr otherwise.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ZEUS_LIB_DIR="$(cd "$SCRIPT_DIR/../../../lib" && pwd)"
+# shellcheck source=../../../lib/repo.sh
+source "$ZEUS_LIB_DIR/repo.sh"
 
-local_flag=false base="" pr_ref="" repo_slug=""
+local_flag=false base="" pr_ref="" repo_slug="" as_role=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --local)            local_flag=true; shift ;;
     --base)             base="${2:?--base needs a ref}"; shift 2 ;;
     --base=*)           base="${1#*=}"; shift ;;
+    --as)               as_role="${2:?--as needs self|peer}"; shift 2 ;;
+    --as=*)             as_role="${1#*=}"; shift ;;
     --repo)             repo_slug="${2:?--repo needs a value}"; shift 2 ;;
     --repo=*)           repo_slug="${1#*=}"; shift ;;
     https://*|http://*) pr_ref="$1"; shift ;;
@@ -41,31 +51,30 @@ done
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   || { echo '{"error":"detect-target: not inside a git work tree"}' >&2; exit 1; }
 
-default_base() {
-  local ref
-  if ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null); then
-    echo "${ref#refs/remotes/}"; return
-  fi
-  local c
-  for c in origin/main origin/master main master; do
-    git rev-parse --verify --quiet "$c" >/dev/null 2>&1 && { echo "$c"; return; }
-  done
-  echo main
+# role for a remote PR: self when its author is the authenticated user, else peer.
+# Unknown viewer (gh down) → peer; peer without --submit only dry-runs, so nothing
+# is posted by accident. --as overrides.
+remote_role() { # remote_role <author_login>
+  [ -n "$as_role" ] && { printf '%s\n' "$as_role"; return; }
+  local me; me="$(gh api user --jq .login 2>/dev/null || true)"
+  if [ -n "$me" ] && [ "$me" = "$1" ]; then printf 'self\n'; else printf 'peer\n'; fi
 }
 
 emit_local() { # emit_local <note>
-  local head branch b
+  local head branch b role
   head=$(git rev-parse HEAD 2>/dev/null) || { echo '{"error":"detect-target: no HEAD commit"}' >&2; exit 1; }
-  branch=$(git branch --show-current 2>/dev/null || echo "")
-  b="$base"; [ -z "$b" ] && b=$(default_base)
-  jq -nc --arg h "$head" --arg b "$b" --arg br "$branch" --arg note "${1:-}" \
-    '{mode:"local", head_sha:$h, base:$b, branch:$br} + (if $note != "" then {note:$note} else {} end)'
+  branch=$(current_branch)
+  b="$base"; [ -z "$b" ] && b=$(default_base_ref)
+  role="${as_role:-self}"
+  jq -nc --arg h "$head" --arg b "$b" --arg br "$branch" --arg role "$role" --arg note "${1:-}" \
+    '{source:"local", role:$role, head_sha:$h, base:$b, branch:$br} + (if $note != "" then {note:$note} else {} end)'
 }
 
-emit_remote() { # emit_remote <pr-ref> [--repo slug] — delegate to identify-pr.sh
-  local out
+emit_remote() { # emit_remote <pr-ref> [--repo slug]
+  local out role
   out=$(bash "$SCRIPT_DIR/identify-pr.sh" "$@") || { echo "$out" >&2; exit 1; }
-  echo "$out" | jq -c '. + {mode:"remote"}'
+  role="$(remote_role "$(printf '%s' "$out" | jq -r '.author // ""')")"
+  printf '%s' "$out" | jq -c --arg role "$role" '. + {source:"remote", role:$role}'
 }
 
 # 1. explicit LOCAL override
@@ -80,8 +89,8 @@ if [ -n "$pr_ref" ]; then
   exit 0
 fi
 
-# 3. auto-detect from the current branch (one gh call for number + head)
-prinfo=$(gh pr view --json number,headRefOid 2>/dev/null || true)
+# 3. auto-detect from the current branch (one gh call: number + head + author)
+prinfo=$(gh pr view --json number,headRefOid,author 2>/dev/null || true)
 prnum=$(printf '%s' "$prinfo" | jq -r '.number // empty' 2>/dev/null || true)
 if [ -z "$prnum" ]; then
   emit_local ""                       # no open PR for this branch → pre-PR, local

@@ -30,14 +30,21 @@ This skill is **read-only**: it diagnoses and reports, it never edits, commits, 
 pushes. Its terminal action is a **handoff** — it hands the findings back; fixing is
 the caller's job (the LLM, in its normal flow).
 
-It works in two targets, **auto-detected** so you never have to say which:
+It runs the **same review engine** along two **auto-detected** axes, so you never
+have to say which (overridable — see Modes):
 
-- **Remote (open PR)** — the reviewer role: checks the PR out in an isolated
-  worktree and posts findings as comments (the inverse of `address-pr`).
-- **Local (pre-PR)** — the author's self-review: reviews the current branch's
-  working diff vs its base with the **same** engine, renders findings locally, and
-  **posts nothing** (there's no PR yet). This is the pre-PR gate `/zeus:implement`
-  and `/zeus:create-pr` invoke before a PR is opened.
+- **`source` — where the diff is.** `local` = the current branch's working diff vs
+  its base (no PR needed); `remote` = an open PR, checked out in an isolated worktree.
+- **`role` — whose work it is** (this is the distinction that matters): `self` = **my
+  work** → findings are **handed back to fix**, nothing is posted; `peer` = **someone
+  else's PR** → findings are **posted as review comments** (the reviewer role, the
+  inverse of `address-pr`). Locality is not authorship: reviewing my *own* open PR is
+  `source=remote, role=self`.
+
+So **reviewing my own work and reviewing someone else's are different outputs of one
+engine** — self hands back (and feeds `/zeus:implement`/`/zeus:create-pr`'s pre-PR
+gate); peer posts honest trust-labeled comments and stops. Either way the skill is
+**read-only on code** — it never edits.
 
 State lives under the checkout's `.git/review-pr/` (created by `scripts/lib.sh`).
 Prefer the scripts in `scripts/` over hand-rolled `gh`/`git` — they own the
@@ -45,35 +52,36 @@ target detection, diff/anchor extraction, and review assembly.
 
 ## Modes
 
-The default — **no flag, no arg** — auto-detects the target via `detect-target.sh`
-(see Flow step 1): local when you're pre-PR, remote once a PR exists for the branch.
-Flags are overrides.
+The default — **no flag, no arg** — auto-detects `source` and `role` via
+`detect-target.sh` (Flow step 1). Flags are overrides.
 
 | Invocation | Intent |
 |---|---|
-| `/zeus:review-pr` | **Auto-detect.** No open PR for the branch → review the **local** working diff (pre-PR). Open PR exists and the branch matches its head → review that **PR**. Open PR but local has uncommitted/unpushed changes → **local** (review the real on-disk state, not the stale pushed head). |
-| `… <url\|number>` | Force **remote** review of that PR (explicit override). |
-| `… --local [--base <ref>] [--include-dirty]` | Force **local** review (override — even if a PR is open). `--base` picks the diff base (default: repo default branch); `--include-dirty` includes uncommitted changes. |
-| `… --deep` | Force parallel fan-out regardless of size. |
-| `… --single` | Force single-context regardless of size. |
+| `/zeus:review-pr` | **Auto-detect.** No open PR for the branch → **local** self-review (pre-PR). Open PR at the branch head → review that **PR** (`role` = self if you authored it, else peer). Open PR but local has uncommitted/unpushed changes → **local** (review the real on-disk state, not the stale pushed head). |
+| `… <url\|number>` | Force a **remote** PR (role still auto: self if yours, peer otherwise). |
+| `… --local [--base <ref>] [--include-dirty]` | Force **local** self-review (even if a PR is open). `--base` picks the diff base (default: repo default branch); `--include-dirty` includes uncommitted changes. |
+| `… --as self\|peer` | Force the **role** (e.g. review your own PR as a peer would, or hand a peer PR's findings back instead of posting). |
+| `… --deep` / `… --single` | Force parallel fan-out / single-context regardless of size. |
 | `… <handler>` | Run one dimension standalone (`correctness`, `concurrency-idempotency`, `resilience`, `data-migrations`, `api-contract`, `security`, `tests`) — always single-context. |
-| `… --submit` | (remote only) Post the review (event `COMMENT`). Default without this flag is dry-run; refused in local mode (no PR to post to). |
-| `… --submit --request-changes` | Post as `REQUEST_CHANGES` (explicit only; the skill never auto-blocks). |
+| `… --submit [--request-changes]` | **Peer only.** Post the review (event `COMMENT`, or `REQUEST_CHANGES` explicitly). Without it, peer is a dry-run; refused for self-review (nothing to post). |
 
-In both `select-mode.sh` picks single-context vs parallel fan-out from the diff
-size (parallel when reviewable LOC ≥ 400 or files ≥ 8).
+`select-mode.sh` independently picks single-context vs parallel fan-out from the diff
+size (parallel when reviewable LOC ≥ 400 or files ≥ 8) for either role.
 
 ## Flow
 
-### 1. Detect the target (local vs remote), then resolve
+### 1. Detect the target (source + role), then resolve
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/detect-target.sh "$@" > /tmp/rp-target.json   # → {mode:"local"|"remote", ...}
+bash ${CLAUDE_SKILL_DIR}/scripts/detect-target.sh "$@" > /tmp/rp-target.json   # → {source, role, ...}
 ```
-`detect-target.sh` is the deterministic decision (auto by default; `--local`/`--base`
-and a PR arg are overrides — see its header). Read `.mode` and branch:
+`detect-target.sh` is the deterministic decision (auto by default; `--local`/`--base`,
+a PR arg, and `--as` are overrides — see its header). Read `.source` and `.role`:
+`.role` decides the output adapter in step 6 (self → hand back; peer → post). Branch
+on `.source`:
 
-**`.mode == "local"` (pre-PR self-review):** you're already on the branch, so there's
-no PR to resolve and no checkout. Extract the working diff and pick the run mode:
+**`.source == "local"` (working diff, always `role=self`):** you're already on the
+branch, so there's no PR to resolve and no checkout. Extract the working diff and pick
+the run mode:
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --local [--base <ref>] [--include-dirty]
 bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]
@@ -82,7 +90,7 @@ If `detect-target.sh` returned a `.note` (e.g. an open PR exists but the branch 
 unpushed/uncommitted changes), surface it so the user knows local was chosen on
 purpose. Skip `identify-pr.sh` / `ensure-checkout.sh` entirely.
 
-**`.mode == "remote"` (review an open PR):**
+**`.source == "remote"` (review an open PR):**
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/ensure-checkout.sh --pr <n> --repo <owner/repo> --foreign <bool>
 ```
@@ -148,23 +156,25 @@ output** into `evidence`, then set `status: confirmed`; otherwise leave
 serial** even under `--deep` (the parallel agents only diagnose) — never touch
 shared/long-lived infra; on any denial, stay `hypothesis`.
 
-### 6. Render & hand off
+### 6. Render & hand off — by `role`
 ```bash
-# remote PR:
-bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --dry-run        # default: render, post nothing
-bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --submit         # explicit: post one COMMENT review
-# local (pre-PR):
-bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --local          # render findings locally, post nothing
+# role=self (my work — pre-PR diff or my own PR): render, NEVER post
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --self
+# role=peer (someone else's PR): dry-run render, then post on explicit instruction
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer            # render, post nothing
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer --submit   # post one COMMENT review
 ```
 The script validates labels (confirmed⇒evidence, hypothesis⇒verify) and demotes
-off-diff anchors to the summary in either mode.
+off-diff anchors to the summary in both roles. (Pass the `.role` from step 1; a local
+diff is forced to `--self` regardless.)
 
-- **Remote:** show the dry-run to the user; only `--submit` on explicit instruction
-  (it dedups already-posted ids on re-review).
-- **Local:** `post-review.sh` always renders and **posts nothing** (it refuses
-  `--submit` — there's no PR). **Hand the findings back to the caller** — summarize
-  the Confirmed findings and worthwhile Hypotheses so the LLM can fix them in its
-  normal flow. review-pr does not fix, loop, or re-review; that's the caller's job.
+- **`role=self` (my work):** always renders and **posts nothing** (it refuses
+  `--submit`). **Hand the findings back** — summarize the Confirmed findings and
+  worthwhile Hypotheses so the LLM (`/zeus:implement`, `/zeus:create-pr`, or the user)
+  fixes them in its normal flow. review-pr does not fix, loop, or re-review.
+- **`role=peer` (someone else's PR):** show the dry-run to the user; only
+  `--submit` on explicit instruction (it dedups already-posted ids on re-review).
+  Never auto-`REQUEST_CHANGES`.
 
 ### 7. Cleanup
 Remove the per-run state and any throwaway verify resources. Leave the worktree

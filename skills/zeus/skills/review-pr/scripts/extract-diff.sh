@@ -42,17 +42,9 @@ if [ "$local_mode" = true ] || [ -n "$base" ]; then
   head=$(git rev-parse HEAD 2>/dev/null) || { echo '{"error":"extract-diff --local: no HEAD commit"}' >&2; exit 1; }
   branch=$(git branch --show-current 2>/dev/null || echo "")
 
-  # Default base = repo default branch ref (origin/HEAD → origin/main → main …).
-  if [ -z "$base" ]; then
-    if ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null); then
-      base="${ref#refs/remotes/}"
-    else
-      for c in origin/main origin/master main master; do
-        git rev-parse --verify --quiet "$c" >/dev/null 2>&1 && { base="$c"; break; }
-      done
-    fi
-    [ -z "$base" ] && base="main"
-  fi
+  # Default base = the repo's default-branch ref (resilient + stack-agnostic;
+  # default_base_ref from lib/repo.sh, sourced via lib.sh — no main/master hardcode).
+  [ -z "$base" ] && base="$(default_base_ref)"
 
   mb=$(git merge-base HEAD "$base" 2>/dev/null) \
     || { echo "{\"error\":\"extract-diff --local: base ref '$base' not found (fetch it, or pass --base)\"}" >&2; exit 1; }

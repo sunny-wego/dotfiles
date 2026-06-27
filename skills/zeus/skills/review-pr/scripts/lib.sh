@@ -33,6 +33,8 @@ ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 source "$ZEUS_LIB_DIR/pr-ident.sh"
 # shellcheck source=../../../lib/lock.sh
 source "$ZEUS_LIB_DIR/lock.sh"
+# shellcheck source=../../../lib/repo.sh
+source "$ZEUS_LIB_DIR/repo.sh"
 
 STATE_DIR="$(git rev-parse --absolute-git-dir)/review-pr"
 PR_FILE="$STATE_DIR/pr.json"
