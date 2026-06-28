@@ -92,10 +92,14 @@ left to luck. Run the lint:
 bash zeus/lib/check-arg-conventions.sh   # exit 0 = clean, 1 = violations
 ```
 
-It fails on any split `<owner> <repo>` in a script CLI call or a doc, and verifies
-`resolve_pr`/`resolve_target` exist in both PR-workflow libs. **There are no
-exemptions** — every identifier-taking script routes through the parser. Run it (and
-update docs) when you add or edit a script.
+It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc; [3] the
+parser is defined once in `lib/pr-ident.sh` and sourced by the PR-workflow libs;
+[4] no skill `lib.sh` re-defines a shared helper (`resolve_pr`/`with_lock`/`run`/…);
+[5] no script hand-rolls a `--pr)` case — every PR-identifier script routes through
+`resolve_pr`/`resolve_target`. **There are no exemptions** for `--pr`-taking scripts.
+(Issue-centric skills that take only `--repo`, and the resolvers themselves —
+`identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are out of scope by construction.)
+Run it when you add or edit a script.
 
 ## CLI reference — `address-pr`
 

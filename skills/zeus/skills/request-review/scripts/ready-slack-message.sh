@@ -58,6 +58,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib.sh"              # resolve_pr/resolve_target (shared identifier parser)
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/slack-envelope.sh"   # review_gate_base (shared with re-review-message.sh)
 
 # Channel resolution: the caller passes SLACK_REVIEW_CHANNEL (typically from the
@@ -69,30 +71,24 @@ DEFAULT_CHANNEL="${SLACK_REVIEW_CHANNEL:-}"
 
 ready_json=""
 mode="probe"
-pr=""
-repo=""
-
+ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --from) ready_json=$(cat "$2"); mode="cached"; shift 2 ;;
     --from-stdin) ready_json=$(cat); mode="cached"; shift ;;
-    --pr) pr="$2"; shift 2 ;;
-    --repo) repo="$2"; shift 2 ;;
     --help|-h)
       sed -n '2,/^set -euo/p' "$0" | head -n -1 | sed 's/^# \{0,1\}//' >&2
       exit 0
       ;;
-    *)
-      if [ -z "$pr" ]; then pr="$1"
-      elif [ -z "$repo" ]; then repo="$1"
-      else
-        echo "ready-slack-message: unexpected argument: $1" >&2
-        exit 2
-      fi
-      shift
-      ;;
+    *) ARGS+=("$1"); shift ;;   # --pr/--repo + positional <pr> [owner/repo] → resolve_pr
   esac
 done
+
+resolve_pr "${ARGS[@]:-}"   # identifiers via the shared parser, not hand-rolled
+pr="$PR"; repo="$REPO_SLUG"
+if [ "${#REST[@]}" -gt 0 ]; then
+  echo "ready-slack-message: unexpected argument: ${REST[0]}" >&2; exit 2
+fi
 
 # If we weren't fed a readiness JSON, run the probe. Capture stdout + exit
 # code separately: exit 1 still prints valid JSON (not ready), and we want

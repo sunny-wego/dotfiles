@@ -37,28 +37,24 @@
 #     stripped. Section markers (`[required]`) are ignored.
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib.sh"   # resolve_pr/resolve_target (shared identifier parser)
 
-pr=""
-repo=""
 debug=false
-
+ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --pr) pr="$2"; shift 2 ;;
-    --repo) repo="$2"; shift 2 ;;
     --debug) debug=true; shift ;;
-    *)
-      if [ -z "$pr" ]; then pr="$1"
-      elif [ -z "$repo" ]; then repo="$1"
-      else
-        echo "resolve-reviewers: unexpected argument: $1" >&2
-        exit 2
-      fi
-      shift
-      ;;
+    *) ARGS+=("$1"); shift ;;   # --pr/--repo + positional <pr> [owner/repo] → resolve_pr
   esac
 done
 
+resolve_pr "${ARGS[@]:-}"   # identifiers via the shared parser, not hand-rolled
+pr="$PR"; repo="$REPO_SLUG"
+if [ "${#REST[@]}" -gt 0 ]; then
+  echo "resolve-reviewers: unexpected argument: ${REST[0]}" >&2; exit 2
+fi
 if [ -z "$pr" ]; then
   echo "usage: resolve-reviewers.sh <pr_number> [<owner/repo>]" >&2
   exit 2

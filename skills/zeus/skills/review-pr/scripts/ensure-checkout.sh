@@ -17,17 +17,21 @@
 # Exit: 0 on success; non-zero with {"error": ...} on stderr otherwise.
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../../../lib/pr-ident.sh"   # resolve_pr — side-effect-free; this runs pre-isolation
 
-pr="" slug="" foreign="" sha=""
+# --foreign is review-pr-specific (not an identifier), so strip it before resolve_pr.
+foreign=""
+ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --pr) pr="${2:?}"; shift 2 ;;            --pr=*) pr="${1#*=}"; shift ;;
-    --repo) slug="${2:?}"; shift 2 ;;        --repo=*) slug="${1#*=}"; shift ;;
     --foreign) foreign="${2:?}"; shift 2 ;;  --foreign=*) foreign="${1#*=}"; shift ;;
-    --sha) sha="${2:?}"; shift 2 ;;          --sha=*) sha="${1#*=}"; shift ;;
-    *) shift ;;
+    *) ARGS+=("$1"); shift ;;                 # --pr/--repo/--sha → resolve_pr
   esac
 done
+resolve_pr "${ARGS[@]:-}"
+pr="$PR"; slug="$REPO_SLUG"; sha="$SHA"
 [ -n "$pr" ] && [ -n "$slug" ] || { echo '{"error": "ensure-checkout.sh needs --pr and --repo"}' >&2; exit 2; }
 
 current_top=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
