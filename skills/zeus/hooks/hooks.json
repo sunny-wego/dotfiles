@@ -1,5 +1,5 @@
 {
-  "description": "Zeus workflow hooks: auto-link the active investigation's PR into its Epic (from /zeus:investigate), and nudge /zeus:address-pr after a push LANDS on a PR branch (from /zeus:address-pr). The push hook is `if`-gated to push-ish commands and decides from git/PR state, so it no-ops instantly on unrelated work. SECURITY NOTE: the `Bash(bash *)` gate is intentionally broad and is NOT a security control — it catches pushes hidden inside zeus wrapper scripts (a `bash .../commit-and-push.sh` whose inner `git push` the matcher can't see). It is safe because this is a PostToolUse (post-hoc, non-blocking) hook that never reads the command string (stdin is drained to /dev/null) and only emits a fixed advisory nudge from git/PR state — breadth changes how OFTEN it runs, never WHAT it can do. Do not narrow it to named scripts (that would miss wrapper-pushes), and do not treat it as enforcement: hard policy belongs in PreToolUse + permissions.",
+  "description": "Zeus workflow hooks: (Stop) auto-link the active investigation's PR into its Epic (from /zeus:investigate), and suggest /zeus:create-pr when a turn ends with committed work on a feature branch that has no open PR yet (from /zeus:create-pr) — this bridges an implementer that doesn't open PRs itself (e.g. a built-in /goal) into the pipeline; (PostToolUse) nudge /zeus:address-pr after a push LANDS on a PR branch (from /zeus:address-pr). All decide from git/PR state, gate to a linked worktree, and no-op instantly on unrelated work. The push hook is `if`-gated to push-ish commands. SECURITY NOTE: the `Bash(bash *)` gate is intentionally broad and is NOT a security control — it catches pushes hidden inside zeus wrapper scripts (a `bash .../commit-and-push.sh` whose inner `git push` the matcher can't see). It is safe because this is a PostToolUse (post-hoc, non-blocking) hook that never reads the command string (stdin is drained to /dev/null) and only emits a fixed advisory nudge from git/PR state — breadth changes how OFTEN it runs, never WHAT it can do. Do not narrow it to named scripts (that would miss wrapper-pushes), and do not treat it as enforcement: hard policy belongs in PreToolUse + permissions.",
   "hooks": {
     "Stop": [
       {
@@ -8,6 +8,11 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/investigate/hooks/stop-autolink.sh\"",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/skills/create-pr/hooks/suggest-pr.sh\"",
+            "timeout": 10
           }
         ]
       }

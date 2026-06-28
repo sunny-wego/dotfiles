@@ -64,9 +64,10 @@ scripts by path:
 | `.investigation.epic` | investigate | create-pr | file the PR under the epic |
 | PR-body marker (`slack`, `accepted_checks`) | address-pr | address-pr / request-review | re-thread the ping; honor accepted gates |
 
-**Hooks** (automatic transitions, no call) — see `hooks/hooks.json`:
+**Hooks** (automatic transitions, no call; state-driven, gated to a linked worktree) — see `hooks/hooks.json`:
 - PostToolUse(push) → nudge `address-pr` after a push lands on a branch with an open PR.
 - Stop → link the branch's open PR into the active `investigate` epic.
+- Stop → suggest `create-pr` when a turn ends with committed work on a feature branch and **no** open PR. This bridges an implementer that doesn't open PRs itself (e.g. a built-in `/goal` driving from a `propose` artifact) into the pipeline: `propose → /goal → ⟨nudge⟩ create-pr (seeds from `.issue` + review backstop) → ⟨push hook⟩ address-pr → request-review`.
 
 **Dedup guarantees:**
 - Review runs **once per tree** — the `.review` watermark (stamped only on a SHA a
