@@ -13,6 +13,10 @@
 # --yes is accepted for parity with non-interactive callers but is a no-op
 #   here (confirmation happens in the agent, not in this script).
 #
+# Self-audit chokepoint: refuses to create the PR if validate-pr.sh fails on the
+# body (missing required sections), so a malformed body can't publish even when a
+# caller bypasses the SKILL's step-2b validate. Mirrors post-issue.sh.
+#
 # Prints the created PR URL on success. Best-effort writes to
 # `.git/journey.json` via journey.sh (if present); never blocks on a
 # journey failure.
@@ -67,6 +71,16 @@ for r in "${reviewers[@]:-}"; do
 done
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+# Chokepoint self-audit (mirrors propose/post-issue.sh refusing an unaudited issue):
+# refuse to OPEN a PR whose body fails the required-sections contract — even if a
+# caller skipped the SKILL's step-2b validate. validate-pr.sh exits non-zero only on a
+# missing required section (its soft warnings don't block) and explains on stderr.
+# Runs before any body mutation / push / create, so a malformed body never publishes.
+if [ -x "$script_dir/validate-pr.sh" ] && ! bash "$script_dir/validate-pr.sh" "$body_file" >/dev/null; then
+  echo "post-pr: refusing to open a PR — body fails validate-pr (see above). Compose a complete body (the /zeus:create-pr render step) and retry." >&2
+  exit 1
+fi
 
 # Sign the PR description with the zeus origin tag (idempotent). Done BEFORE the
 # journey-marker splice so the visible tag lands above the hidden marker (which

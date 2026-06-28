@@ -200,6 +200,8 @@ bash ${CLAUDE_SKILL_DIR}/scripts/validate-pr.sh "$BODY_FILE"
 
 Required sections: `## Original Intent` (with at least `- Purpose:` and `- Scope:`), `## What this does`, `## Test Plan`, `## Rollback`. Exit non-zero ⇒ fix the gap before continuing. Soft warnings (missing managed block, missing Non-goals, linked-issue body has no `Closes #N`) are printed but don't block.
 
+This is the early, friendly check; `post-pr.sh` (step 3) **re-enforces it as a chokepoint** and refuses to open a PR whose body fails validation — so a malformed body can't publish even if this step is skipped (mirrors `propose`'s `post-issue.sh`).
+
 ### 2c. Confirm with the user
 
 **Preferred (Claude Code):** call AskUserQuestion with a one-screen preview. Generate the preview deterministically:
