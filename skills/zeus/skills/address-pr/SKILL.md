@@ -124,13 +124,12 @@ SETUP ─▶ DRIVE ─(report/ready)─▶ SETTLED ─(PR open)─▶ WATCH
 Preflight runs on **every** invocation:
 
 ```bash
-PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true   # deps: git, gh, jq; SonarQube/Vercel/Slack MCP optional
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true   # deps: git, gh, jq; SonarQube/Vercel MCP optional
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-On `.ok == false`, present each `.remediation[]` entry and offer to install; `preflight.sh --fix` installs
-the `auto:true` entries (interactive steps like `gh auth login` are listed, never auto-run). Don't proceed
-until `ok: true`.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; don't proceed
+until `ok: true`. Full flow: **`zeus/lib/PREFLIGHT.md`**.
 
 ### Isolate in a worktree first (mutating modes only)
 

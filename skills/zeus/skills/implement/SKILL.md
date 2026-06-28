@@ -47,15 +47,13 @@ ship this without asking?" If yes, ship it.
 
 ### 0. Preflight
 
-Verify dependencies before any work (same engine as the rest of the family):
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: zsh expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-If `.ok` is `false`, surface each `.remediation[]` and offer `preflight.sh --fix` (installs `auto:true`
-entries only; interactive steps like `gh auth login` are listed, never auto-run). Proceed once `ok:true`.
+On `.ok == false`, surface the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed once
+`ok: true`. Full flow: **`zeus/lib/PREFLIGHT.md`**.
 
 ### 1. Precondition guard — am I somewhere safe to write?
 

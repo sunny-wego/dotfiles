@@ -53,20 +53,12 @@ When the user asks to "create a PR", "open a PR", or uses the `/zeus:create-pr` 
 
 ### 0. Preflight & bootstrap
 
-Verify dependencies before doing any work:
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-If `.ok` is `false`, present each `.remediation[]` entry to the user and **offer to install**. With their confirmation, auto-install the installable ones and re-check:
-
-```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh --fix
-```
-
-`--fix` only runs entries with `auto: true` (package installs). Interactive steps such as `gh auth login` (`auto: false`) are listed but never auto-run — ask the user to run them. Proceed only once preflight reports `ok: true`.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed only at `ok: true`. Full flow (the `--fix` auto-install vs interactive steps like `gh auth login`): **`zeus/lib/PREFLIGHT.md`**.
 
 ### 1. Gather current branch context
 

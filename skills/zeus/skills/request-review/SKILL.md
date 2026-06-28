@@ -62,17 +62,15 @@ running a standalone probe — sibling skills should rely on the envelope instea
 
 ## Preflight
 
-Verify dependencies before doing any work (same engine + flow as the rest of the family):
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-On `.ok == false`, present each `.remediation[]` entry and offer to install; `preflight.sh --fix`
-installs the `auto:true` entries (interactive steps like `gh auth login` are listed, never auto-run).
-The Slack MCP can't be script-checked (only the harness sees the tool list) — if the send tools are
-missing, fall back to `draft` text the user can paste, and say so.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed at
+`ok: true`. Full flow: **`zeus/lib/PREFLIGHT.md`**. Skill-specific: the Slack MCP can't be script-checked
+(only the harness sees the tool list) — if the send tools are missing, fall back to `draft` text the user
+can paste, and say so.
 
 ## Initial ping
 The skill pings the PR's **code owners** — there is no primary-reviewer flag to
