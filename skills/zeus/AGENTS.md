@@ -34,6 +34,47 @@ For the *behavioral* flow of a given skill, read its `SKILL.md`.
 | [`request-review`](./skills/request-review/SKILL.md) | "ping reviewers", "request review", "re-review" | Notify a PR's code owners it's ready; re-ping in-thread when the head advances. |
 | [`improve`](./skills/improve/SKILL.md) | "/zeus:improve", "retro this session", "iterate on the skills" | Meta/orthogonal: harvest a session's friction and land fixes in zeus or the repo's guidance. |
 
+## Composition
+
+The spine (intro diagram) is just the common path — **any skill is a valid entry
+point**. The skills compose three ways: invoke-by-name hand-offs, a shared
+`journey.json` bus, and two hooks. Each capability has exactly one owner, so a path
+either reuses it or hands off to it — never duplicates it.
+
+**Hand-offs** — the only inter-skill calls, always *by name*, never another skill's
+scripts by path:
+
+| Caller | Callee | When |
+|---|---|---|
+| `implement` | `review-pr` (self) | step 5.5, pre-handoff — findings handed back to fix |
+| `implement` | `create-pr` | after self-verify + review |
+| `create-pr` | `review-pr` (self) | backstop, only when `.review` ≠ HEAD |
+| `address-pr` | `request-review` | at settled, and on each watch re-review |
+| `investigate` | *(opens a remediation issue)* | `remediate` → then `implement`/`create-pr` |
+
+`review-pr` and `request-review` are terminal (invoke nothing); `address-pr` never calls `review-pr`.
+
+**The bus** — per-worktree `journey.json` facts, one writer class each (readers never re-derive them):
+
+| Fact | Writer | Reader(s) | Why |
+|---|---|---|---|
+| `.issue` | propose, investigate | implement, create-pr | seed the PR from the issue |
+| `.review {sha}` | implement | create-pr | skip a redundant pre-PR review of the same tree |
+| `.pr` | create-pr | address-pr | pick up the opened PR |
+| `.investigation.epic` | investigate | create-pr | file the PR under the epic |
+| PR-body marker (`slack`, `accepted_checks`) | address-pr | address-pr / request-review | re-thread the ping; honor accepted gates |
+
+**Hooks** (automatic transitions, no call) — see `hooks/hooks.json`:
+- PostToolUse(push) → nudge `address-pr` after a push lands on a branch with an open PR.
+- Stop → link the branch's open PR into the active `investigate` epic.
+
+**Dedup guarantees:**
+- Review runs **once per tree** — the `.review` watermark (stamped only on a SHA a
+  review actually ran against) means implement's review *or* create-pr's backstop fires, never both.
+- **One notifier** (`request-review`, per-SHA dedup) — no skill posts Slack itself.
+- **One reviewer engine** — `self` (hand back) and `peer` (post comments) are adapters over the same handlers.
+- **State is re-derived, not stored** — `address-pr` is a level-triggered reconciler; GitHub is the only truth.
+
 ## CLI argument convention
 
 Every script that takes a **PR / repo / SHA** resolves them through one shared
