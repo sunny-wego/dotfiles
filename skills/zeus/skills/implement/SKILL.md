@@ -150,8 +150,12 @@ public, so the PR goes out clean instead of accumulating review rounds.
    ```bash
    bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh write-review "$(git rev-parse HEAD)"
    ```
-   Write this **after** the last fix commit, so the watermark names the tree that was
-   actually reviewed.
+   Stamp the SHA the **last review pass actually ran against** — the watermark must
+   truthfully mean "this exact tree was reviewed." So if you commit fixes *after* the
+   final review, either re-run `/zeus:review-pr` on the new HEAD first (cheap, usually
+   a clean confirm) and then stamp, **or don't stamp at all** — leaving it unstamped
+   makes `/zeus:create-pr`'s backstop review the new tree instead. Never stamp a SHA
+   you changed after reviewing; that would let unreviewed fixes ride into the PR.
 
 ### 6. Hand off to /zeus:create-pr
 

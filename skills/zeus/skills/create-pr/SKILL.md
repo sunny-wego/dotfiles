@@ -112,10 +112,13 @@ REVIEWED=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh reviewed-sha 2>/dev/null 
 HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || true)
 ```
 
-- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed upstream by `/zeus:implement`).
-- Otherwise (empty or stale) → **invoke `/zeus:review-pr` by name** (the skill, never its
-  scripts — family doctrine). It auto-detects, and since the PR isn't open yet it reviews
-  the **local working diff** and hands the findings back. Keep a short summary of the
+- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed upstream by
+  `/zeus:implement` — the watermark is only ever stamped on a SHA a review actually ran against,
+  so an equal watermark is a real signal, not a rubber stamp).
+- Otherwise (empty or stale — including when `/zeus:implement` committed fixes after its last
+  review and deliberately left the tree unstamped) → **invoke `/zeus:review-pr` by name** (the
+  skill, never its scripts — family doctrine). It auto-detects, and since the PR isn't open yet
+  it reviews the **local working diff** and hands the findings back. Keep a short summary of the
   Confirmed findings (and notable Hypotheses) to show in the confirm step (2c).
 - If `/zeus:review-pr` isn't installed → **skip silently** (independence preserved, same
   as the journey lookups above being no-ops).
