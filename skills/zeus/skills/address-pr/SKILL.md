@@ -67,9 +67,9 @@ mode** only · `wait` = nothing actionable yet, probe again · `report` = settle
 **Parallel diagnosis, serial application.** When the probe shows multiple actionable items (several
 failed checks and/or unresolved review threads), spawn **read-only diagnosis subagents for all of them in
 a single turn** — one per failed check (fetch logs, identify the root cause, propose the fix) and one per
-review thread or per-author batch (analyze the comment against the code, draft the reply/fix plan).
-Diagnosis is pure reading and dominates a busy pass's wall-clock, so fanning it out cuts the pass from
-sum-of-diagnoses to slowest-diagnosis with an identical result. Then **apply** the fixes strictly in the
+review thread or per-author batch (analyze the comment against the code, draft the reply/fix plan) —
+diagnosis is read-only and dominates wall-clock, so fanning it out is a pure latency win. Then **apply**
+the fixes strictly in the
 priority order above and publish only through `commit-and-evaluate.sh`, exactly as on a serial pass — the
 ordering and the push-before-replies choreography are semantic and stay serial. Hard constraint: diagnosis
 subagents MUST NOT mutate the worktree and MUST NOT append outcomes — only the handler application step
@@ -225,17 +225,14 @@ a one-line Original-Intent note if captured.
 `READY` is the settled-arbiter; it decides what's next deterministically (not the loop's exit reason):
 
 - `READY.ready == true` (exit 0, zero blockers) — the PR is settled. **Before** proceeding to **Watch**,
-  close the notification gap. The verdict is a pure function of GitHub state; "has the reviewer been
-  pinged?" belongs to `request-review` (it owns the ping policy and the per-SHA stamp) — and skills call
-  skills **by name, never each other's files**, so don't probe its scripts: run the Request-review
-  hand-off below unconditionally. The callee answers the gap question itself — its envelope comes back
-  `should_send:false` with `skip_reason: already_pinged_at_<sha>` (or a disabled repo) when no gap
-  exists, so the hand-off is a safe no-op on an already-pinged SHA. A settled run is not complete until
-  the hand-off has run and its envelope was honored **and — for an OPEN PR — the Watch wake-up has been
-  scheduled**. `READY.warnings` are informational. Then proceed to **Watch** (or stop if merged). **The
-  reviewer ping is the last step of Report, not the end of the run: do not emit a completion / `result`
-  after pinging an open PR without arming Watch — that abandons the skill's promise to keep the PR settled
-  until it merges.**
+  close the notification gap: run the Request-review hand-off below **unconditionally**. "Has the reviewer
+  been pinged?" belongs to `request-review` (it owns the ping policy + per-SHA stamp), and skills call
+  skills **by name, never each other's files** — so don't probe its scripts; the callee no-ops on an
+  already-pinged SHA (`should_send:false`, `skip_reason: already_pinged_at_<sha>`), so the hand-off is
+  always safe. `READY.warnings` are informational. A settled **open** PR is not done until *both* the
+  hand-off has run (envelope honored) **and** the Watch wake-up is scheduled — never emit a completion /
+  `result` after pinging an open PR without arming Watch (that abandons the skill's promise to keep it
+  settled until it merges). Then proceed to **Watch** (or stop if merged).
 - `READY.ready == false` (exit 1) — the loop reached `report` with blockers still present
   (`READY.blockers`): hand those blockers to the user via AskUserQuestion rather than re-looping.
   **Exception — a `ci_pending`-only blocker set is transient, not a real blocker:** a still-running
@@ -273,16 +270,14 @@ Slack, only hand off the verdict.) The hand-off is a **skill invocation by name*
    request-review flow sends per its mode — for **`send`**, immediately (the per-repo opt-in in its
    `auto-ping.json` IS the authorization; do not ask the user first) — and stamps its own thread state.
 
-Sending the ping is a **mandatory closing step of a settled run**. Do **not** declare the PR done, and do
-**not** merely *offer* to ping ("want me to request review?"), while the envelope says `should_send:true`:
-just send it. **An existing approval (human or bot) is NOT a skip reason** — the ping is per-SHA and
-author-agnostic, so "it's already approved" / "CodeRabbit already reviewed" does not close the gap. Do not
-reason your way out of the hand-off: run it unconditionally and let the returned `should_send` decide
-(only the callee's own `skip_reason`, e.g. `already_pinged_at_<sha>` or a disabled repo, skips it). The autonomous ping mentions **only** the reviewer configured in request-review's policy
-(typically the AI reviewer) — it never auto-cc's the PR's human reviewers, so an unattended background run
-can't cold-ping a person; ask for the cc variant only when a human explicitly requests it. Full
-mode/dedup/thread detail lives in `request-review`'s SKILL + its `references/reviewer-ping.md`. If the
-`request-review` skill isn't available, address-pr simply doesn't notify — drive/report/watch are unchanged.
+Run the hand-off **unconditionally** and let the returned `should_send` decide — never merely *offer*
+("want me to request review?"), and never skip because the PR is already approved (the ping is per-SHA and
+author-agnostic, so "it's already approved" / "CodeRabbit already reviewed" does not close the gap; only
+the callee's own `skip_reason`, e.g. `already_pinged_at_<sha>` or a disabled repo, skips it). The
+autonomous ping mentions **only** the policy reviewer (typically the AI reviewer), never auto-cc'ing the
+PR's humans — so an unattended run can't cold-ping a person; ask for the cc variant only when a human
+requests it. Full mode/dedup/thread detail: `request-review`'s SKILL + its `references/reviewer-ping.md`.
+If `request-review` isn't installed, address-pr simply doesn't notify — drive/report/watch are unchanged.
 
 After the request-review flow completes a send (the agent has the channel id, `ts`, and target from it),
 persist the Slack thread into the PR body's hidden journey marker — the marker is **this** skill's tool —
