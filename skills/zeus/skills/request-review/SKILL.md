@@ -144,7 +144,7 @@ arbiter's verdict a pure function of GitHub state whether or not this skill is i
 (`scripts/ping-gap.sh <pr> <owner/repo> <head_sha>` → `{enabled, gap, reason}` still exists as a
 standalone human-runnable probe.)
 
-## Scripts & resources
+## Scripts & references
 | Path | Purpose |
 |---|---|
 | `scripts/lib.sh` | per-worktree thread state dir + `with_lock` |

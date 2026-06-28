@@ -249,7 +249,7 @@ the managed block, so a hand-edit to your narrative is safe and a re-render can'
 - Outward-facing writes (creating the Epic, editing it, linking) follow the usual rule: confirm
   before the first mutation unless the user clearly authorised it, and prefer `--dry-run` when unsure.
 
-## Scripts & resources
+## Scripts & references
 
 | Path | Purpose |
 |---|---|

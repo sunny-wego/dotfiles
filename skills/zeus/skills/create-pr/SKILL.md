@@ -47,7 +47,7 @@ Refresh mode rewrites only the machine-owned block. Everything else is preserved
 - **Required:** `git` (run inside a repo), `gh` (GitHub CLI, authenticated), `jq`.
 - **Optional:** a JS runner — `npx` (bundled with Node) or `bun` — enables the token-usage footer; safely skipped if absent.
 
-## Instructions
+## Workflow
 
 When the user asks to "create a PR", "open a PR", or uses the `/zeus:create-pr` command, follow this workflow.
 
