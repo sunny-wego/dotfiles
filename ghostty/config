@@ -4,14 +4,14 @@
 # Theme — TokyoNight Day (matches bat, btop, wezterm)
 theme = TokyoNight Day
 
-# Font — matches wezterm (JetBrainsMono Nerd Font Mono @ 14)
-# font-family = JetBrainsMono NFM
-font-family = SF Mono
+font-family = JetBrainsMono Nerd Font Mono
+# font-family = SF Mono
+# font-family = Geist Mono
 font-size = 14
 
 # SF Mono ships with wide side-bearings; Ghostty honors the native advance,
 # so glyphs look airy vs Terminal.app. Tighten the cell to match.
-adjust-cell-width = -8%
+adjust-cell-width = -5%
 
 # Window padding — matches wezterm (window_padding = 20)
 window-padding-x = 10
