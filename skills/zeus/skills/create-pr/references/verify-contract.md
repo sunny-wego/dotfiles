@@ -1,17 +1,19 @@
-# Self-verify: proving the code satisfies the issue's contract
+# Verify the code satisfies the issue's contract (create-pr gate)
 
-This is the gate that separates `/zeus:implement` from "the agent coded something." It's the mirror of
-`/zeus:propose`'s reader test — propose checks a *document* is sound from the outside; here you check the
-*code* delivers what the issue promised, and you capture proof a reviewer can re-run.
+This proves the diff delivers what the **linked issue** promised — not just that "the agent coded
+something." It runs in `/zeus:create-pr` whenever a PR has a linked issue, **no matter who wrote the code**
+(`/goal`, a manual session, etc.). It's the mirror of `/zeus:propose`'s reader test — propose checks a
+*document* is sound from the outside; here you check the *code* delivers what the issue promised, and you
+capture proof a reviewer can re-run.
 
 ## Why it earns its place
 
 An issue from `/zeus:propose` is written as an agent-ready contract on purpose: acceptance criteria, binary
 MUST / MUST NOT invariants, and a `## Verification` block. Without this step the contract is decorative —
 the value is in *consuming* it: running the verification, demonstrating each invariant, and confirming the
-acceptance condition. A self-verify that passes with captured evidence is exactly what makes the downstream
-`/zeus:create-pr → /zeus:address-pr → /zeus:request-review` chain trustworthy; skip it and you've just pushed unverified
-code into a pipeline that assumes it was verified.
+acceptance condition. Verifying with captured evidence **before the PR opens** is what makes the downstream
+`/zeus:create-pr → /zeus:address-pr → /zeus:request-review` chain trustworthy; skip it and you've opened a PR
+of unverified code into a pipeline that assumes it was verified.
 
 ## The loop
 

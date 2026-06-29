@@ -101,22 +101,20 @@ INVESTIGATION_EPIC=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh investigation-e
 
 If `$INVESTIGATION_EPIC` is non-empty, pass `--label investigation` to `post-pr.sh` (step 3) so the PR self-files under the investigation, and consider noting "Part of investigation #$INVESTIGATION_EPIC" in the body. If empty (the common case), this is a no-op — `/zeus:create-pr` is unchanged and needs no `/zeus:investigate`.
 
-### 1c. Pre-PR review backstop (optional)
+### 1c. Pre-PR review gate (optional)
 
-Don't open a PR on un-reviewed code. `/zeus:implement` normally reviews the diff before
-handing off (and records the reviewed SHA); this is the **backstop** for when
-`/zeus:create-pr` is invoked directly. It's a gate, not a fixer — create-pr never edits code.
+Don't open a PR on un-reviewed code. Before composing the body, review the diff via
+`/zeus:review-pr`. It's a gate, not a fixer — create-pr never edits code.
 
 ```bash
 REVIEWED=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh reviewed-sha 2>/dev/null || true)
 HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || true)
 ```
 
-- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed upstream by
-  `/zeus:implement` — the watermark is only ever stamped on a SHA a review actually ran against,
-  so an equal watermark is a real signal, not a rubber stamp).
-- Otherwise (empty or stale — including when `/zeus:implement` committed fixes after its last
-  review and deliberately left the tree unstamped) → **invoke `/zeus:review-pr` by name** (the
+- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed and recorded
+  upstream — the watermark is only ever stamped on a SHA a review actually ran against, so an
+  equal watermark is a real signal, not a rubber stamp).
+- Otherwise (empty or stale — the common case) → **invoke `/zeus:review-pr` by name** (the
   skill, never its scripts — family doctrine). It auto-detects, and since the PR isn't open yet
   it reviews the **local working diff** and hands the findings back. Keep a short summary of the
   Confirmed findings (and notable Hypotheses) to show in the confirm step (2c).
@@ -124,8 +122,34 @@ HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || true)
   as the journey lookups above being no-ops).
 
 create-pr does **not** fix anything here. If findings warrant changes, the user picks
-"Fix first" at the confirm step and control returns to the LLM (or `/zeus:implement`) to
-fix them normally; re-run `/zeus:create-pr` afterward.
+"Fix first" at the confirm step and control returns to the LLM to fix them normally;
+re-run `/zeus:create-pr` afterward.
+
+### 1d. Verify against the issue's contract (when a linked issue exists)
+
+If `$ISSUE_NUMBER` is non-empty, this PR closes a contract someone wrote — verify the code
+actually delivers it **before** opening the PR, no matter who wrote the code (`/goal`, a
+manual session, …). This is the mirror of `/zeus:propose`'s reader test: propose checks a
+*document* is sound; here you check the *code* delivers what the issue promised, and capture
+proof a reviewer can re-run. Pull the contract out of the issue body:
+
+```bash
+gh issue view "$ISSUE_NUMBER" --json body -q .body > "$ISSUE_BODY_FILE"
+bash ${CLAUDE_SKILL_DIR}/scripts/extract-contract.sh "$ISSUE_BODY_FILE"
+```
+
+This emits `{has_contract, verification, invariants, acceptance, closes_when}` as an aid (the
+agent still reads the whole body for intent). Run the verification per
+**`references/verify-contract.md`**: execute the `## Verification` steps verbatim, demonstrate
+each MUST / MUST NOT invariant, confirm the acceptance / Closes-when condition holds now, and
+hand the captured evidence into `test_plan.manually_verified` (step 2). On `has_contract:false`
+(a thin ticket), infer the acceptance bar from the prose, state it back in one line, and verify
+against that. If a verification step is *wrong* (contradictory, impossible), stop and surface it
+with the evidence — let the human amend the issue (`/zeus:propose` amend); never weaken a step to
+make it pass.
+
+If `$ISSUE_NUMBER` is empty (no linked issue) → skip; there's no written contract to verify
+against, and PR independence is preserved.
 
 ### 2. Generate title + body
 
@@ -217,8 +241,8 @@ Options:
 
 - **Post as-is** — runs step 3.
 - **Fix first** — *(offer only when 1c surfaced findings)* stop without posting and
-  hand control back to the LLM (or `/zeus:implement`) to fix the findings normally;
-  re-run `/zeus:create-pr` afterward. create-pr does not fix code itself.
+  hand control back to the LLM to fix the findings normally; re-run `/zeus:create-pr`
+  afterward. create-pr does not fix code itself.
 - **Edit** — open the draft for inline edits, then re-ask.
 - **Save draft only** — print `$BODY_FILE` and stop.
 - **Cancel** — discard.
