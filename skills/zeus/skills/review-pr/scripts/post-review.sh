@@ -3,13 +3,18 @@
 # post it. Implements the rendering contract in references/comment-format.md and
 # the validation in references/findings-schema.md.
 #
-# Default is --dry-run: render the whole review to stdout, post nothing.
+# Output is keyed on ROLE (see detect-target.sh):
+#   --self  reviewing MY work (pre-PR diff or my own PR) → render findings to stdout
+#           for hand-back; NEVER posts. This is the only mode for a local diff.
+#   --peer  reviewing SOMEONE ELSE'S PR (reviewer role) → render (post nothing) by
+#           default; add --submit to POST one review.
 #
 # Usage:
-#   post-review.sh [--dry-run|--submit] [--request-changes] [--findings <file>]
-#     --dry-run         (default) print preview + payload, post nothing
-#     --submit          actually POST the review (event COMMENT)
+#   post-review.sh --self  [--findings <file>]
+#   post-review.sh --peer  [--submit [--request-changes]] [--findings <file>]
+#     --submit          (peer only) actually POST the review (event COMMENT)
 #     --request-changes with --submit, use event REQUEST_CHANGES (explicit only)
+# Default role: self when $PR_FILE is a local diff, else peer (dry-run).
 #
 # Requires $PR_FILE, $ANCHORS_FILE, $FINDINGS_FILE to exist (setup steps run first).
 
@@ -17,11 +22,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-mode="dry-run" event="COMMENT" findings="$FINDINGS_FILE"
+role="" submit=false event="COMMENT" findings="$FINDINGS_FILE"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dry-run) mode="dry-run"; shift ;;
-    --submit) mode="submit"; shift ;;
+    --self) role="self"; shift ;;
+    --peer) role="peer"; shift ;;
+    --submit) submit=true; shift ;;
     --request-changes) event="REQUEST_CHANGES"; shift ;;
     --findings) findings="${2:?}"; shift 2 ;; --findings=*) findings="${1#*=}"; shift ;;
     *) shift ;;
@@ -30,6 +36,21 @@ done
 [ -f "$PR_FILE" ]      || { echo "post-review: missing $PR_FILE (run identify/setup first)" >&2; exit 2; }
 [ -f "$findings" ]     || { echo "post-review: missing findings file $findings" >&2; exit 2; }
 [ -f "$ANCHORS_FILE" ] || echo '{}' > "$ANCHORS_FILE"
+
+# A local (pre-PR) diff is always self-review — there is no PR to post to.
+is_local=$(jq -r '.local // false' "$PR_FILE" 2>/dev/null || echo false)
+[ -z "$role" ] && { [ "$is_local" = "true" ] && role="self" || role="peer"; }
+if [ "$role" = "self" ] || [ "$is_local" = "true" ]; then
+  role="self"
+  if [ "$submit" = "true" ]; then
+    echo "post-review: refusing --submit on a self-review — findings are handed back to fix, not posted. Drop --submit (or review the PR as --peer)." >&2
+    exit 2
+  fi
+fi
+# mode passed to the renderer: self | peer-dry | submit
+if [ "$role" = "self" ]; then mode="self"
+elif [ "$submit" = "true" ]; then mode="submit"
+else mode="dry-run"; fi
 
 python3 - "$PR_FILE" "$ANCHORS_FILE" "$findings" "$mode" "$event" "$REVIEW_FILE" <<'PY'
 import sys, json
@@ -123,9 +144,16 @@ review = {"commit_id": pr.get("head_sha"), "event": event, "body": body, "commen
 # Always persist the machine payload; stdout stays human-only.
 json.dump(review, open(review_file, "w"))
 
-if mode == "dry-run":
+if mode in ("dry-run", "self"):
     print("="*72)
-    print(f"DRY RUN — nothing posted. PR {pr.get('owner')}/{pr.get('repo')}#{pr.get('number')} @ {pr.get('head_sha','')[:12]}")
+    if mode == "self":
+        where = (f"branch {pr.get('title') or '(detached)'} @ {pr.get('head_sha','')[:12]} vs {pr.get('base','')}"
+                 if pr.get("local") else f"PR #{pr.get('number')} @ {pr.get('head_sha','')[:12]}")
+        print(f"SELF-REVIEW (my work) — read-only, nothing posted. {pr.get('owner')}/{pr.get('repo')} {where}")
+        print("Findings are handed back for you to fix; review-pr never edits.")
+    else:
+        print(f"PEER DRY RUN — nothing posted. PR {pr.get('owner')}/{pr.get('repo')}#{pr.get('number')} @ {pr.get('head_sha','')[:12]}")
+        print("Add --submit to post this review to the PR.")
     print(f"event={event}  inline={len(inline)}  summary={len(summary)}  total={len(items)}")
     print(f"payload written to: {review_file}")
     print("="*72)

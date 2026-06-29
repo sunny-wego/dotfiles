@@ -1,12 +1,21 @@
 # AGENTS.md — zeus
 
 The **issue → code → PR → review** workflow as one skill family. Align on work as
-GitHub issues (`propose`, `investigate`), turn an issue into code on a branch
-(`implement`), surface it as a reviewer-friendly PR (`create-pr`), drive it to
-mergeable (`address-pr`), and hand off to a reviewer (`request-review`). Skills
-share durable facts through a per-worktree `journey.json` (and a hidden journey
-marker in the PR body), and invoke each other **by name** through JSON contracts —
-never by calling one another's scripts directly.
+GitHub issues (`propose`, `investigate`), write the code on a branch (a built-in
+implementer like `/goal`, or by hand), surface it as a reviewer-friendly PR
+(`create-pr`) — which reviews the diff via `review-pr` and verifies the linked
+issue's contract before opening — drive it to mergeable (`address-pr`), and hand off
+to a reviewer (`request-review`). `review-pr` is the shared review engine:
+auto-detected **local** (pre-PR working diff) or **remote** (an open PR). `improve`
+retrospects on the family itself. Skills share durable facts through a per-worktree
+`journey.json` (and a hidden journey marker in the PR body), and invoke each other
+**by name** through JSON contracts — never by calling one another's scripts directly.
+
+```
+propose / investigate → ⟨code: /goal or by hand⟩ ──▶ create-pr ──▶ address-pr → request-review
+                                review-pr (local) + verify the issue contract   settle      ping reviewer
+review-pr ── one engine, auto-detected: local (pre-PR) | remote (open PR)        improve ── retro on the family
+```
 
 This file documents the **shell-script CLI surface** of the family: the shared
 argument convention, the parser every script uses, and a per-skill reference.
@@ -18,10 +27,53 @@ For the *behavioral* flow of a given skill, read its `SKILL.md`.
 |---|---|---|
 | [`propose`](./skills/propose/SKILL.md) | "propose X", "open an issue", "write an RFC" | Put a proposal/decision doc up for alignment as a GitHub issue. |
 | [`investigate`](./skills/investigate/SKILL.md) | "investigate X", "open a postmortem", "record this finding" | Evidence-driven investigation maintained as a GitHub issue. |
-| [`implement`](./skills/implement/SKILL.md) | "do #N", "implement the issue", "ship the proposal" | Read an issue as the spec, write the code on a branch, hand off to `create-pr`. |
-| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section). |
+| [`review-pr`](./skills/review-pr/SKILL.md) | "review pr", "code review", "review my changes before PR", a PR URL | Read-only review across 7 dimensions; **auto-detects** local (pre-PR working diff) vs remote (open PR). Diagnoses + hands findings back — never fixes. |
+| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section); **reviews the diff** (`review-pr`) and **verifies the linked issue's contract** before opening. |
 | [`address-pr`](./skills/address-pr/SKILL.md) | "fix pr", "address feedback", "resolve merge conflicts" | Drive a PR to **settled** (mergeable, checks green, reviews resolved), then watch. |
 | [`request-review`](./skills/request-review/SKILL.md) | "ping reviewers", "request review", "re-review" | Notify a PR's code owners it's ready; re-ping in-thread when the head advances. |
+| [`improve`](./skills/improve/SKILL.md) | "/zeus:improve", "retro this session", "iterate on the skills" | Meta/orthogonal: harvest a session's friction and land fixes in zeus or the repo's guidance. |
+
+## Composition
+
+The spine (intro diagram) is just the common path — **any skill is a valid entry
+point**. The skills compose three ways: invoke-by-name hand-offs, a shared
+`journey.json` bus, and two hooks. Each capability has exactly one owner, so a path
+either reuses it or hands off to it — never duplicates it.
+
+**Hand-offs** — the only inter-skill calls, always *by name*, never another skill's
+scripts by path:
+
+| Caller | Callee | When |
+|---|---|---|
+| `create-pr` | `review-pr` (self) | 1c gate, pre-open — findings handed back to fix (skipped when `.review` == HEAD) |
+| `address-pr` | `request-review` | at settled, and on each watch re-review |
+| `investigate` | *(opens a remediation issue)* | `remediate` → then code + `create-pr` |
+
+`review-pr` and `request-review` are terminal (invoke nothing); `address-pr` never calls `review-pr`.
+
+**The bus** — per-worktree `journey.json` facts, one writer class each (readers never re-derive them):
+
+| Fact | Writer | Reader(s) | Why |
+|---|---|---|---|
+| `.issue` | propose, investigate | create-pr | seed the PR from the issue + verify its contract |
+| `.review {sha}` | create-pr (1c) | create-pr | skip a redundant pre-PR review of the same tree on re-invocation |
+| `.pr` | create-pr | address-pr | pick up the opened PR |
+| `.investigation.epic` | investigate | create-pr | file the PR under the epic |
+| PR-body marker (`slack`, `accepted_checks`) | address-pr | address-pr / request-review | re-thread the ping; honor accepted gates |
+
+**Hooks** (automatic transitions, no call; state-driven, gated to a linked worktree) — see `hooks/hooks.json`:
+- PostToolUse(push) → nudge `address-pr` after a push lands on a branch with an open PR.
+- Stop → link the branch's open PR into the active `investigate` epic.
+- Stop → suggest `create-pr` when a turn ends with committed work on a feature branch and **no** open PR. This bridges an implementer that doesn't open PRs itself (e.g. a built-in `/goal` driving from a `propose` artifact) into the pipeline: `propose → /goal → ⟨nudge⟩ create-pr (seeds from `.issue` + review gate + verify contract) → ⟨push hook⟩ address-pr → request-review`.
+
+**Dedup guarantees:**
+- Review runs **once per tree** — create-pr's 1c gate reviews pre-PR and stamps the
+  `.review` watermark (only on a SHA a review actually ran against), so a re-invocation
+  on the unchanged tree skips re-review. (A future upstream implementer that records its
+  reviewed SHA hands off the same way — create-pr skips 1c when `.review` == HEAD.)
+- **One notifier** (`request-review`, per-SHA dedup) — no skill posts Slack itself.
+- **One reviewer engine** — `self` (hand back) and `peer` (post comments) are adapters over the same handlers.
+- **State is re-derived, not stored** — `address-pr` is a level-triggered reconciler; GitHub is the only truth.
 
 ## CLI argument convention
 
@@ -81,10 +133,14 @@ left to luck. Run the lint:
 bash zeus/lib/check-arg-conventions.sh   # exit 0 = clean, 1 = violations
 ```
 
-It fails on any split `<owner> <repo>` in a script CLI call or a doc, and verifies
-`resolve_pr`/`resolve_target` exist in both PR-workflow libs. **There are no
-exemptions** — every identifier-taking script routes through the parser. Run it (and
-update docs) when you add or edit a script.
+It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc; [3] the
+parser is defined once in `lib/pr-ident.sh` and sourced by the PR-workflow libs;
+[4] no skill `lib.sh` re-defines a shared helper (`resolve_pr`/`with_lock`/`run`/…);
+[5] no script hand-rolls a `--pr)` case — every PR-identifier script routes through
+`resolve_pr`/`resolve_target`. **There are no exemptions** for `--pr`-taking scripts.
+(Issue-centric skills that take only `--repo`, and the resolvers themselves —
+`identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are out of scope by construction.)
+Run it when you add or edit a script.
 
 ## CLI reference — `address-pr`
 
@@ -122,7 +178,7 @@ update docs) when you add or edit a script.
 |---|---|
 | `state.sh` | `init <pr> <branch> <base>` · `iteration` · `bump-iteration` · `append <handler> <json>` · `read` · `clear` · `queue-reply` · `queue-review-body-reply` · `queue-resolve` · `queue-reaction` · `flush-queue` |
 | `monitor-state.sh` | `init <pr> <head_sha> [last_seen]` · `get` · `set-last-seen <ts>` · `pr` · `last-seen` · `bump-idle` · `reset-idle` · `idle-streak` · `bump-probe-failure` · `reset-probe-failures` · `probe-failures` · `set-last-acked` · `last-acked` · `clear` |
-| `journey.sh` | `write-issue` · `write-pr` · `write-investigation` · `lookup` · `issue-number` · `issue-url` · `pr-number` · `pr-url` · `investigation-epic` · `clear` |
+| `journey.sh` | `write-issue` · `write-pr` · `write-review <sha>` · `write-investigation` · `lookup` · `issue-number` · `issue-url` · `pr-number` · `pr-url` · `reviewed-sha` · `investigation-epic` · `clear` |
 | `journey-marker.sh` | `emit` · `parse` · `splice` · `read <pr> [owner/repo]` · `write <pr> [owner/repo]` (stdin JSON) |
 | `check-pr-relevance-llm.sh` | `snapshot <pr> <pre\|post>` · `build-prompt <pr> [conflict_files]` · `gate - [threshold]` |
 | `original-intent.sh` | `capture <pr>` · `parse` · `read` |
@@ -131,7 +187,7 @@ update docs) when you add or edit a script.
 **Helpers / no-identifier** (stdin / files / no args): `capture-conflicts.sh`,
 `classify-checks.sh` (stdin: pr-status JSON), `dispatch-monitor.sh` (`<probe-json>|-`),
 `fetch-failed-logs.sh` (`<branch> [commit]`), `find-sonar-project-key.sh`,
-`identify-pr.sh` (`[--checkout]`), `resolve-threads.sh` (`<thread_id> …`),
+`pr-for-branch.sh` (`[--checkout]` — the open PR for the current branch), `resolve-threads.sh` (`<thread_id> …`),
 `review-digest.sh` (`<reviews_json> [excerpt_chars]`), `safe-stage.sh`,
 `preflight.sh` (`[--fix]`), `lib.sh` (sourced).
 
@@ -159,42 +215,94 @@ update docs) when you add or edit a script.
 `watermark.sh` (`--tag <skill>` | `<skill> <file>|-|--in-place <file>`),
 `preflight.sh` (`[--fix]`), `lib.sh` (sourced).
 
-> The other four skills (`propose`, `investigate`, `implement`, `create-pr`) carry
-> their own scripts under `skills/<skill>/scripts/`. They follow the same house
-> rules (identifiers as `--pr/--repo`, verbs positional, payloads via stdin); the
-> detailed per-script reference above covers the PR-workflow pair where the parser
-> currently lives. New or edited scripts in any skill should route identifiers
-> through `resolve_pr`/`resolve_target` and pass `check-arg-conventions.sh`.
+## CLI reference — `review-pr`
+
+`review-pr` runs one engine on two **auto-detected** axes: `source` (local working
+diff vs an open PR) and `role` (self = my work, hand findings back; peer = someone
+else's PR, post comments). `--local`/`--base`, a PR arg, and `--as self|peer` are
+overrides. `--base` takes a ref, so (per rule 5) it is parsed by these scripts
+directly and never routed through the identifier parser.
+
+**Target detection & diff** (run in order; pre-isolation scripts take no state dir):
+
+| Script | Signature |
+|---|---|
+| `detect-target.sh` | `[<url\|number>] [--repo <owner/repo>] [--local] [--base <ref>] [--as self\|peer]` — emits `{source:"local"\|"remote", role:"self"\|"peer", …}`. Auto by default (source from branch/PR state; role from PR authorship); flags/arg are overrides. |
+| `identify-pr.sh` | `<url\|number> [--repo <owner/repo>]` — resolve a PR to metadata (remote mode only; one network call). |
+| `ensure-checkout.sh` | `--pr <n> --repo <owner/repo> [--foreign <bool>] [--sha <head>]` — isolate the PR head in a worktree / blobless clone (remote only). |
+| `extract-diff.sh` | `--pr <n> --repo <owner/repo>` (remote)  •  `--local [--base <ref>] [--include-dirty]` (local, no network) — writes the diff + anchorable lines. |
+| `select-mode.sh` | `[--deep\|--single]` — reads the extracted diff; emits `{mode:single\|parallel, applicable_handlers, …}`. |
+| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` (dry-run; `--submit` posts) `[--findings <file>]` — output keyed on role; a local diff is forced to `--self`. |
+
+**Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
+by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+
+> The other skills (`propose`, `investigate`, `create-pr`,
+> `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
+> same house rules (identifiers as `--pr/--repo`, verbs positional, payloads via
+> stdin); the detailed per-script reference above covers the PR-workflow pair where
+> the parser currently lives. New or edited scripts in any skill should route
+> identifiers through `resolve_pr`/`resolve_target` and pass `check-arg-conventions.sh`.
 
 ## Structure & shared lib
 
 ```
 zeus/
 ├── .claude-plugin/        plugin manifest
-├── lib/                   shared script TEMPLATES, vendored into each skill's scripts/
-│   ├── journey-marker.sh  journey.sh  preflight.sh  watermark.sh  telemetry.sh  preview.sh
-│   └── check-arg-conventions.sh   ← the CLI-convention lint (run from anywhere)
+├── lib/                   the family's single source for shared code, two kinds:
+│   ├── (sourced fragments) pr-ident.sh  lock.sh  run.sh  repo.sh  config.sh
+│   │      ↳ sourced by each skill's scripts/lib.sh — define functions, no top-level code
+│   ├── (vendored scripts)  journey.sh  journey-marker.sh  preflight.sh
+│   │      watermark.sh  telemetry.sh  preview.sh   ↳ symlinked into skills' scripts/
+│   ├── config.defaults.json          shipped config defaults (the only config in the repo)
+│   └── check-arg-conventions.sh      the CLI-convention lint (run from anywhere)
 ├── hooks/hooks.json
 └── skills/<skill>/
     ├── SKILL.md           the behavioral contract (read this for flow)
     ├── scripts/           the skill's CLI (each sources scripts/lib.sh)
-    │   └── lib.sh         per-skill helpers + resolve_pr / resolve_target
+    │   └── lib.sh         a thin shim: sources the lib/ fragments it needs + the
+    │                      skill's own STATE_DIR / helpers (NO copied family helpers)
     ├── handlers/          (address-pr) per-operation playbooks
     └── references/        long-form contracts
 ```
 
-- **`resolve_pr` / `resolve_target` live in each skill's `scripts/lib.sh`.** The two
-  PR-workflow copies are kept identical; if you change one, change the other.
-- **`zeus/lib/` is the vendoring source**, not a runtime import — shared scripts
-  (e.g. `journey-marker.sh`) are copied into each skill's `scripts/`. Edit the source
-  in `zeus/lib/` AND the vendored copies together.
-- **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`,
-  `.git/request-review/`), isolated across worktrees.
+- **One copy of every shared helper, in `zeus/lib/`.** `resolve_pr`/`resolve_target`
+  (pr-ident.sh), `with_lock`/`acquire_lock` (lock.sh), `run` (run.sh), and the repo/
+  base-branch helpers (repo.sh) are defined ONCE and **sourced** by each skill's
+  `lib.sh` — never pasted (the old per-skill copies drifted; `check-arg-conventions.sh`
+  rule [4] now forbids re-defining them). The vendored *scripts* (journey.sh, …) are
+  **symlinked** into `scripts/`, so editing `lib/` updates every skill at once.
+- **Config: one home, nothing committed.** `lib/config.sh` reads merged config —
+  `env ZEUS_<KEY>` > repo `.git/zeus/config.json` > user `$ZEUS_CONFIG_DIR/config.json`
+  (default `~/.config/zeus/`) > shipped `lib/config.defaults.json`. Per-concern blobs
+  (Slack handles, ping policy, Confluence) live as their own files under
+  `$ZEUS_CONFIG_DIR/<concern>/`. The repo holds only `*.default.json` templates.
+- **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`),
+  isolated across worktrees, never committed.
 
 ## House conventions
 
 - Skills call skills **by name** with JSON contracts — never another skill's scripts
   by path. GitHub / `gh` is the source of truth; the PR body is never a state store
   (except the hidden journey marker, which is durable cross-session context).
+- **Script I/O contract:** machine output is JSON on **stdout**; logs and human text
+  go to **stderr**; errors are `{"error":"…"}` on stderr; exit `0` ok / `1` runtime /
+  `2` usage. Identifiers route through `resolve_pr`/`resolve_target`; sub-commands are
+  positional; bulk payloads come via stdin or `--from <file|->`; refs/branches never
+  go through the identifier parser.
+- **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
+  via `config.sh`, never hard-coded; user/repo config is never committed.
+- **Optional external integrations have exactly ONE owner skill, reached by name.**
+  Slack lives in `request-review`, Confluence in `propose`; SonarQube / Vercel are
+  `address-pr` handlers. Other skills never post to a channel directly or call the
+  owner's scripts by path — they invoke the owner skill with a JSON contract, so its
+  `allowed-tools` are the *only* place that integration's MCP tools appear (e.g.
+  `address-pr` carries no Slack tools — it hands the verdict to `request-review`).
+  Each integration is **MCP-gated and degrades gracefully**: MCP reachability can't
+  be probed from a script, so the owning skill confirms it live and falls back to the
+  GitHub-only path when it's absent (never a hard failure). A *new* integration
+  (e.g. Jira) follows the same shape — pick an owner, don't add a posting lib.
+- **Stay agnostic:** no language/stack/CI assumptions — detect at runtime and degrade
+  gracefully; resolve the base branch via `repo.sh` (never hard-code `main`/`master`).
 - When you add or change a script's CLI, update its `Usage:` header, the call-sites in
   the owning `SKILL.md`, and run `bash zeus/lib/check-arg-conventions.sh`.

@@ -20,7 +20,7 @@ Agents operating here must respect the existing structure, symlink logic, and ae
 - **`nvim/`**: Neovim configuration. Based on **LazyVim**.
 - **`starship/`**: Prompt configuration via `starship.toml`.
 - **`lazygit/`**: Git TUI configuration.
-- **`skills/`**: Hand-authored agent skills/plugins (e.g. `zeus`). Symlinked into `~/.agents/skills/` by `install.sh`; internal `scripts/*.sh` are relative symlinks into the skill's own `lib/`, so the tree stays portable across machines.
+- **`skills/`**: Hand-authored agent skills/plugins. The `zeus` plugin (the issue→code→PR→review workflow family) is documented in [`skills/zeus/AGENTS.md`](skills/zeus/AGENTS.md) — start there for its **composition map** (hand-offs, the `journey.json` bus, hooks), CLI conventions, and shared `lib/`. Skills are symlinked into `~/.agents/skills/` by `install.sh`; shared code in `zeus/lib/` is vendored into each skill — symlinked into its `scripts/` (e.g. `journey.sh`) or sourced by its `lib.sh` (e.g. `pr-ident.sh`) — so the tree stays portable across machines.
 
 ## 3. Build & Installation
 

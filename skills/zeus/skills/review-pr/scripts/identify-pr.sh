@@ -8,10 +8,11 @@
 #   identify-pr.sh <n>                 # repo inferred from cwd via `gh repo view`
 #   identify-pr.sh <n> --repo owner/repo
 #
-# Output JSON: { owner, repo, number, head_sha, base, url, title, foreign }
+# Output JSON: { owner, repo, number, head_sha, base, url, title, author, foreign }
 #   foreign = true when the PR's repo differs from the repo of the current cwd
 #             (tells ensure-checkout.sh whether a worktree of cwd will work or a
 #             clone is needed).
+#   author  = the PR author's login (lets detect-target classify self vs peer).
 # Exit: 0 on success; non-zero with {"error": ...} on stderr otherwise.
 
 set -euo pipefail
@@ -47,7 +48,7 @@ if [ -z "$owner" ] || [ -z "$repo" ]; then
 fi
 
 raw=$(gh pr view "$num" --repo "$owner/$repo" \
-        --json number,headRefOid,baseRefName,url,title 2>/dev/null) || {
+        --json number,headRefOid,baseRefName,url,title,author 2>/dev/null) || {
   echo "{\"error\": \"cannot view PR $num in $owner/$repo (gh auth / network / wrong repo?)\"}" >&2
   exit 1
 }
@@ -65,5 +66,6 @@ echo "$raw" | jq \
     base: .baseRefName,
     url: .url,
     title: .title,
+    author: (.author.login // ""),
     foreign: $foreign
   }'

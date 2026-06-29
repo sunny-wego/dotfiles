@@ -42,7 +42,7 @@ Any branch that resolves to **UPDATE** then passes an **ownership gate**: an ame
 
 This skill spans **two destinations** (GitHub issues, Confluence pages — see *Destination*), and routing is destination-agnostic: the worktree pin (`state.sh current`) and `resolve-target.sh` candidates each carry a `provider` + `ref` (a bare `<number>` for GitHub, `confluence:<id>` for a page), so an explicit `#N`, a resumed pin, or a resolved phrase lands on whichever destination that proposal lives in. The UPDATE then follows the matching sequence in *Updating*.
 
-**Confirm an inferred target before any write** — routing is an inference and a wrong target is invisible to every downstream gate (the drift gate compares an issue to its *own* body). An **explicit `#N`** or a **this-session target** is trusted and only echoed: *"Amending **#840**."* A target reached by **inference** — the worktree pin (step 4) or a `resolve-target.sh` match (step 5) — is **confirmed, not just announced**: state it and get a yes before amending (*"Resuming **#840** (this worktree's active proposal) — amend it?"*), so a stale pin can't silently redirect the next task. Non-interactive + unconfirmable inference → don't guess; CREATE or ask. Posting (create or update) pins the issue as this worktree's active proposal automatically (`post-issue.sh`), so the next bare `/zeus:propose` resumes it.
+**Confirm an inferred target before any write.** An explicit `#N` or a this-session target is trusted — just echo it (*"Amending **#840**."*). A target reached by inference (the worktree pin or a `resolve-target.sh` match) needs a yes first (*"Resuming **#840** — amend it?"*), so a stale pin can't silently redirect the next task; non-interactive + unconfirmable → CREATE or ask, never guess. Posting auto-pins the issue as this worktree's active proposal (`post-issue.sh`), so the next bare `/zeus:propose` resumes it.
 
 ## Review gating: derived from content, not declared
 
@@ -53,7 +53,7 @@ bash ${CLAUDE_SKILL_DIR}/scripts/requires-review.sh "$STATE_FILE"
 # → {"required":bool,"mode":"auto|always|never","reasons":[...]}
 ```
 
-Triggers (any one): `discussion_questions` non-empty · `code_grounding` non-empty · >200 words across `proposal` + custom `sections` + `discussion_banner` · MUST/MUST NOT invariants in that prose. The things that make a document need review — open decisions, empirical claims, substantial design prose, binding rules — are the things that trigger it; a six-line tracking ticket has none and flows compose → validate → post untouched. `post-issue.sh` calls the **same script** to enforce, so an author can't dodge review by not labeling a decision doc (the old self-declared `depth` field had exactly that hole).
+Triggers (any one): `discussion_questions` non-empty · `code_grounding` non-empty · >200 words across `proposal` + custom `sections` + `discussion_banner` · MUST/MUST NOT invariants in that prose — i.e. the things that genuinely need review. A six-line tracking ticket has none and flows compose → validate → post untouched. `post-issue.sh` calls the **same script** to enforce, so an author can't dodge review by not labeling a decision doc (the old self-declared `depth` field had exactly that hole).
 
 Override with the state's `review` field when the heuristic misfires: `"always"` (force it) or `"never"` (skip it — legitimate for a paste-dump tracking issue, but it MUST appear as a visible choice in the step-5 confirmation, never a silent default). Full review playbook (Stage 1 prompt template, Stage 2 grounding, Stage 3 steelman, amend vs supersede, the Amendment Log, invariants-in-content): **`references/rfc-mode.md`**. Conventions and *why*: **`references/house-style.md`**.
 
@@ -74,20 +74,20 @@ A repo absent from the store behaves **exactly as before**. Enable one with `con
 
 `mode` decides what posting means:
 
-- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff, `/zeus:implement`); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the issue→code→PR chain is untouched.
-- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be `/zeus:implement`ed. The page becomes the proposal's identity.
+- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff into the issue→code→PR chain); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the chain is untouched.
+- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be turned into code. The page becomes the proposal's identity.
 
 The **gate is shared and runs once.** Validate, audit, and the Stage-1 reader test all operate on `render(state)` as canonical markdown; Confluence is just a transport encoding of that same approved state, so the reader test is **not** re-run against the Confluence body — the existing `reader_test_hash` (keyed on state) covers both surfaces. Nothing in *Review gating* changes.
 
 ## Inputs
 
+Picking order (highest priority first):
+
 | Source | When | How |
 |---|---|---|
+| User-supplied path or inline text | Explicit argument | `/zeus:propose <path>` or `/zeus:propose "raw paste"` — argument wins over the others. |
 | Plan file (e.g. `~/.claude/plans/*.md`) | After plan mode | Prefer `$CLAUDE_PLAN_FILE`; otherwise the most-recent `.md` under `~/.claude/plans/`. |
 | Current conversation | Mid-session, no plan file | Summarise the conversation-so-far. |
-| User-supplied path or inline text | Explicit argument | `/zeus:propose <path>` or `/zeus:propose "raw paste"` — argument wins over the others. |
-
-Picking order: **explicit argument → plan file → conversation**.
 
 ## Prerequisites
 
@@ -101,20 +101,12 @@ When the user asks to "create an issue", "file an issue", or invokes `/zeus:prop
 
 ### 0. Preflight & bootstrap
 
-Verify dependencies before doing any work:
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-If `.ok` is `false`, present each `.remediation[]` entry to the user and **offer to install**. With their confirmation, auto-install the installable ones and re-check:
-
-```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh --fix
-```
-
-`--fix` only runs entries with `auto: true` (package installs). Interactive steps such as `gh auth login` (`auto: false`) are listed but never auto-run — ask the user to run them. Proceed only once preflight reports `ok: true`.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed only at `ok: true`. Full flow (the `--fix` auto-install vs interactive steps like `gh auth login`): **`zeus/lib/PREFLIGHT.md`**.
 
 ### 1. Gather repo + ref context
 

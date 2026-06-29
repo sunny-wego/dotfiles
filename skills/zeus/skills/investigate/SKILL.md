@@ -39,17 +39,17 @@ a later phase, via `remediate`). It works standalone.
 
 ## Preflight
 
-Verify dependencies before the first mutation (same engine + flow as the rest of the family):
+Verify dependencies before the first mutation:
 
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-On `.ok == false`, present each `.remediation[]` entry and offer to install; `preflight.sh --fix`
-installs the `auto:true` entries (interactive steps like `gh auth login` are listed, never auto-run).
-A `gh-scope-project` warning is non-blocking — it's the "degrade to issues-only" case below; surface
-the `gh auth refresh -s project` remediation once and continue.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed at
+`ok: true`. Full flow: **`zeus/lib/PREFLIGHT.md`**. Skill-specific: a `gh-scope-project` warning is
+**non-blocking** — it's the "degrade to issues-only" case below; surface the `gh auth refresh -s project`
+remediation once and continue.
 
 ## Routing — decide the mode, don't make the user state it
 
@@ -249,7 +249,7 @@ the managed block, so a hand-edit to your narrative is safe and a re-render can'
 - Outward-facing writes (creating the Epic, editing it, linking) follow the usual rule: confirm
   before the first mutation unless the user clearly authorised it, and prefer `--dry-run` when unsure.
 
-## Scripts & resources
+## Scripts & references
 
 | Path | Purpose |
 |---|---|

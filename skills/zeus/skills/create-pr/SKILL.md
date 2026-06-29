@@ -7,13 +7,16 @@ description: >-
   generate a PR description, open a new pull request, update an existing PR's
   body, or prepare a branch for human review. Triggers on: "create pr", "open a
   pr", "draft pr", "write pr description", "update pr body", "wrap up this
-  feature", "ready for review".
+  feature", "ready for review" (in the sense of *preparing/opening* the PR). This
+  authors and opens the PR (and reviews the diff first via /zeus:review-pr);
+  *notifying* reviewers that an existing PR is ready is /zeus:request-review, and
+  *fixing* an open PR's checks/feedback is /zeus:address-pr.
 license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
   version: "1.2"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*)
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(find:*) Bash(bash:*) AskUserQuestion Skill
 ---
 
 # Create PR
@@ -44,26 +47,18 @@ Refresh mode rewrites only the machine-owned block. Everything else is preserved
 - **Required:** `git` (run inside a repo), `gh` (GitHub CLI, authenticated), `jq`.
 - **Optional:** a JS runner — `npx` (bundled with Node) or `bun` — enables the token-usage footer; safely skipped if absent.
 
-## Instructions
+## Workflow
 
 When the user asks to "create a PR", "open a PR", or uses the `/zeus:create-pr` command, follow this workflow.
 
 ### 0. Preflight & bootstrap
 
-Verify dependencies before doing any work:
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-If `.ok` is `false`, present each `.remediation[]` entry to the user and **offer to install**. With their confirmation, auto-install the installable ones and re-check:
-
-```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh --fix
-```
-
-`--fix` only runs entries with `auto: true` (package installs). Interactive steps such as `gh auth login` (`auto: false`) are listed but never auto-run — ask the user to run them. Proceed only once preflight reports `ok: true`.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed only at `ok: true`. Full flow (the `--fix` auto-install vs interactive steps like `gh auth login`): **`zeus/lib/PREFLIGHT.md`**.
 
 ### 1. Gather current branch context
 
@@ -105,6 +100,67 @@ INVESTIGATION_EPIC=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh investigation-e
 ```
 
 If `$INVESTIGATION_EPIC` is non-empty, pass `--label investigation` to `post-pr.sh` (step 3) so the PR self-files under the investigation, and consider noting "Part of investigation #$INVESTIGATION_EPIC" in the body. If empty (the common case), this is a no-op — `/zeus:create-pr` is unchanged and needs no `/zeus:investigate`.
+
+### 1c. Pre-PR review gate (optional)
+
+Don't open a PR on un-reviewed code. Before composing the body, review the diff via
+`/zeus:review-pr`. It's a gate, not a fixer — create-pr never edits code.
+
+```bash
+REVIEWED=$(bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh reviewed-sha 2>/dev/null || true)
+HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || true)
+```
+
+- If `$REVIEWED` == `$HEAD_SHA` → **skip** (this exact tree was already reviewed and recorded
+  upstream — the watermark is only ever stamped on a SHA a review actually ran against, so an
+  equal watermark is a real signal, not a rubber stamp).
+- Otherwise (empty or stale — the common case) → **invoke `/zeus:review-pr` by name** (the
+  skill, never its scripts — family doctrine). It auto-detects, and since the PR isn't open yet
+  it reviews the **local working diff** and hands the findings back. Keep a short summary of the
+  Confirmed findings (and notable Hypotheses) to show in the confirm step (2c).
+- If `/zeus:review-pr` isn't installed → **skip silently** (independence preserved, same
+  as the journey lookups above being no-ops).
+
+create-pr does **not** fix anything here. If findings warrant changes, the user picks
+"Fix first" at the confirm step and control returns to the LLM to fix them normally;
+re-run `/zeus:create-pr` afterward.
+
+If the review came back **clean** (nothing to fix for this SHA), stamp the watermark so a
+later re-invocation on the unchanged tree skips a redundant review:
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh write-review "$HEAD_SHA" 2>/dev/null || true
+```
+
+Don't stamp if you're about to fix findings — a fix moves HEAD, and the new tree is
+unreviewed; the re-run reviews it. (A future upstream implementer that records its
+reviewed SHA composes the same way: an equal watermark lets create-pr skip 1c entirely.)
+
+### 1d. Verify against the issue's contract (when a linked issue exists)
+
+If `$ISSUE_NUMBER` is non-empty, this PR closes a contract someone wrote — verify the code
+actually delivers it **before** opening the PR, no matter who wrote the code (`/goal`, a
+manual session, …). This is the mirror of `/zeus:propose`'s reader test: propose checks a
+*document* is sound; here you check the *code* delivers what the issue promised, and capture
+proof a reviewer can re-run. Pull the contract out of the issue body:
+
+```bash
+gh issue view "$ISSUE_NUMBER" --json body -q .body > "$ISSUE_BODY_FILE"
+bash ${CLAUDE_SKILL_DIR}/scripts/extract-contract.sh "$ISSUE_BODY_FILE"
+```
+
+This emits `{has_contract, verification, invariants, acceptance, closes_when}` as an aid (the
+agent still reads the whole body for intent). Run the verification per
+**`references/verify-contract.md`**: execute the `## Verification` steps verbatim, demonstrate
+each MUST / MUST NOT invariant, confirm the acceptance / Closes-when condition holds now, and
+hand the captured evidence into `test_plan.manually_verified` (step 2). On `has_contract:false`
+(a thin ticket), infer the acceptance bar from the prose, state it back in one line, and verify
+against that. If a verification step is *wrong* (contradictory, impossible), stop and surface it
+with the evidence — let the human amend the issue (`/zeus:propose` amend); never weaken a step to
+make it pass.
+
+If `$ISSUE_NUMBER` is empty (no linked issue) → skip; there's no written contract to verify
+against, and PR independence is preserved.
 
 ### 2. Generate title + body
 
@@ -179,6 +235,8 @@ bash ${CLAUDE_SKILL_DIR}/scripts/validate-pr.sh "$BODY_FILE"
 
 Required sections: `## Original Intent` (with at least `- Purpose:` and `- Scope:`), `## What this does`, `## Test Plan`, `## Rollback`. Exit non-zero ⇒ fix the gap before continuing. Soft warnings (missing managed block, missing Non-goals, linked-issue body has no `Closes #N`) are printed but don't block.
 
+This is the early, friendly check; `post-pr.sh` (step 3) **re-enforces it as a chokepoint** and refuses to open a PR whose body fails validation — so a malformed body can't publish even if this step is skipped (mirrors `propose`'s `post-issue.sh`).
+
 ### 2c. Confirm with the user
 
 **Preferred (Claude Code):** call AskUserQuestion with a one-screen preview. Generate the preview deterministically:
@@ -187,9 +245,15 @@ Required sections: `## Original Intent` (with at least `- Purpose:` and `- Scope
 bash ${CLAUDE_SKILL_DIR}/scripts/preview.sh "<title>" "$BODY_FILE" 60
 ```
 
+If the review gate (1c) produced findings, show a one-line-per-finding summary
+above the preview so the decision is informed, and offer the **Fix first** option.
+
 Options:
 
 - **Post as-is** — runs step 3.
+- **Fix first** — *(offer only when 1c surfaced findings)* stop without posting and
+  hand control back to the LLM to fix the findings normally; re-run `/zeus:create-pr`
+  afterward. create-pr does not fix code itself.
 - **Edit** — open the draft for inline edits, then re-ask.
 - **Save draft only** — print `$BODY_FILE` and stop.
 - **Cancel** — discard.

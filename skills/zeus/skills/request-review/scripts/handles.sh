@@ -6,7 +6,9 @@
 #   defaults — <skill-dir>/slack-handles.default.json   (ships with the skill)
 #   override — $CONFIG_DIR/slack-handles.json           (user-owned; edits land here)
 #
-# with CONFIG_DIR = ${REQUEST_REVIEW_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/request-review}.
+# with CONFIG_DIR = ${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/zeus}/request-review
+# (the unified Zeus config home; never committed). `migrate-config.sh` moves a
+# pre-unification ~/.config/request-review here.
 # Reads (get/list/missing-from-codeowners) see the MERGED map, override wins;
 # set/remove/init mutate only the override file.
 #
@@ -34,7 +36,7 @@ default_path() {
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && echo "$(pwd)/slack-handles.default.json"
 }
 
-CONFIG_DIR="${REQUEST_REVIEW_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/request-review}"
+CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/request-review"
 override_path() { echo "$CONFIG_DIR/slack-handles.json"; }
 
 # Merged view: defaults overlaid by the user override (override wins).

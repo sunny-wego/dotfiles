@@ -25,7 +25,7 @@ issue→code→PR→review family, not just the PR pair. All per-worktree under
 |---|---|---|---|
 | `propose` | Issue pointer | `journey/issue.json` (`.number`, `.url`, `.title`) | an issue was opened; query `gh` for revision/amend churn |
 | `investigate` | Active epic + report | `journey/investigation/epic` (+ `…/report`) | an investigation/postmortem was maintained |
-| `implement` | Spec-commit count | `git log --grep "#<issue>"` | how many commits referenced the spec issue (code-effort proxy) |
+| *(the branch)* | Spec-commit count | `git log --grep "#<issue>"` | how many commits referenced the spec issue (code-effort proxy) |
 | `create-pr` | PR pointer | `journey/pr.json` | the PR number/url to query `gh` for full history |
 | `address-pr` | Iteration depth + handler outcomes | `address-pr/state.json` (`.iteration`, `.outcomes[]`) | how many fix cycles the PR took |
 | `address-pr` | Last check snapshot | `address-pr/status.json` (`.failed[]`, `.pending`, `.all_passed`) | which checks blocked, how often |
@@ -35,7 +35,7 @@ issue→code→PR→review family, not just the PR pair. All per-worktree under
 The agent cross-references these against the conversation: e.g. "3 distinct nudge SHAs (signal) + the user said the ping fired too early (conversation) → premature-ping, real, high-severity."
 
 **Coverage caveat:** the issue-side skills leave thinner durable trails than the PR
-pair (a pointer, not an iteration log), so a `propose`/`investigate`/`implement`
+pair (a pointer, not an iteration log), so a `propose`/`investigate`
 candidate often rests mostly on conversation evidence (source a) plus a `gh` query
 off the pointer. That's still *real* — it just reaches "ripe" via `severity:high`
 or repeated logging across sessions rather than a rich per-run signal count.

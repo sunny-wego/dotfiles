@@ -1,20 +1,16 @@
 ---
 name: improve
 description: >-
-  Retrospective that turns a coding session's zeus-workflow friction into
-  durable improvements to the zeus skills themselves, plus repo-level guidance.
-  Use this whenever the user wants to improve or iterate on the workflow/tooling
-  after using any zeus skill — issue (propose / investigate), code (implement),
-  PR (create-pr / address-pr), or review (request-review) — triggers:
-  "/zeus:improve", "improve the workflow", "what should we fix in zeus", "retro
-  this session", "iterate on the skills", "retro the proposal", "improve
-  investigate", "capture what we learned this session", "make zeus faster". It
-  harvests friction signals, grades them real-vs-imaginary,
-  classifies each as skill-level (lands in the zeus source) vs repo-level (lands
-  in the repo's AGENTS.md), validates before shipping, and lands fixes on your
-  confirmation — accumulating learnings in a cross-session ledger. NOT for
-  improving arbitrary application/product code, performance, or non-zeus tooling;
-  this improves the zeus workflow, not the product.
+  Retrospective that turns a coding session's zeus-workflow friction into durable
+  improvements — to the zeus skills themselves (skill-level) and the repo's
+  AGENTS.md (repo-level). Use after any zeus skill (propose/investigate,
+  create-pr/address-pr, request-review) when the user wants to improve or iterate on
+  the workflow/tooling. Triggers: "/zeus:improve", "improve the workflow", "what
+  should we fix in zeus", "retro this session", "iterate on the skills", "capture
+  what we learned". It harvests friction, grades it real-vs-imaginary, classifies
+  skill- vs repo-level, validates, and lands fixes on your confirmation, accumulating
+  a cross-session ledger. NOT for improving product/application code or non-zeus
+  tooling — it improves the zeus workflow, not the product.
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. SonarQube MCP optional (validation only).
 metadata:

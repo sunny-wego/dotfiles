@@ -58,33 +58,25 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib.sh"
 
-pr=""
-repo=""
 mode="json"
-
+ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --pr) pr="$2"; shift 2 ;;
-    --repo) repo="$2"; shift 2 ;;
     --plain) mode="plain"; shift ;;
-    --json) mode="json"; shift ;;
+    --json)  mode="json"; shift ;;
     --help|-h)
       sed -n '2,/^set -euo/p' "$0" | head -n -1 | sed 's/^# \{0,1\}//' >&2
       exit 0
       ;;
-    *)
-      # Positional fallthrough: <pr> then <owner/repo>.
-      if [ -z "$pr" ]; then pr="$1"
-      elif [ -z "$repo" ]; then repo="$1"
-      else
-        echo "ready-for-review: unexpected argument: $1" >&2
-        exit 2
-      fi
-      shift
-      ;;
+    *) ARGS+=("$1"); shift ;;   # --pr/--repo + positional <pr> [owner/repo] → resolve_pr
   esac
 done
 
+resolve_pr ${ARGS[@]+"${ARGS[@]}"}   # identifiers via the shared parser (lib.sh), not hand-rolled
+pr="$PR"; repo="$REPO_SLUG"
+if [ "${#REST[@]}" -gt 0 ]; then
+  echo "ready-for-review: unexpected argument: ${REST[0]}" >&2; exit 2
+fi
 if [ -z "$pr" ]; then
   echo "usage: ready-for-review.sh <pr_number> [<owner/repo>] [--plain]" >&2
   exit 2

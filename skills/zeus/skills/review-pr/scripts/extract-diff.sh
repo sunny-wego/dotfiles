@@ -1,24 +1,80 @@
 #!/usr/bin/env bash
-# extract-diff.sh — fetch the PR's unified diff and compute the set of lines that
-# can carry an inline review comment. The GitHub reviews API rejects an ENTIRE
-# review if any one inline comment points at a line outside the diff, so the
-# renderer must validate every anchor against this manifest first.
+# extract-diff.sh — produce the diff to review and the set of lines that can carry
+# an inline review comment. Two sources, same output shape:
+#
+#   REMOTE (default): an open PR's diff via `gh pr diff` (reviewer role).
+#   LOCAL  (--local):  the current branch's working diff vs its base, NO network —
+#                      the pre-PR self-review the author runs before opening a PR.
 #
 # Writes (under $STATE_DIR, via lib.sh):
-#   $DIFF_FILE     the unified diff (gh pr diff)
-#   $ANCHORS_FILE  { "<path>": [<RIGHT-side line numbers>], ... }
-#                  RIGHT-side anchorable lines = added ('+') and context (' ')
-#                  lines, numbered in the new file. These are what `side:RIGHT`
-#                  inline comments may target.
+#   $PR_FILE       resolved PR/local metadata (uniform fields; .local=true in local mode)
+#   $DIFF_FILE     the unified diff
+#   $ANCHORS_FILE  { "<path>": [<RIGHT-side line numbers>], ... }  (via diff-anchors.py)
 #
-# Usage: extract-diff.sh --pr <n> --repo <owner/repo>   (also accepts a URL/number)
+# Usage:
+#   extract-diff.sh --pr <n> --repo <owner/repo>          # remote: a PR (URL/number ok)
+#   extract-diff.sh --local [--base <ref>] [--include-dirty]
+#     --base <ref>      base to diff against (default: repo default branch). A REF,
+#                       so it is parsed HERE and never routed through the identifier
+#                       parser (a ref like release/v1 would misparse as a repo).
+#     --include-dirty   include uncommitted/staged changes (default: committed only)
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-resolve_target "$@"
-[ -n "$PR" ] && [ -n "$REPO_SLUG" ] || { echo '{"error":"extract-diff.sh needs a PR and repo (URL, or --pr/--repo)"}' >&2; exit 2; }
+# --- split out the local-mode flags BEFORE resolve_target (refs must not reach the
+#     identifier parser); everything else is forwarded to it unchanged. ---
+local_mode=false base="" include_dirty=false
+fwd=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --local)         local_mode=true; shift ;;
+    --base)          base="${2:?--base needs a ref}"; shift 2 ;;
+    --base=*)        base="${1#*=}"; shift ;;
+    --include-dirty) include_dirty=true; shift ;;
+    *)               fwd+=("$1"); shift ;;
+  esac
+done
+
+# ============================ LOCAL (pre-PR) path ============================
+if [ "$local_mode" = true ] || [ -n "$base" ]; then
+  head=$(git rev-parse HEAD 2>/dev/null) || { echo '{"error":"extract-diff --local: no HEAD commit"}' >&2; exit 1; }
+  branch=$(git branch --show-current 2>/dev/null || echo "")
+
+  # Default base = the repo's default-branch ref, resolved GIT-ONLY (no gh, no network)
+  # via default_base_ref_git — local pre-PR review must not block on a gh timeout when
+  # the author is offline. Resilient + stack-agnostic (no main/master hardcode).
+  [ -z "$base" ] && base="$(default_base_ref_git)"
+
+  mb=$(git merge-base HEAD "$base" 2>/dev/null) \
+    || { echo "{\"error\":\"extract-diff --local: base ref '$base' not found (fetch it, or pass --base)\"}" >&2; exit 1; }
+
+  # Synthetic metadata so post-review/select-mode read the same fields as remote.
+  # Git-only (the local path stays network-free); slug may be empty if there's no
+  # origin remote — harmless, it's cosmetic owner/repo display, not a lookup key.
+  slug=$(git remote get-url origin 2>/dev/null | sed -E 's#(\.git)?$##; s#.*[:/]([^/]+/[^/]+)$#\1#' || true)
+  owner="${slug%%/*}"; name="${slug#*/}"
+  jq -nc --arg o "$owner" --arg r "$name" --arg h "$head" --arg b "$base" --arg t "$branch" \
+    '{owner:$o, repo:$r, number:null, head_sha:$h, base:$b, url:"", title:$t, local:true}' > "$PR_FILE"
+
+  # committed-only by default; merge-base → working tree when --include-dirty.
+  if [ "$include_dirty" = true ]; then
+    git diff "$mb" > "$DIFF_FILE"
+  else
+    git diff "$mb" HEAD > "$DIFF_FILE"
+  fi
+
+  python3 "$SCRIPT_DIR/diff-anchors.py" "$DIFF_FILE" > "$ANCHORS_FILE"
+  jq -nc --argjson a "$(cat "$ANCHORS_FILE")" \
+    '{files: ($a|keys|length), anchorable_lines: ([$a[]|length]|add // 0), local: true}' >&2
+  echo "$ANCHORS_FILE"
+  exit 0
+fi
+
+# ============================== REMOTE (PR) path =============================
+resolve_target "${fwd[@]:-}"
+[ -n "$PR" ] && [ -n "$REPO_SLUG" ] || { echo '{"error":"extract-diff.sh needs a PR and repo (URL, or --pr/--repo), or --local"}' >&2; exit 2; }
 
 # Persist PR metadata into STATE_DIR (post-review reads $PR_FILE here). identify-pr
 # runs pre-isolation against the launch checkout, so its output never lands in the
@@ -33,33 +89,7 @@ gh pr view "$PR" --repo "$REPO_SLUG" \
 gh pr diff "$PR" --repo "$REPO_SLUG" > "$DIFF_FILE" 2>/dev/null \
   || { echo "{\"error\":\"gh pr diff $PR failed for $REPO_SLUG\"}" >&2; exit 1; }
 
-python3 - "$DIFF_FILE" > "$ANCHORS_FILE" <<'PY'
-import sys, json, re
-hunk = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@')
-anchors, path, newline = {}, None, None
-with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
-    for line in fh:
-        if line.startswith('+++ '):
-            p = line[4:].rstrip('\n')
-            path = None if p == '/dev/null' else (p[2:] if p[:2] in ('b/', 'a/') else p)
-            newline = None
-            continue
-        m = hunk.match(line)
-        if m:
-            newline = int(m.group(1))
-            continue
-        if path is None or newline is None:
-            continue
-        tag = line[:1]
-        if tag == '+':
-            anchors.setdefault(path, []).append(newline); newline += 1
-        elif tag == ' ':
-            anchors.setdefault(path, []).append(newline); newline += 1
-        elif tag == '-':
-            pass  # left side only — no new-file line consumed
-        # '\' (no-newline marker) and anything else: ignore
-print(json.dumps(anchors))
-PY
+python3 "$SCRIPT_DIR/diff-anchors.py" "$DIFF_FILE" > "$ANCHORS_FILE"
 
 jq -nc --argjson a "$(cat "$ANCHORS_FILE")" \
   '{files: ($a|keys|length), anchorable_lines: ([$a[]|length]|add // 0)}' >&2

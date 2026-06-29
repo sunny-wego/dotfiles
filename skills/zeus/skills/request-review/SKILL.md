@@ -1,12 +1,15 @@
 ---
 name: request-review
 description: >-
-  Notify a PR's code owners that it is ready for review, and re-ping them
-  in-thread when the PR changes. Use after a PR is
+  Notify an existing PR's code owners that it is ready for review, and re-ping
+  them in-thread when the PR changes. Use after a PR is
   settled / ready for review, or to re-request review after pushing changes. Triggers
   on: "ask for review", "ping reviewers", "request review in slack", "request a
-  re-review", "tell the reviewers it's ready", "notify reviewers". Pairs with /zeus:address-pr
-  (which produces the readiness verdict) and /zeus:create-pr, but runs standalone.
+  re-review", "tell the reviewers it's ready", "notify reviewers". This only
+  *notifies* an already-open PR's reviewers — it does not create or modify the PR
+  (authoring/opening is /zeus:create-pr) or fix its checks (/zeus:address-pr).
+  Pairs with /zeus:address-pr (which produces the readiness verdict) and
+  /zeus:create-pr, but runs standalone.
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. Slack MCP for sending.
 metadata:
@@ -15,7 +18,7 @@ metadata:
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) AskUserQuestion mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 
-# Review Handoff
+# Request Review
 
 Notify a PR's **code owners** that it is ready, and keep them in sync with a threaded re-review when it
 changes. The skill has two states per repo: **ping the code owners** (enabled) or **ping no-one**
@@ -27,9 +30,11 @@ only format.
 
 ## The verdict contract (input)
 Callers pipe a readiness verdict JSON (the shape `ready-for-review.sh` emits):
-`{ ready, blockers, warnings, head_sha, pr_url, pr_number, title, branch, linked_issue? }`.
-Every entry point takes it via `--from <file>` or `--from-stdin`. This skill computes nothing about
-CI/merge/review state itself — feed it from an arbiter, a CI job, or a test fixture.
+`{ ready: bool, blockers: [...], warnings: [...], head_sha, pr_url, pr_number, title, branch, linked_issue? }`.
+Only `ready` gates the ping (`false` → no send); `blockers`/`warnings` are informational and never appear
+in the message (the ping is terse by design). Every entry point takes it via `--from <file>` or
+`--from-stdin`. This skill computes nothing about CI/merge/review state itself — feed it from an arbiter,
+a CI job, or a test fixture.
 
 ## Invocation contract (for sibling skills)
 
@@ -57,17 +62,15 @@ running a standalone probe — sibling skills should rely on the envelope instea
 
 ## Preflight
 
-Verify dependencies before doing any work (same engine + flow as the rest of the family):
-
 ```bash
 PF=$(bash ${CLAUDE_SKILL_DIR}/scripts/preflight.sh) || true
-printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo: under zsh, echo expands the escaped \n in .report and corrupts the JSON
+printf '%s\n' "$PF" | jq -r .report   # printf, NOT echo (echo corrupts the JSON under zsh)
 ```
 
-On `.ok == false`, present each `.remediation[]` entry and offer to install; `preflight.sh --fix`
-installs the `auto:true` entries (interactive steps like `gh auth login` are listed, never auto-run).
-The Slack MCP can't be script-checked (only the harness sees the tool list) — if the send tools are
-missing, fall back to `draft` text the user can paste, and say so.
+On `.ok == false`, present the `.remediation[]` fixes and re-check with `preflight.sh --fix`; proceed at
+`ok: true`. Full flow: **`zeus/lib/PREFLIGHT.md`**. Skill-specific: the Slack MCP can't be script-checked
+(only the harness sees the tool list) — if the send tools are missing, fall back to `draft` text the user
+can paste, and say so.
 
 ## Initial ping
 The skill pings the PR's **code owners** — there is no primary-reviewer flag to
@@ -141,7 +144,7 @@ arbiter's verdict a pure function of GitHub state whether or not this skill is i
 (`scripts/ping-gap.sh <pr> <owner/repo> <head_sha>` → `{enabled, gap, reason}` still exists as a
 standalone human-runnable probe.)
 
-## Scripts & resources
+## Scripts & references
 | Path | Purpose |
 |---|---|
 | `scripts/lib.sh` | per-worktree thread state dir + `with_lock` |

@@ -1,0 +1,10 @@
+{
+  "_comment": "Shipped Zeus config DEFAULTS (committed). User overrides live in $ZEUS_CONFIG_DIR/config.json (default ~/.config/zeus/config.json) and per-repo overrides in .git/zeus/config.json — neither committed. Read via lib/config.sh config_get; env ZEUS_<UPPER_DOTTED_KEY> overrides everything.",
+  "review": {
+    "loc_threshold": 400,
+    "file_threshold": 8
+  },
+  "address": {
+    "max_iterations": 5
+  }
+}

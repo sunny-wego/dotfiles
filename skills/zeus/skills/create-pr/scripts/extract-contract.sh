@@ -4,8 +4,9 @@
 # WHY: an issue authored by /zeus:propose is an agent-ready spec — it carries a
 # ## Verification block, MUST / MUST NOT invariants, and acceptance criteria on
 # purpose, "when the issue will be implemented by an agent". This pulls those out
-# so the self-verify gate has something concrete to run and check against. It is an
-# AID, not a gate: the agent still reads the whole body for intent. has_contract is
+# so create-pr's issue-contract verify gate (run when a PR has a linked issue, no
+# matter who wrote the code) has something concrete to run and check against. It is
+# an AID, not a gate itself: the agent still reads the whole body for intent. has_contract is
 # false for a thin ticket with none of these — then the agent infers acceptance from
 # the prose and says so.
 #
@@ -28,22 +29,36 @@ set -euo pipefail
 body=""
 if [ "$#" -ge 1 ] && [ -f "$1" ]; then body=$(cat "$1"); else body=$(cat); fi
 
-# Lines under a "## " heading whose text contains $1 (case-insensitive), up to the
-# next "## " heading. tolower()+index keeps it working on BSD awk (no IGNORECASE).
+# Lines under a "## " heading whose text contains $1 as a WHOLE WORD
+# (case-insensitive), up to the next "## " heading. A word-boundary match (not a
+# bare substring) so "## Preverification steps" / "## Acceptance notes (out of scope)"
+# don't get grabbed as the verification/acceptance section. tolower()+regex keeps it
+# working on BSD awk (no IGNORECASE); $1 is a fixed word ("verification"/"acceptance")
+# with no regex metacharacters, so interpolating it into the pattern is safe.
 section() {
   local want_lc; want_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   printf '%s\n' "$body" | awk -v want="$want_lc" '
-    /^##[[:space:]]/ { grab = (index(tolower($0), want) > 0) ? 1 : 0; next }
+    /^##[[:space:]]/ { grab = (tolower($0) ~ ("(^|[^a-z])" want "([^a-z]|$)")) ? 1 : 0; next }
     grab && NF { print }
   '
 }
 
 # Strip list/checkbox markers and trailing space; awk NF drops blank lines (never errors).
 clean() { sed -E 's/^[[:space:]]*(- \[[ xX]\]|\[[ xX]\]|[-*]|[0-9]+\.)[[:space:]]*//; s/[[:space:]]+$//'; }
-to_json_array() { clean | awk 'NF' | jq -R . | jq -s .; }
+# awk dedups order-preserving so a Closes-when line caught by both the section scan
+# and the explicit grep below lands once, not twice.
+to_json_array() { clean | awk 'NF && !seen[$0]++' | jq -R . | jq -s .; }
 
 verification=$(section 'verification' | to_json_array)
 acceptance=$( { section 'acceptance'; printf '%s\n' "$body" | { grep -iE '^[[:space:]]*[*-]?[[:space:]]*Closes-?when' || true; }; } | to_json_array)
+
+# /zeus:propose's canonical heading is the COMBINED "## Verification / Acceptance",
+# which both section() scans match — so its lines land in BOTH arrays. Drop from
+# acceptance anything already in verification (set difference, order-preserving) so a
+# combined section is carried once (under verification, the runnable bucket) rather
+# than duplicated. A genuinely separate "## Acceptance" section has no overlap, so
+# this is a no-op there.
+acceptance=$(jq -nc --argjson v "$verification" --argjson a "$acceptance" '$a - $v')
 
 invariants=$(printf '%s\n' "$body" \
   | { grep -E '\bMUST( NOT)?\b' || true; } \

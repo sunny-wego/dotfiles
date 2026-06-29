@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Identify the PR for the current branch, optionally checking out the PR branch.
+# pr-for-branch.sh — identify the open PR for the CURRENT branch, optionally
+# checking out the PR branch. Named distinctly from review-pr's identify-pr.sh
+# (which resolves an ARBITRARY PR by url/number) — the shared old name "identify-pr"
+# for two opposite-direction scripts was confusing.
 # Outputs JSON: { number, branch, base, owner, repo, checked_out }
 #
 # owner/repo are the BASE repository (where the PR lives), not the head.
 # This is correct for API calls (comments, checks, threads are on the base repo).
 #
-# Usage: identify-pr.sh [--checkout]
+# Usage: pr-for-branch.sh [--checkout]
 #   --checkout  if the current branch isn't the PR branch, switch to it
 
 set -euo pipefail
