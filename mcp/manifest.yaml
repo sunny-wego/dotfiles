@@ -92,3 +92,7 @@ servers:
     name: anya
     transport: http
     url: https://internal-mcp.wego.com/mcp/anya
+  sentry:
+    name: sentry
+    transport: http
+    url: https://mcp.sentry.dev/mcp
