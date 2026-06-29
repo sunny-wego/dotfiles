@@ -29,12 +29,16 @@ set -euo pipefail
 body=""
 if [ "$#" -ge 1 ] && [ -f "$1" ]; then body=$(cat "$1"); else body=$(cat); fi
 
-# Lines under a "## " heading whose text contains $1 (case-insensitive), up to the
-# next "## " heading. tolower()+index keeps it working on BSD awk (no IGNORECASE).
+# Lines under a "## " heading whose text contains $1 as a WHOLE WORD
+# (case-insensitive), up to the next "## " heading. A word-boundary match (not a
+# bare substring) so "## Preverification steps" / "## Acceptance notes (out of scope)"
+# don't get grabbed as the verification/acceptance section. tolower()+regex keeps it
+# working on BSD awk (no IGNORECASE); $1 is a fixed word ("verification"/"acceptance")
+# with no regex metacharacters, so interpolating it into the pattern is safe.
 section() {
   local want_lc; want_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   printf '%s\n' "$body" | awk -v want="$want_lc" '
-    /^##[[:space:]]/ { grab = (index(tolower($0), want) > 0) ? 1 : 0; next }
+    /^##[[:space:]]/ { grab = (tolower($0) ~ ("(^|[^a-z])" want "([^a-z]|$)")) ? 1 : 0; next }
     grab && NF { print }
   '
 }
@@ -47,6 +51,14 @@ to_json_array() { clean | awk 'NF && !seen[$0]++' | jq -R . | jq -s .; }
 
 verification=$(section 'verification' | to_json_array)
 acceptance=$( { section 'acceptance'; printf '%s\n' "$body" | { grep -iE '^[[:space:]]*[*-]?[[:space:]]*Closes-?when' || true; }; } | to_json_array)
+
+# /zeus:propose's canonical heading is the COMBINED "## Verification / Acceptance",
+# which both section() scans match — so its lines land in BOTH arrays. Drop from
+# acceptance anything already in verification (set difference, order-preserving) so a
+# combined section is carried once (under verification, the runnable bucket) rather
+# than duplicated. A genuinely separate "## Acceptance" section has no overlap, so
+# this is a no-op there.
+acceptance=$(jq -nc --argjson v "$verification" --argjson a "$acceptance" '$a - $v')
 
 invariants=$(printf '%s\n' "$body" \
   | { grep -E '\bMUST( NOT)?\b' || true; } \

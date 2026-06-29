@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1"); shift ;;                 # --pr/--repo/--sha → resolve_pr
   esac
 done
-resolve_pr "${ARGS[@]:-}"
+resolve_pr ${ARGS[@]+"${ARGS[@]}"}
 pr="$PR"; slug="$REPO_SLUG"; sha="$SHA"
 [ -n "$pr" ] && [ -n "$slug" ] || { echo '{"error": "ensure-checkout.sh needs --pr and --repo"}' >&2; exit 2; }
 

@@ -72,7 +72,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-resolve_pr "${ARGS[@]:-}"   # identifiers via the shared parser (lib.sh), not hand-rolled
+resolve_pr ${ARGS[@]+"${ARGS[@]}"}   # identifiers via the shared parser (lib.sh), not hand-rolled
 pr="$PR"; repo="$REPO_SLUG"
 if [ "${#REST[@]}" -gt 0 ]; then
   echo "ready-for-review: unexpected argument: ${REST[0]}" >&2; exit 2
