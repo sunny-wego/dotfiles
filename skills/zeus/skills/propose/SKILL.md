@@ -67,15 +67,16 @@ Resolution is **per repo**, from personal-tooling config (the `auto-ping.sh` sto
 bash ${CLAUDE_SKILL_DIR}/scripts/confluence-target.sh "$REPO"
 # unconfigured → {"configured":false}            (GitHub-only — today's behaviour, no new surface)
 # configured   → {"configured":true,"cloudId":…,"spaceKey":…,"spaceId":…|null,
-#                 "parentId":…|null,"mode":"mirror"|"native","defaultStatus":…}
+#                 "parentId":…|null,"mode":"both"|"confluence","defaultStatus":…}
 ```
 
-A repo absent from the store behaves **exactly as before**. Enable one with `confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> [--parent <pageId>] [--mode mirror|native] [--status current|draft]`.
+A repo absent from the store behaves **exactly as before**. Enable one with `confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> [--parent <pageId>] [--mode both|confluence] [--status current|draft]`.
 
-`mode` decides what posting means:
+`mode` names the destination set:
 
-- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff into the issue→code→PR chain); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the chain is untouched.
-- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be turned into code. The page becomes the proposal's identity.
+- **`both`** (default) — GitHub issue **and** a Confluence page. The **GitHub issue stays canonical** (keeps `#N`, the journey handoff into the issue→code→PR chain); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the chain is untouched.
+- **`confluence`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be turned into code. The page becomes the proposal's identity.
+- *(GitHub-only is the **absence** of a Confluence config entry — not a mode value.)*
 
 The **gate is shared and runs once.** Validate, audit, and the Stage-1 reader test all operate on `render(state)` as canonical markdown; Confluence is just a transport encoding of that same approved state, so the reader test is **not** re-run against the Confluence body — the existing `reader_test_hash` (keyed on state) covers both surfaces. Nothing in *Review gating* changes.
 
@@ -239,44 +240,67 @@ bash ${CLAUDE_SKILL_DIR}/scripts/preview.sh "$(jq -r .title "$STATE_FILE")" "$DR
 read -r -p "[1] Post  [2] Edit  [3] Save only  [4] Cancel > " choice
 ```
 
-### 6. Post
+### 6. Publish to the destination set
+
+A proposal publishes to one destination or several. The set comes from the
+`confluence-target.sh "$REPO"` lookup: **GitHub-only** (default / repo unconfigured),
+**`both`** (GitHub canonical + a Confluence page that backlinks it), or **`confluence`**
+(Confluence only). Each destination is a **publish backend** conforming to
+[`references/publish-contract.md`](./references/publish-contract.md) — the same three
+verbs, the shared gates, the artifact URL on stdout. The skill **dispatches by name**
+and composes the set; there is no router.
+
+**GitHub** (`post-issue.sh`) — the default, and the canonical artifact under `both`:
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/post-issue.sh \
-  --title "<title>" \
-  --body-file "<draft-path>" \
-  [--label <label>] [--assignee <user>] [--milestone <m>]
+GH_URL=$(bash ${CLAUDE_SKILL_DIR}/scripts/post-issue.sh \
+  --title "<title>" --body-file "<draft-path>" --state "$STATE_FILE" \
+  [--label <label>] [--assignee <user>] [--milestone <m>])
 ```
 
-Captures the returned URL, prints it, and exits. The script also accepts `--yes` for non-interactive callers that confirmed elsewhere.
+Prints the URL and exits (`--yes` for non-interactive callers). `--state` persists the
+JSON under the issue number (`state.sh`) so a later amend reloads it. Appends a
+create-only Claude Code usage footer (`telemetry.sh --issue`; self-disabling outside
+Claude Code or under `CLAUDE_ISSUE_TELEMETRY=0` / the shared `CLAUDE_PR_TELEMETRY=0`).
 
-The wrapper appends a best-effort Claude Code session-usage footer via `telemetry.sh --issue` (vendored identically with `/zeus:create-pr`; self-disabling outside Claude Code or when `CLAUDE_ISSUE_TELEMETRY=0` / the shared `CLAUDE_PR_TELEMETRY=0`). See that script's header for the cost/marker details.
+#### 6b. Confluence (`confluence.sh`) — when the destination resolved `configured: true`
 
-Persist the state so a later amend can reload it: pass `--state "$STATE_FILE"` to `post-issue.sh` (it stores the JSON under the issue number via `state.sh`).
+`confluence.sh` is the Confluence publish backend: the **curl-over-REST analogue of
+`post-issue.sh`, no MCP**. It honors the same contract — same three verbs, the shared
+`review-gate.sh`, **hard-enforced ownership** (it fetches the page author and refuses a
+non-owned update), and **version-based drift it checks itself**.
 
-#### 6b. Also publish to Confluence (only when the destination resolved `configured: true`)
+**Setup (once):** export `CONFLUENCE_EMAIL` + `CONFLUENCE_API_TOKEN` (the curl analogue
+of `gh auth`), and set `CONFLUENCE_CONVERTER` to a `markdown-on-stdin → storage-XHTML-on-stdout`
+command (e.g. a `mark --compile-only` wrapper) — REST takes storage, not markdown. Absent
+either, `confluence.sh` fails loudly rather than posting wrong-format.
 
-The Confluence post is **agent-driven MCP calls**, not a script — `createConfluencePage` can't be invoked from bash. The render stays a script; only the network half diverges. Confluence has **full parity** with the GitHub path (create / amend in place / comment-when-not-yours / supersede / resume via the pin) — the bash helpers do the destination-neutral logic, the agent does the MCP I/O.
-
-1. **Confirm the MCP is reachable** (it's absent in headless/cron): a `getAccessibleAtlassianResources` call. If it fails, report it and stop after the GitHub post — don't silently drop the Confluence half.
-2. **For `mode: "mirror"`** run step 6 (the GitHub `post-issue.sh`) FIRST so the page can backlink the canonical issue. **For `mode: "native"`** skip the GitHub post entirely.
-3. **Render the Confluence body** from the same approved state:
+1. **Order by mode.** `both` → run the GitHub post (6) FIRST so the page can backlink
+   the canonical issue. `confluence` → skip GitHub entirely.
+2. **Render the Confluence body** from the same approved state. `--telemetry` adds the
+   create-only Claude Code usage footer (the Confluence analogue of `post-issue.sh`'s;
+   pass it on **create**, omit on amend — the footer drops on re-render, same as GitHub).
+   This step also bakes the `_via_` watermark and, in `both` mode, the issue backlink:
    ```bash
    BODY=$(bash ${CLAUDE_SKILL_DIR}/scripts/render-confluence.sh "$STATE_FILE" \
-     --sha "$HEAD_SHA" --repo "$REPO" [--issue-url "<github-issue-url>"])   # --issue-url only in mirror mode
+     --sha "$HEAD_SHA" --repo "$REPO" --telemetry [--issue-url "$GH_URL"])   # --issue-url only in `both` mode
    ```
-4. **Resolve `spaceId`** if config only has `spaceKey`: `getConfluenceSpaces` with `keys:[spaceKey]`. Persist it back so the next post skips the lookup: `confluence-target.sh enable <repo> … --space-id <id>`.
-5. **Publish.** New proposal → `createConfluencePage` with `cloudId`, `spaceId`, `parentId` (the resolved parent — proposals are **child pages** under it), `title`, `body` (the file contents), `contentFormat:"markdown"`, `status` (the config's `defaultStatus`; map "Save draft only" → `status:"draft"`).
-6. **Record identity + version, then pin.** From the response capture `id` and `version.number`, write both to state, and persist/pin under the Confluence ref so a later bare `/zeus:propose` resumes it:
+3. **Publish.** `confluence.sh` resolves cloud/space/parent from `--repo` (via
+   `confluence-target.sh`), resolves `spaceId` from `spaceKey` if needed (persisting it
+   back), converts the body, creates the page as a **child** of the configured parent,
+   then writes `confluence_page_id` + `confluence_version` to state and **pins** it:
    ```bash
-   jq --arg id "<page-id>" --argjson v <version-number> \
-     '.confluence_page_id=$id | .confluence_version=$v' "$STATE_FILE" > t && mv t "$STATE_FILE"
-   bash ${CLAUDE_SKILL_DIR}/scripts/state.sh save "confluence:<page-id>" "$STATE_FILE"
-   bash ${CLAUDE_SKILL_DIR}/scripts/state.sh pin  "confluence:<page-id>"
+   CONF_URL=$(bash ${CLAUDE_SKILL_DIR}/scripts/confluence.sh \
+     --title "<title>" --body-file "$BODY" --repo "$REPO" --state "$STATE_FILE")
    ```
-   (In `mirror` mode also keep the GitHub `--state` persistence from step 6 — the issue stays the canonical resume target; the page id rides along on the same state.) Print both URLs.
+4. **Print both URLs.** In `both` mode the GitHub issue stays the canonical resume
+   target (its `--state` pin); the page id rides along on the same state.
 
-Amend, comment, and supersede for a Confluence page are in **Updating an existing proposal** below — they have full parity with the GitHub sequence.
+If `confluence.sh` exits non-zero (auth / converter / network), report it and stop after
+the GitHub post — don't silently drop the Confluence half.
+
+Amend, comment, and supersede for a Confluence page use the same backend's
+`--update` / `--comment` verbs — see **Updating an existing proposal** below.
 
 ## Updating an existing proposal (amend / supersede)
 
@@ -296,24 +320,22 @@ post-issue.sh --update <N> --title "<t>" --body-file "$DRAFT" --state "$STATE_FI
 supersede.sh --old <N> --title "<t>" --body-file "$DRAFT" --state "$STATE_FILE"        # 5b. or supersede (body: "Supersedes #N")
 ```
 
-**Confluence** sequence — same skeleton; the network steps (★) are agent MCP calls, the rest are the same bash helpers keyed on `confluence:<id>`:
+**Confluence** sequence — same skeleton, same backend. The writes go through
+`confluence.sh` (no MCP); **ownership + version-drift are enforced inside `--update`**,
+so they are not separate steps. The one remaining read — re-ingesting a live page when
+state was lost — is a page fetch (curl `GET` or MCP), not a publish verb.
 
 ```bash
 resolve-target.sh "<phrase>"                            # 0. resolve + CONFIRM (a confluence: candidate)
-# 0.5 ownership: ★ getConfluencePage(authorId) + ★ atlassianUserInfo(accountId), then:
-ownership.sh --author <pageAuthorId> --viewer <myAccountId>     # mine? else footer-comment (below)
-STATE_FILE=$(rehydrate.sh "confluence:<id>" [--body-file <★ fetched-page-md>])   # 1. state, or re-ingest
-# 2. drift gate: ★ fetch live version.number, then:
-confluence-drift.sh --stored "$(jq -r .confluence_version "$STATE_FILE")" --current <liveVersion>
+STATE_FILE=$(rehydrate.sh "confluence:<id>" [--body-file <fetched-page-md>])   # 1. load persisted state; --body-file re-ingests a fetched page only if state was lost
+# 2. (no separate ownership/drift step — confluence.sh --update enforces BOTH in-backend at write)
 # 3. edit state + append an Amendment Log line
 BODY=$(render-confluence.sh "$STATE_FILE" --sha "$HEAD_SHA" --repo "$REPO")       # 4. render + check + Stage-1 re-stamp
 check.sh "$BODY" [--kind …]
-# 5a. amend in place: ★ updateConfluencePage(pageId, body=$BODY, contentFormat:markdown,
-#     versionMessage=<latest Amendment Log line>) → capture new version.number, then:
-jq --argjson v <newVersion> '.confluence_version=$v' "$STATE_FILE" > t && mv t "$STATE_FILE"
-state.sh save "confluence:<id>" "$STATE_FILE"           # re-persist (pin already set at create)
-# 5b. supersede: ★ createConfluencePage(new) ; ★ updateConfluencePage(old) prepending the banner
-#     > ⚠️ **Superseded by** [<new title>](<new url>)    — pages don't close; no MCP delete
+confluence.sh --update <id> --title "<t>" --body-file "$BODY" --repo "$REPO" --state "$STATE_FILE"   # 5a. amend (ownership + version-drift gated in-backend; bumps version, re-persists, re-pins)
+confluence.sh --comment <id> --body-file <findings> --repo "$REPO"                                    # 5b. not mine → comment (a non-owned --update is refused)
+# 5c. supersede: confluence.sh create the NEW page, then confluence.sh --update the OLD with a prepended banner
+#     > ⚠️ **Superseded by** [<new title>](<new url>)   — pages don't close; no delete
 ```
 
 Two things the sequence rests on, with the rationale and the disposition-comment template in **`references/rfc-mode.md`** → *Amend vs supersede*:

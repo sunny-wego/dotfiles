@@ -16,12 +16,13 @@
 # behaves exactly as today (GitHub-only). Confluence publishing is strictly
 # opt-in per repo, mirroring auto-ping's "absent ⇒ disabled".
 #
-# `mode` picks how propose treats the two destinations:
-#   mirror (default) — GitHub issue stays canonical (keeps #N, the journey chain
-#                      into issue→code→PR); the Confluence page is an additional
-#                      published surface, backlinked to the issue.
-#   native           — Confluence page only; no GitHub issue. The page id becomes
-#                      the proposal's identity.
+# `mode` picks the destination set (named for WHERE it publishes):
+#   both (default) — GitHub issue AND a Confluence page. The GitHub issue stays
+#                    canonical (keeps #N, the journey chain into issue→code→PR); the
+#                    Confluence page is an additional surface, backlinked to it.
+#   confluence     — Confluence page only; no GitHub issue. The page id becomes the
+#                    proposal's identity.
+# (GitHub-only is the absence of a Confluence config entry — not a mode.)
 #
 # `spaceId` is optional in config because createConfluencePage needs the numeric
 # space id, but humans know the space KEY. Store the key; the post step resolves
@@ -32,7 +33,7 @@
 #   confluence-target.sh <owner/repo>            # print the repo's policy (see Output)
 #   confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> \
 #                        [--space-id <id>] [--parent <pageId>] \
-#                        [--mode mirror|native] [--status current|draft]
+#                        [--mode both|confluence] [--status current|draft]
 #   confluence-target.sh disable <owner/repo>    # remove the repo's entry
 #   confluence-target.sh list                    # every configured repo
 #   confluence-target.sh path                    # print the config file path
@@ -40,7 +41,7 @@
 # Output (policy lookup):
 #   configured repo → { "configured": true, "cloudId": str, "spaceKey": str,
 #                       "spaceId": str|null, "parentId": str|null,
-#                       "mode": "mirror"|"native", "defaultStatus": "current"|"draft" }
+#                       "mode": "both"|"confluence", "defaultStatus": "current"|"draft" }
 #   unconfigured    → { "configured": false }
 # Exit: lookups always 0 (the `configured` field drives behaviour); edits 0 on success.
 
@@ -65,9 +66,9 @@ case "$cmd" in
     ;;
 
   enable)
-    repo="${2:?Usage: confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> [--space-id <id>] [--parent <pageId>] [--mode mirror|native] [--status current|draft]}"
+    repo="${2:?Usage: confluence-target.sh enable <owner/repo> --cloud <id|url> --space <KEY> [--space-id <id>] [--parent <pageId>] [--mode both|confluence] [--status current|draft]}"
     shift 2
-    cloud=""; space=""; space_id=""; parent=""; mode="mirror"; status="current"
+    cloud=""; space=""; space_id=""; parent=""; mode="both"; status="current"
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --cloud)    cloud="${2:?}"; shift 2 ;;
@@ -81,7 +82,7 @@ case "$cmd" in
     done
     [ -n "$cloud" ] || { echo "confluence-target.sh enable: --cloud <id|url> is required" >&2; exit 1; }
     [ -n "$space" ] || { echo "confluence-target.sh enable: --space <KEY> is required" >&2; exit 1; }
-    case "$mode"   in mirror|native) ;; *) echo "confluence-target.sh: --mode must be mirror|native" >&2; exit 1 ;; esac
+    case "$mode"   in both|confluence) ;; *) echo "confluence-target.sh: --mode must be both|confluence" >&2; exit 1 ;; esac
     case "$status" in current|draft) ;; *) echo "confluence-target.sh: --status must be current|draft" >&2; exit 1 ;; esac
     # REPLACE the repo's entry (not merge) so a re-enable drops any stale field
     # (e.g. a spaceId that no longer matches the spaceKey).
@@ -97,6 +98,22 @@ case "$cmd" in
     echo "$cur" | jq --arg r "$repo" --argjson e "$entry" '.repos[$r] = $e' > "$STORE.tmp" && mv "$STORE.tmp" "$STORE"
     echo "enabled $repo → $STORE" >&2
     repos | jq --arg r "$repo" '.[$r]'
+    ;;
+
+  account-get)
+    # The current token's Confluence accountId, cached so ownership checks avoid the
+    # v1 user/current endpoint (unusable by a granular-scoped token). Email-keyed so a
+    # credential change invalidates a stale id.
+    [ -f "$STORE" ] && jq -c '{account_id: (.account_id // null), account_email: (.account_email // null)}' "$STORE" 2>/dev/null || echo '{}'
+    ;;
+
+  account-set)
+    acc="${2:?Usage: confluence-target.sh account-set <accountId> <email>}"
+    aem="${3:?Usage: confluence-target.sh account-set <accountId> <email>}"
+    mkdir -p "$CONFIG_DIR"
+    cur='{}'; [ -f "$STORE" ] && cur=$(jq -c . "$STORE" 2>/dev/null || echo '{}')
+    printf '%s' "$cur" | jq --arg id "$acc" --arg em "$aem" '.account_id=$id | .account_email=$em' > "$STORE.tmp" && mv "$STORE.tmp" "$STORE"
+    echo "cached Confluence accountId for $aem → $STORE" >&2
     ;;
 
   disable)
@@ -118,7 +135,7 @@ case "$cmd" in
                spaceKey:       ($c.spaceKey // null),
                spaceId:        ($c.spaceId // null),
                parentId:       ($c.parentId // null),
-               mode:           ($c.mode // "mirror"),
+               mode:           ($c.mode // "both"),
                defaultStatus:  ($c.defaultStatus // "current") }
         end
     '

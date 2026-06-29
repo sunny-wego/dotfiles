@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# migrate-config.sh — ONE-TIME migration. Zeus config moved from per-skill homes
-# (~/.config/request-review, ~/.config/propose) into ONE unified home
-# (~/.config/zeus/<concern>/). This relocates any existing user config into the new
-# layout. It's safe to run more than once (idempotent, never clobbers) and safe to
-# DELETE once you've run it — nothing in the skills depends on it.
+# migrate-config.sh — ONE-TIME migrations. Safe to run more than once (idempotent,
+# never clobbers) and safe to DELETE once you've run it — nothing in the skills
+# depends on it. Two migrations:
+#   1. Per-skill homes (~/.config/request-review, ~/.config/propose) → ONE unified
+#      home (~/.config/zeus/<concern>/).
+#   2. Confluence destination `mode` values renamed to be destination-explicit:
+#      "native" → "confluence", "mirror" → "both". (The code accepts ONLY the new
+#      names, so this rewrites any old value in place — no legacy aliasing.)
 #
 # Usage:  bash skills/zeus/migrate-config.sh          # do it
 #         DRY_RUN=1 bash skills/zeus/migrate-config.sh # show what it would do
@@ -40,6 +43,25 @@ if [ "$DRY_RUN" != "1" ]; then
   done
 fi
 
-echo "done — $moved file(s) $([ "$DRY_RUN" = "1" ] && echo "would be " )migrated into $ZEUS_CONFIG_DIR"
+# Migration 2: rename Confluence `mode` values (native→confluence, mirror→both) in
+# the unified-home confluence.json. Idempotent — a file already using the new names
+# is left byte-identical, so $moved isn't bumped.
+CONF="$ZEUS_CONFIG_DIR/propose/confluence.json"
+if [ -f "$CONF" ]; then
+  if jq -e '(.repos // {}) | to_entries | any(.value.mode == "native" or .value.mode == "mirror")' "$CONF" >/dev/null 2>&1; then
+    if [ "$DRY_RUN" = "1" ]; then
+      echo "would rename modes in $CONF: native→confluence, mirror→both"; moved=$((moved + 1))
+    else
+      tmp="$CONF.tmp.$$"
+      jq '(.repos // {}) |= with_entries(
+            if   .value.mode == "native" then .value.mode = "confluence"
+            elif .value.mode == "mirror" then .value.mode = "both"
+            else . end)' "$CONF" > "$tmp" && mv "$tmp" "$CONF" \
+        && { echo "renamed modes in $CONF (native→confluence, mirror→both)"; moved=$((moved + 1)); }
+    fi
+  fi
+fi
+
+echo "done — $moved item(s) $([ "$DRY_RUN" = "1" ] && echo "would be " )migrated into $ZEUS_CONFIG_DIR"
 [ "$moved" -eq 0 ] && echo "(nothing to migrate — you can delete this script)"
 exit 0
