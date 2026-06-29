@@ -74,6 +74,24 @@ while IFS= read -r f; do
   grep -q 'resolve_pr\|resolve_target' "$f" || note "$f parses --pr but bypasses resolve_pr/resolve_target"
 done < <(find "$ROOT"/skills -name '*.sh' -type f 2>/dev/null)
 
+# 6. Publish backends (propose) conform to references/publish-contract.md: each
+#    exposes the three verbs (create implied by --title/--body-file; --update;
+#    --comment) and wires the two IN-BACKEND gates (review-gate.sh, ownership.sh),
+#    so a new/edited backend can't silently skip enforcement. The drift gate's
+#    location is mechanism-dependent (in-backend for version-based, orchestrator for
+#    text-diff), so it's out of the machine-checkable subset by construction.
+echo "[6] publish backends conform to publish-contract.md (verbs + in-backend gates)"
+PUBLISH_BACKENDS=("$ROOT/skills/propose/scripts/post-issue.sh" "$ROOT/skills/propose/scripts/confluence.sh")
+for b in "${PUBLISH_BACKENDS[@]}"; do
+  if [ ! -f "$b" ]; then note "publish backend missing: $b"; continue; fi
+  name="$(basename "$b")"
+  grep -q -- '--body-file)' "$b" || note "$name: no --body-file (create verb)"
+  grep -q -- '--update)'    "$b" || note "$name: no --update verb"
+  grep -q -- '--comment)'   "$b" || note "$name: no --comment verb"
+  grep -q 'review-gate.sh'  "$b" || note "$name: does not call the shared review-gate.sh"
+  grep -q 'ownership.sh'    "$b" || note "$name: does not call ownership.sh (ownership gate)"
+done
+
 if [ "$violations" -eq 0 ]; then
   echo "OK — no arg-convention violations"
   exit 0

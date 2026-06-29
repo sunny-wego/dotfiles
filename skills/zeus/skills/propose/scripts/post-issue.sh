@@ -55,46 +55,12 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # does not perturb it. Best-effort: a missing/failed helper leaves the body as-is.
 bash "$script_dir/watermark.sh" propose --in-place "$body_file" 2>/dev/null || true
 
-# Reader-test gate (enforcement): an issue whose content warrants review must not
-# be posted without a fresh reader test (Stage 1), stamped TWO ways:
-#   .reader_test = true               — the test ran
-#   .reader_test_hash = <state hash>  — it ran against THIS state
-# Whether review is required is DERIVED from the state's content by
-# requires-review.sh (questions / grounded claims / substantial proposal /
-# invariants; `review: "always"|"never"` overrides) — not from a self-declared
-# label an author can forget or dodge. The hash (state-hash.sh: canonical state
-# minus the stamp fields) closes the "test → fix → post untested" path: any state
-# edit after the test changes the hash, and this gate refuses until the test
-# re-runs. Fix rounds are where regressions are born — the artifact that ships
-# must be the artifact tested. rehydrate.sh clears both stamps, so every amend
-# re-requires the test too.
-if [ -z "$comment_number" ] && [ -n "$state_file" ] && [ -f "$state_file" ]; then
-  rr=$(bash "$script_dir/requires-review.sh" "$state_file" 2>/dev/null || echo '{"required":false,"mode":"auto","reasons":[]}')
-  required=$(printf '%s' "$rr" | jq -r '.required')
-  mode=$(printf '%s' "$rr" | jq -r '.mode')
-  if [ "$mode" = "never" ]; then
-    echo "post-issue: review explicitly skipped (review: \"never\") — this must have been a visible choice in the confirmation dialog." >&2
-  fi
-  if [ "$required" = "true" ]; then
-    why=$(printf '%s' "$rr" | jq -r '.reasons | join("; ")')
-    rt=$(jq -r '.reader_test // false' "$state_file" 2>/dev/null || echo false)
-    if [ "$rt" != "true" ]; then
-      echo "post-issue: this issue requires a reader test (Stage 1) before posting — $why." >&2
-      echo "  Run the reviewer simulation on render(state), then stamp it:" >&2
-      echo "    HASH=\$(bash \"$script_dir/state-hash.sh\" \"$state_file\")" >&2
-      echo "    jq --arg h \"\$HASH\" '.reader_test=true | .reader_test_hash=\$h' \"$state_file\" > tmp && mv tmp \"$state_file\"" >&2
-      exit 1
-    fi
-    stamped=$(jq -r '.reader_test_hash // ""' "$state_file" 2>/dev/null || echo "")
-    current=$(bash "$script_dir/state-hash.sh" "$state_file" 2>/dev/null || echo "")
-    if [ -z "$stamped" ] || [ "$stamped" != "$current" ]; then
-      echo "post-issue: state was edited AFTER the last reader test (hash mismatch) — the fixes are untested." >&2
-      echo "  stamped: ${stamped:-<none>}" >&2
-      echo "  current: $current" >&2
-      echo "  Re-run the reviewer simulation on the current render, then re-stamp (see above)." >&2
-      exit 1
-    fi
-  fi
+# Reader-test enforcement — the shared gate (publish-contract.md clause 3; extracted
+# to review-gate.sh so this backend and confluence.sh can't drift). Destination-
+# neutral: it reads only the state. Skipped in --comment mode (the body is appended
+# to a human-owned thread, not re-rendered, so no reader test applies).
+if [ -z "$comment_number" ] && [ -n "$state_file" ]; then
+  bash "$script_dir/review-gate.sh" "$state_file" || exit 1
 fi
 
 if [ -n "$comment_number" ]; then

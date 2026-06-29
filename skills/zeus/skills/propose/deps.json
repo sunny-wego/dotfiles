@@ -17,6 +17,13 @@
       "install": "see https://nodejs.org",
       "present": "npx/bun present",
       "missing": "no npx/bun — token-usage footer is skipped"
+    },
+    {
+      "name": "confluence-converter",
+      "cmds": ["mark"],
+      "install": "brew install mark (https://github.com/kovetskiy/mark)",
+      "present": "mark present — Confluence markdown→storage conversion available via the bundled md2storage.sh adapter",
+      "missing": "no mark — Confluence publishing needs a markdown→storage converter (install mark, or set CONFLUENCE_CONVERTER to one); GitHub publishing is unaffected"
     }
   ]
 }
