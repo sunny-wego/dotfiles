@@ -5,7 +5,7 @@ branch that has no open PR yet** (clean tree, ahead of base, in an isolated work
 it nudges the agent to run `/zeus:create-pr`. It exists to bridge an implementer that
 *doesn't open PRs itself* — e.g. a built-in `/goal` driving from a `/zeus:propose`
 artifact — into the Zeus pipeline: `create-pr` seeds the PR from the proposal, runs the
-pre-PR review backstop (`/zeus:review-pr`), and opens the PR; the post-push hook then
+pre-PR review gate (`/zeus:review-pr`), and opens the PR; the post-push hook then
 nudges `/zeus:address-pr`.
 
 > **Installed zeus as a plugin? This hook is already active.** It's registered in the

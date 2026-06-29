@@ -74,8 +74,8 @@ A repo absent from the store behaves **exactly as before**. Enable one with `con
 
 `mode` decides what posting means:
 
-- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff, `/zeus:implement`); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the issue→code→PR chain is untouched.
-- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be `/zeus:implement`ed. The page becomes the proposal's identity.
+- **`mirror`** (default) — the **GitHub issue stays canonical** (keeps `#N`, the journey handoff into the issue→code→PR chain); the Confluence page is an additional published surface, backlinked to the issue. Lowest risk; the chain is untouched.
+- **`native`** — Confluence page **only**, no GitHub issue. For decision docs / RFCs that won't be turned into code. The page becomes the proposal's identity.
 
 The **gate is shared and runs once.** Validate, audit, and the Stage-1 reader test all operate on `render(state)` as canonical markdown; Confluence is just a transport encoding of that same approved state, so the reader test is **not** re-run against the Confluence body — the existing `reader_test_hash` (keyed on state) covers both surfaces. Nothing in *Review gating* changes.
 

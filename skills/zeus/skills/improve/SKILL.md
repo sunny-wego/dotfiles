@@ -3,7 +3,7 @@ name: improve
 description: >-
   Retrospective that turns a coding session's zeus-workflow friction into durable
   improvements — to the zeus skills themselves (skill-level) and the repo's
-  AGENTS.md (repo-level). Use after any zeus skill (propose/investigate, implement,
+  AGENTS.md (repo-level). Use after any zeus skill (propose/investigate,
   create-pr/address-pr, request-review) when the user wants to improve or iterate on
   the workflow/tooling. Triggers: "/zeus:improve", "improve the workflow", "what
   should we fix in zeus", "retro this session", "iterate on the skills", "capture

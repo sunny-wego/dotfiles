@@ -1,19 +1,19 @@
 # AGENTS.md — zeus
 
 The **issue → code → PR → review** workflow as one skill family. Align on work as
-GitHub issues (`propose`, `investigate`), turn an issue into code on a branch
-(`implement`) — which reviews its own diff via `review-pr` before handing off —
-surface it as a reviewer-friendly PR (`create-pr`, which backstops the same review),
-drive it to mergeable (`address-pr`), and hand off to a reviewer (`request-review`).
-`review-pr` is the shared review engine: auto-detected **local** (pre-PR working
-diff) or **remote** (an open PR). `improve` retrospects on the family itself. Skills
-share durable facts through a per-worktree `journey.json` (and a hidden journey
-marker in the PR body), and invoke each other **by name** through JSON contracts —
-never by calling one another's scripts directly.
+GitHub issues (`propose`, `investigate`), write the code on a branch (a built-in
+implementer like `/goal`, or by hand), surface it as a reviewer-friendly PR
+(`create-pr`) — which reviews the diff via `review-pr` and verifies the linked
+issue's contract before opening — drive it to mergeable (`address-pr`), and hand off
+to a reviewer (`request-review`). `review-pr` is the shared review engine:
+auto-detected **local** (pre-PR working diff) or **remote** (an open PR). `improve`
+retrospects on the family itself. Skills share durable facts through a per-worktree
+`journey.json` (and a hidden journey marker in the PR body), and invoke each other
+**by name** through JSON contracts — never by calling one another's scripts directly.
 
 ```
-propose / investigate → implement ──(review-pr: local)──▶ create-pr ──(backstop)──▶ address-pr → request-review
-                          self-verify + review own diff      review gate          drive to settled   ping reviewer
+propose / investigate → ⟨code: /goal or by hand⟩ ──▶ create-pr ──▶ address-pr → request-review
+                                review-pr (local) + verify the issue contract   settle      ping reviewer
 review-pr ── one engine, auto-detected: local (pre-PR) | remote (open PR)        improve ── retro on the family
 ```
 
@@ -27,9 +27,8 @@ For the *behavioral* flow of a given skill, read its `SKILL.md`.
 |---|---|---|
 | [`propose`](./skills/propose/SKILL.md) | "propose X", "open an issue", "write an RFC" | Put a proposal/decision doc up for alignment as a GitHub issue. |
 | [`investigate`](./skills/investigate/SKILL.md) | "investigate X", "open a postmortem", "record this finding" | Evidence-driven investigation maintained as a GitHub issue. |
-| [`implement`](./skills/implement/SKILL.md) | "do #N", "implement the issue", "ship the proposal" | Read an issue as the spec, write the code on a branch, **review the diff** (`review-pr`) and fix, hand off to `create-pr`. |
 | [`review-pr`](./skills/review-pr/SKILL.md) | "review pr", "code review", "review my changes before PR", a PR URL | Read-only review across 7 dimensions; **auto-detects** local (pre-PR working diff) vs remote (open PR). Diagnoses + hands findings back — never fixes. |
-| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section); **backstops** the pre-PR review when invoked directly. |
+| [`create-pr`](./skills/create-pr/SKILL.md) | "create pr", "open a pr", "update pr body" | Author/refresh the human-facing PR title + body (stable Original Intent section); **reviews the diff** (`review-pr`) and **verifies the linked issue's contract** before opening. |
 | [`address-pr`](./skills/address-pr/SKILL.md) | "fix pr", "address feedback", "resolve merge conflicts" | Drive a PR to **settled** (mergeable, checks green, reviews resolved), then watch. |
 | [`request-review`](./skills/request-review/SKILL.md) | "ping reviewers", "request review", "re-review" | Notify a PR's code owners it's ready; re-ping in-thread when the head advances. |
 | [`improve`](./skills/improve/SKILL.md) | "/zeus:improve", "retro this session", "iterate on the skills" | Meta/orthogonal: harvest a session's friction and land fixes in zeus or the repo's guidance. |
@@ -46,11 +45,9 @@ scripts by path:
 
 | Caller | Callee | When |
 |---|---|---|
-| `implement` | `review-pr` (self) | step 5.5, pre-handoff — findings handed back to fix |
-| `implement` | `create-pr` | after self-verify + review |
-| `create-pr` | `review-pr` (self) | backstop, only when `.review` ≠ HEAD |
+| `create-pr` | `review-pr` (self) | 1c gate, pre-open — findings handed back to fix (skipped when `.review` == HEAD) |
 | `address-pr` | `request-review` | at settled, and on each watch re-review |
-| `investigate` | *(opens a remediation issue)* | `remediate` → then `implement`/`create-pr` |
+| `investigate` | *(opens a remediation issue)* | `remediate` → then code + `create-pr` |
 
 `review-pr` and `request-review` are terminal (invoke nothing); `address-pr` never calls `review-pr`.
 
@@ -58,8 +55,8 @@ scripts by path:
 
 | Fact | Writer | Reader(s) | Why |
 |---|---|---|---|
-| `.issue` | propose, investigate | implement, create-pr | seed the PR from the issue |
-| `.review {sha}` | implement | create-pr | skip a redundant pre-PR review of the same tree |
+| `.issue` | propose, investigate | create-pr | seed the PR from the issue + verify its contract |
+| `.review {sha}` | create-pr (1c) | create-pr | skip a redundant pre-PR review of the same tree on re-invocation |
 | `.pr` | create-pr | address-pr | pick up the opened PR |
 | `.investigation.epic` | investigate | create-pr | file the PR under the epic |
 | PR-body marker (`slack`, `accepted_checks`) | address-pr | address-pr / request-review | re-thread the ping; honor accepted gates |
@@ -67,11 +64,13 @@ scripts by path:
 **Hooks** (automatic transitions, no call; state-driven, gated to a linked worktree) — see `hooks/hooks.json`:
 - PostToolUse(push) → nudge `address-pr` after a push lands on a branch with an open PR.
 - Stop → link the branch's open PR into the active `investigate` epic.
-- Stop → suggest `create-pr` when a turn ends with committed work on a feature branch and **no** open PR. This bridges an implementer that doesn't open PRs itself (e.g. a built-in `/goal` driving from a `propose` artifact) into the pipeline: `propose → /goal → ⟨nudge⟩ create-pr (seeds from `.issue` + review backstop) → ⟨push hook⟩ address-pr → request-review`.
+- Stop → suggest `create-pr` when a turn ends with committed work on a feature branch and **no** open PR. This bridges an implementer that doesn't open PRs itself (e.g. a built-in `/goal` driving from a `propose` artifact) into the pipeline: `propose → /goal → ⟨nudge⟩ create-pr (seeds from `.issue` + review gate + verify contract) → ⟨push hook⟩ address-pr → request-review`.
 
 **Dedup guarantees:**
-- Review runs **once per tree** — the `.review` watermark (stamped only on a SHA a
-  review actually ran against) means implement's review *or* create-pr's backstop fires, never both.
+- Review runs **once per tree** — create-pr's 1c gate reviews pre-PR and stamps the
+  `.review` watermark (only on a SHA a review actually ran against), so a re-invocation
+  on the unchanged tree skips re-review. (A future upstream implementer that records its
+  reviewed SHA hands off the same way — create-pr skips 1c when `.review` == HEAD.)
 - **One notifier** (`request-review`, per-SHA dedup) — no skill posts Slack itself.
 - **One reviewer engine** — `self` (hand back) and `peer` (post comments) are adapters over the same handlers.
 - **State is re-derived, not stored** — `address-pr` is a level-triggered reconciler; GitHub is the only truth.
@@ -238,7 +237,7 @@ directly and never routed through the identifier parser.
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
 by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
 
-> The other skills (`propose`, `investigate`, `implement`, `create-pr`,
+> The other skills (`propose`, `investigate`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
 > same house rules (identifiers as `--pr/--repo`, verbs positional, payloads via
 > stdin); the detailed per-script reference above covers the PR-workflow pair where

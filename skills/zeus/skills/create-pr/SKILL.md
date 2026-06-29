@@ -125,6 +125,17 @@ create-pr does **not** fix anything here. If findings warrant changes, the user 
 "Fix first" at the confirm step and control returns to the LLM to fix them normally;
 re-run `/zeus:create-pr` afterward.
 
+If the review came back **clean** (nothing to fix for this SHA), stamp the watermark so a
+later re-invocation on the unchanged tree skips a redundant review:
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/journey.sh write-review "$HEAD_SHA" 2>/dev/null || true
+```
+
+Don't stamp if you're about to fix findings — a fix moves HEAD, and the new tree is
+unreviewed; the re-run reviews it. (A future upstream implementer that records its
+reviewed SHA composes the same way: an equal watermark lets create-pr skip 1c entirely.)
+
 ### 1d. Verify against the issue's contract (when a linked issue exists)
 
 If `$ISSUE_NUMBER` is non-empty, this PR closes a contract someone wrote — verify the code
@@ -234,7 +245,7 @@ This is the early, friendly check; `post-pr.sh` (step 3) **re-enforces it as a c
 bash ${CLAUDE_SKILL_DIR}/scripts/preview.sh "<title>" "$BODY_FILE" 60
 ```
 
-If the backstop review (1c) produced findings, show a one-line-per-finding summary
+If the review gate (1c) produced findings, show a one-line-per-finding summary
 above the preview so the decision is informed, and offer the **Fix first** option.
 
 Options:

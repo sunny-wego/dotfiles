@@ -1,8 +1,0 @@
-{
-  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (the engine is vendored identically across the family; this file is where implement differs). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine. implement orchestrates sibling skills (review-pr, create-pr, verify/run, find-docs) BY NAME — their absence is a graceful no-op, never a hard dep, so they are not declared here.",
-  "skill": "implement",
-  "notes": [
-    "Workspace (worktree/branch) is caller-provided — the coding agent sets it up. This skill never creates worktrees and does not depend on /wgd.",
-    "Test/build runners (npm, pytest, go, etc.) are project-specific and discovered at runtime from the issue's Verification block; they are not declared as deps."
-  ]
-}

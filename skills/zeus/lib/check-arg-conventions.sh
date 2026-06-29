@@ -64,7 +64,7 @@ done < <(grep -rEn '^(resolve_pr|resolve_target|with_lock|run|repo_default_branc
 
 # 4. Every PR-identifier script ROUTES THROUGH the parser — no hand-rolled `--pr)`
 #    cases (they'd accept the same flag but duplicate the parse and drift). Scoped to
-#    `--pr` (the PR identifier): issue-centric skills (propose, implement) legitimately
+#    `--pr` (the PR identifier): issue-centric skills (e.g. propose) legitimately
 #    take `--repo` without `--pr` and use their own issue resolution, and the PR
 #    *resolvers* themselves (identify-pr.sh, detect-target.sh, pr-ident.sh) are the
 #    parser, so they're exempt by construction (they don't parse a bare `--pr)`).

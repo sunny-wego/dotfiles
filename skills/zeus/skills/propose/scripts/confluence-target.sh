@@ -17,8 +17,8 @@
 # opt-in per repo, mirroring auto-ping's "absent ⇒ disabled".
 #
 # `mode` picks how propose treats the two destinations:
-#   mirror (default) — GitHub issue stays canonical (keeps #N, the journey chain,
-#                      /zeus:implement); the Confluence page is an additional
+#   mirror (default) — GitHub issue stays canonical (keeps #N, the journey chain
+#                      into issue→code→PR); the Confluence page is an additional
 #                      published surface, backlinked to the issue.
 #   native           — Confluence page only; no GitHub issue. The page id becomes
 #                      the proposal's identity.

@@ -3,7 +3,7 @@
 # open PR yet, nudge the agent to run /zeus:create-pr. This composes an implementer
 # that doesn't open PRs itself (e.g. a built-in /goal driving from a /zeus:propose
 # artifact) into the Zeus pipeline: create-pr seeds the PR from the proposal's
-# journey `.issue`, runs the pre-PR review backstop (/zeus:review-pr), and opens a
+# journey `.issue`, runs the pre-PR review gate (/zeus:review-pr), and opens a
 # reviewer-ready PR — after which the post-push hook nudges /zeus:address-pr.
 #
 # State-driven, not command-driven (mirrors stop-autolink.sh / post-push-review.sh):
@@ -62,7 +62,7 @@ prs=$(gh pr list --head "$branch" --state open --json number 2>/dev/null) || exi
 # Committed + on a feature branch + no PR + unnudged → suggest create-pr, once.
 mkdir -p "$gitdir/create-pr" 2>/dev/null
 : > "$marker" 2>/dev/null
-reason="Committed work on feature branch '$branch' ($ahead commit(s) ahead of $base_ref, clean tree) with no open PR. When the implementation is complete, run the /zeus:create-pr skill — it seeds the PR from the linked issue, runs the pre-PR review backstop (/zeus:review-pr), and opens a reviewer-ready PR. (Export ZEUS_SKIP_PR_SUGGEST=1 to silence.)"
+reason="Committed work on feature branch '$branch' ($ahead commit(s) ahead of $base_ref, clean tree) with no open PR. When the implementation is complete, run the /zeus:create-pr skill — it seeds the PR from the linked issue, runs the pre-PR review gate (/zeus:review-pr) and verifies the issue's contract, and opens a reviewer-ready PR. (Export ZEUS_SKIP_PR_SUGGEST=1 to silence.)"
 jq -nc --arg r "$reason" \
   '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $r}}'
 exit 0

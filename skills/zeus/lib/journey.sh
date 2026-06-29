@@ -7,13 +7,13 @@
 #   .git/journey/branch                 last branch that wrote (advisory)
 #   .git/journey/issue.json             {number,url,title}   — written by propose
 #   .git/journey/pr.json                {number,url}         — written by create-pr
-#   .git/journey/review.json            {sha}                — written by implement (pre-PR review watermark)
+#   .git/journey/review.json            {sha}                — written by the pre-PR review gate (create-pr 1c)
 #   .git/journey/investigation/epic     epic number          — written by investigate
 #   .git/journey/investigation/report   report path          — written by investigate (optional)
 #
 # WHY one-file-per-fact instead of a single journey.json + advisory lock:
-#   - Each fact has exactly ONE writer class (propose writes issue, create-pr writes pr,
-#     investigate writes investigation, implement writes review). Giving each its own file means no two writers ever
+#   - Each fact has exactly ONE writer class (propose writes issue, create-pr writes pr
+#     and review, investigate writes investigation). Giving each its own file means no two writers ever
 #     touch the same file, and every write is published by ATOMIC RENAME (tmp -> mv): a
 #     reader sees the whole old or whole new value, and concurrent writers can't lose each
 #     other's data. That removes BOTH the hand-rolled mkdir-lock AND the merge-into-namespace
@@ -31,7 +31,7 @@
 # Usage:
 #   journey.sh write-issue <number> <url> <title>
 #   journey.sh write-pr    <number> <url>
-#   journey.sh write-review <sha>      # implement records the SHA it reviewed pre-PR
+#   journey.sh write-review <sha>      # the pre-PR review gate records the SHA it reviewed
 #   journey.sh write-investigation <epic> [report]   # investigate publishes the active Epic
 #   journey.sh lookup                  # full JSON ({} if nothing written)
 #   journey.sh issue-number            # bare number or empty
@@ -111,9 +111,9 @@ case "$cmd" in
     ;;
 
   write-review)
-    # implement records the SHA it ran the pre-PR review against, so create-pr's
-    # backstop can skip a redundant review when HEAD hasn't moved. Single writer
-    # (implement), so a plain atomic_write is race-free like the other facts.
+    # The pre-PR review gate (create-pr 1c) records the SHA it ran the review against,
+    # so a re-invocation on the same tree can skip a redundant review when HEAD hasn't
+    # moved. Single writer class, so a plain atomic_write is race-free like the other facts.
     sha="${2:?reviewed sha required}"
     atomic_write "$DIR/branch" "$BRANCH"
     atomic_write "$DIR/review.json" \

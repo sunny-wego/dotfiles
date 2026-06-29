@@ -42,8 +42,8 @@ have to say which (overridable — see Modes):
   `source=remote, role=self`.
 
 So **reviewing my own work and reviewing someone else's are different outputs of one
-engine** — self hands back (and feeds `/zeus:implement`/`/zeus:create-pr`'s pre-PR
-gate); peer posts honest trust-labeled comments and stops. Either way the skill is
+engine** — self hands back (and feeds `/zeus:create-pr`'s pre-PR gate); peer posts
+honest trust-labeled comments and stops. Either way the skill is
 **read-only on code** — it never edits.
 
 State lives under the checkout's `.git/review-pr/` (created by `scripts/lib.sh`).
@@ -170,8 +170,8 @@ diff is forced to `--self` regardless.)
 
 - **`role=self` (my work):** always renders and **posts nothing** (it refuses
   `--submit`). **Hand the findings back** — summarize the Confirmed findings and
-  worthwhile Hypotheses so the LLM (`/zeus:implement`, `/zeus:create-pr`, or the user)
-  fixes them in its normal flow. review-pr does not fix, loop, or re-review.
+  worthwhile Hypotheses so the LLM (`/zeus:create-pr` or the user) fixes them in its
+  normal flow. review-pr does not fix, loop, or re-review.
 - **`role=peer` (someone else's PR):** show the dry-run to the user; only
   `--submit` on explicit instruction (it dedups already-posted ids on re-review).
   Never auto-`REQUEST_CHANGES`.
@@ -183,7 +183,7 @@ Remove the per-run state and any throwaway verify resources. Leave the worktree
 ## Scope discipline
 - **Diagnose only — no edits/commits/pushes, in either mode.** Local mode reviews the
   author's own diff but still never fixes it: it renders findings and hands them back.
-  Fixing belongs to the caller (`/zeus:implement`, `/zeus:create-pr`, or the user).
+  Fixing belongs to the caller (`/zeus:create-pr` or the user).
 - Don't report pre-existing issues (true on the base branch) as this change's findings.
 - Default review event is `COMMENT`; never auto-`REQUEST_CHANGES`.
 - A clean pass (no findings) is a valid result — say so; don't manufacture noise.
