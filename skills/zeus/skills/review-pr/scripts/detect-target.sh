@@ -64,7 +64,7 @@ emit_local() { # emit_local <note>
   local head branch b role
   head=$(git rev-parse HEAD 2>/dev/null) || { echo '{"error":"detect-target: no HEAD commit"}' >&2; exit 1; }
   branch=$(current_branch)
-  b="$base"; [ -z "$b" ] && b=$(default_base_ref)
+  b="$base"; [ -z "$b" ] && b=$(default_base_ref_git)   # git-only: a local emit must not block on gh
   role="${as_role:-self}"
   jq -nc --arg h "$head" --arg b "$b" --arg br "$branch" --arg role "$role" --arg note "${1:-}" \
     '{source:"local", role:$role, head_sha:$h, base:$b, branch:$br} + (if $note != "" then {note:$note} else {} end)'
@@ -89,15 +89,24 @@ if [ -n "$pr_ref" ]; then
   exit 0
 fi
 
-# 3. auto-detect from the current branch (one gh call: number + head + author)
-prinfo=$(gh pr view --json number,headRefOid,author 2>/dev/null || true)
-prnum=$(printf '%s' "$prinfo" | jq -r '.number // empty' 2>/dev/null || true)
-if [ -z "$prnum" ]; then
-  emit_local ""                       # no open PR for this branch → pre-PR, local
+# 3. auto-detect from the current branch. Probe with `gh pr list` (not `gh pr view`):
+# it exits 0 with `[]` for a genuine no-PR, and non-zero ONLY on a real gh failure —
+# so we can tell "you're pre-PR" from "GitHub is unreachable" instead of silently
+# treating both as local (mirrors suggest-pr.sh). gh down → local WITH a note, never
+# a silent misroute; review is read-only either way.
+branch=$(current_branch)
+if prlist=$(gh pr list --head "$branch" --state open --json number,headRefOid,author 2>/dev/null); then
+  prnum=$(printf '%s' "$prlist" | jq -r '.[0].number // empty' 2>/dev/null || true)
+  if [ -z "$prnum" ]; then
+    emit_local ""                     # no open PR for this branch → pre-PR, local
+    exit 0
+  fi
+else
+  emit_local "couldn't reach GitHub to check for an open PR — reviewing local working state"
   exit 0
 fi
 
-pr_head=$(printf '%s' "$prinfo" | jq -r '.headRefOid // empty')
+pr_head=$(printf '%s' "$prlist" | jq -r '.[0].headRefOid // empty')
 head=$(git rev-parse HEAD 2>/dev/null || echo "")
 dirty=false
 if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then dirty=true; fi

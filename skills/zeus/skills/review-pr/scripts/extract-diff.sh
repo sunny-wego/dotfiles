@@ -42,16 +42,18 @@ if [ "$local_mode" = true ] || [ -n "$base" ]; then
   head=$(git rev-parse HEAD 2>/dev/null) || { echo '{"error":"extract-diff --local: no HEAD commit"}' >&2; exit 1; }
   branch=$(git branch --show-current 2>/dev/null || echo "")
 
-  # Default base = the repo's default-branch ref (resilient + stack-agnostic;
-  # default_base_ref from lib/repo.sh, sourced via lib.sh — no main/master hardcode).
-  [ -z "$base" ] && base="$(default_base_ref)"
+  # Default base = the repo's default-branch ref, resolved GIT-ONLY (no gh, no network)
+  # via default_base_ref_git — local pre-PR review must not block on a gh timeout when
+  # the author is offline. Resilient + stack-agnostic (no main/master hardcode).
+  [ -z "$base" ] && base="$(default_base_ref_git)"
 
   mb=$(git merge-base HEAD "$base" 2>/dev/null) \
     || { echo "{\"error\":\"extract-diff --local: base ref '$base' not found (fetch it, or pass --base)\"}" >&2; exit 1; }
 
   # Synthetic metadata so post-review/select-mode read the same fields as remote.
-  slug=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
-  [ -z "$slug" ] && slug=$(git remote get-url origin 2>/dev/null | sed -E 's#(\.git)?$##; s#.*[:/]([^/]+/[^/]+)$#\1#' || true)
+  # Git-only (the local path stays network-free); slug may be empty if there's no
+  # origin remote — harmless, it's cosmetic owner/repo display, not a lookup key.
+  slug=$(git remote get-url origin 2>/dev/null | sed -E 's#(\.git)?$##; s#.*[:/]([^/]+/[^/]+)$#\1#' || true)
   owner="${slug%%/*}"; name="${slug#*/}"
   jq -nc --arg o "$owner" --arg r "$name" --arg h "$head" --arg b "$base" --arg t "$branch" \
     '{owner:$o, repo:$r, number:null, head_sha:$h, base:$b, url:"", title:$t, local:true}' > "$PR_FILE"

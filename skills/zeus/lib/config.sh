@@ -44,8 +44,11 @@ config_get() {
   if [ -n "${!envk:-}" ]; then printf '%s\n' "${!envk}"; return 0; fi
   for f in "$(_zeus_repo_config 2>/dev/null)" "$(_zeus_user_config)" "$ZEUS_DEFAULTS_FILE"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
-    val="$(jq -r --arg k "$key" 'getpath($k|split(".")) // empty' "$f" 2>/dev/null || true)"
-    [ -n "$val" ] && [ "$val" != "null" ] && { printf '%s\n' "$val"; return 0; }
+    # Treat ONLY a missing/null path as absent — NOT `// empty`, which jq also fires
+    # on a literal `false`, making an explicitly-disabled boolean read back as the
+    # default. `0` and `false` are valid values and must survive.
+    val="$(jq -r --arg k "$key" 'getpath($k|split(".")) as $v | if $v==null then empty else $v end' "$f" 2>/dev/null || true)"
+    [ -n "$val" ] && { printf '%s\n' "$val"; return 0; }
   done
   printf '%s\n' "$def"
 }
