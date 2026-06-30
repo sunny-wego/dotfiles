@@ -44,10 +44,17 @@ DIFF_FILE="$STATE_DIR/diff.patch"
 ANCHORS_FILE="$STATE_DIR/anchors.json"
 FINDINGS_FILE="$STATE_DIR/findings.json"
 REVIEW_FILE="$STATE_DIR/review.json"
+PRIOR_FILE="$STATE_DIR/prior.json"   # our own unresolved findings from earlier rounds (re-review)
+SLACK_FILE="$STATE_DIR/slack-thread.json"  # Slack reply coordinate {channel, thread_ts, ...} (Slack-triggered entry point)
 LOCK_DIR="$STATE_DIR/lock"
 
 mkdir -p "$STATE_DIR"
 
+# Wipes per-RUN scratch only. $SLACK_FILE is deliberately NOT listed: like
+# request-review's review-thread.json it must PERSIST across runs so a same-session
+# re-review (a later "/zeus:review-pr" with no arg) replies in the original thread.
+# It is per-PR by construction (STATE_DIR lives inside the per-PR worktree) and dies
+# with that worktree.
 cleanup_run_state() {
-  rm -f "$PR_FILE" "$DIFF_FILE" "$ANCHORS_FILE" "$FINDINGS_FILE" "$REVIEW_FILE"
+  rm -f "$PR_FILE" "$DIFF_FILE" "$ANCHORS_FILE" "$FINDINGS_FILE" "$REVIEW_FILE" "$PRIOR_FILE"
 }

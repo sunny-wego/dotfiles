@@ -41,6 +41,12 @@ while [ $# -gt 0 ]; do
     --as=*)             as_role="${1#*=}"; shift ;;
     --repo)             repo_slug="${2:?--repo needs a value}"; shift 2 ;;
     --repo=*)           repo_slug="${1#*=}"; shift ;;
+    *slack.com/archives/*)
+        # A Slack message link must be resolved to a PR URL FIRST (SKILL step 1:
+        # slack-thread.sh parse → slack_read_thread → slack-thread.sh extract-pr).
+        # detect-target only ever sees the resolved PR URL, never the Slack link.
+        echo '{"error":"detect-target: that is a Slack message link — resolve it to a PR URL first (see SKILL step 1)"}' >&2
+        exit 2 ;;
     https://*|http://*) pr_ref="$1"; shift ;;
     *)  if   [[ "$1" =~ ^[0-9]+$ ]]; then pr_ref="$1"
         elif [[ "$1" == */* ]];      then repo_slug="$1"

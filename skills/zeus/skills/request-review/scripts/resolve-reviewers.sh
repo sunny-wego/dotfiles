@@ -2,9 +2,11 @@
 # resolve-reviewers.sh — resolve a PR's "who should review this?" set to
 # Slack-ready mentions.
 #
-# INDIVIDUAL CODE OWNERS ONLY: @org/team usergroups (subteams) are dropped, so a
-# path owned solely by a team resolves to no one. The skill pings the people who
-# own the code, not org groups.
+# Pings individual code owners AND @org/team usergroups. A team resolves to a
+# Slack usergroup mention (<!subteam^S...>) when the handle map has an entry for
+# its "org/team" key; without a mapping it falls back to a GitHub team-page link.
+# A path owned solely by an unmapped team therefore still names the team (link
+# form, no @-ping).
 #
 # Source order (first non-empty wins):
 #   1. `gh pr view <pr> --json reviewRequests`
@@ -225,9 +227,7 @@ result=$(echo "$base" | jq -c \
   --arg source "$source_tag" \
   '
     [ .[] |
-      # Ping individual code owners only — never @org/team usergroups (subteams).
-      # A path owned solely by a team therefore resolves to no one.
-      select(.is_team != true) |
+      # Ping both individual code owners and @org/team usergroups (subteams).
       . as $r
       | ($map[.gh_login] // null) as $sid
       | {
@@ -237,7 +237,16 @@ result=$(echo "$base" | jq -c \
           source: $source,
           display: (
             if $sid != null and $sid != "" then
-              "<@" + $sid + ">"
+              # Slack mention syntax differs by kind: usergroups (teams) use
+              # <!subteam^S...>, individual users use <@U...>.
+              (if .is_team == true then "<!subteam^" + $sid + ">"
+               else "<@" + $sid + ">" end)
+            elif .is_team == true then
+              # No map entry for the team — link to its GitHub team page.
+              # .gh_login is "org/slug"; split to build the /orgs/.../teams/... URL.
+              "<https://github.com/orgs/" + (.gh_login | split("/")[0])
+                + "/teams/" + (.gh_login | split("/")[1])
+                + "|@" + .gh_login + ">"
             else
               # Fallback: GitHub link with @-prefixed login. No real mention,
               # but reviewers see who is being asked.

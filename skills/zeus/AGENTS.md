@@ -232,7 +232,15 @@ directly and never routed through the identifier parser.
 | `ensure-checkout.sh` | `--pr <n> --repo <owner/repo> [--foreign <bool>] [--sha <head>]` — isolate the PR head in a worktree / blobless clone (remote only). |
 | `extract-diff.sh` | `--pr <n> --repo <owner/repo>` (remote)  •  `--local [--base <ref>] [--include-dirty]` (local, no network) — writes the diff + anchorable lines. |
 | `select-mode.sh` | `[--deep\|--single]` — reads the extracted diff; emits `{mode:single\|parallel, applicable_handlers, …}`. |
-| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` (dry-run; `--submit` posts) `[--findings <file>]` — output keyed on role; a local diff is forced to `--self`. |
+| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` — `--submit` posts one COMMENT review (the peer default per SKILL.md; bare `--peer` is the dry-run preview), dedups already-posted ids on re-review. `[--findings <file>]`; a local diff is forced to `--self`. |
+
+**Re-review & Slack entry point** (the re-review loop + the Slack-triggered entry):
+
+| Script | Signature |
+|---|---|
+| `prior-findings.sh` | *(no args; reads `$PR_FILE`)* — recover this skill's own **unresolved** prior comments (matched by the `zeus:review-pr id=` marker) so a re-review addresses them; empty array = first review. |
+| `resolve-thread.sh` | `--comment-id <dbid> --thread-id <node_id> --body-file <f> [--resolve]` — reply in a prior thread with the re-verify verdict; `--resolve` closes it (verified fixed/moot). The only place review-pr writes to a thread it opened. |
+| `slack-thread.sh` | `parse <permalink>` · `extract-pr` (stdin) · `save --channel C --thread-ts T [--msg-ts M] [--pr-url URL] [--requester UID]` · `get` — pure parse/persist glue for the Slack entry point; the agent makes the `slack_read_thread` / `slack_send_message` calls. |
 
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
 by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
@@ -292,12 +300,19 @@ zeus/
   go through the identifier parser.
 - **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
   via `config.sh`, never hard-coded; user/repo config is never committed.
-- **Optional external integrations have exactly ONE owner skill, reached by name.**
-  Slack lives in `request-review`, Confluence in `propose`; SonarQube / Vercel are
-  `address-pr` handlers. Other skills never post to a channel directly or call the
-  owner's scripts by path — they invoke the owner skill with a JSON contract, so its
-  `allowed-tools` are the *only* place that integration's MCP tools appear (e.g.
-  `address-pr` carries no Slack tools — it hands the verdict to `request-review`).
+- **Optional external integrations have one owner, reached by name.**
+  Confluence lives in `propose`; SonarQube / Vercel are `address-pr` handlers. Other
+  skills never post to those directly or call the owner's scripts by path — they
+  invoke the owner skill with a JSON contract, so its `allowed-tools` are the *only*
+  place that integration's MCP tools appear (e.g. `address-pr` carries no Slack tools
+  — it hands the verdict to `request-review`). **Slack is owned per _direction_, not
+  by a single skill:** `request-review` owns **outbound** reviewer notification
+  (broadcast pings to code owners, per-SHA dedup); `review-pr` owns the **threaded
+  reply to a review it was explicitly summoned for via a Slack link** — it reads that
+  thread and posts one informational reply in it (`reply_broadcast` stays false),
+  never a broadcast. Both keep the house split — scripts format/persist
+  (`*-message.sh`, `slack-thread.sh`), the agent makes the MCP call — so those two
+  skills are the only places Slack tools appear.
   Each integration is **MCP-gated and degrades gracefully**: MCP reachability can't
   be probed from a script, so the owning skill confirms it live and falls back to the
   GitHub-only path when it's absent (never a hard failure). A *new* integration

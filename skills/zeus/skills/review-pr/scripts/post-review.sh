@@ -52,13 +52,40 @@ if [ "$role" = "self" ]; then mode="self"
 elif [ "$submit" = "true" ]; then mode="submit"
 else mode="dry-run"; fi
 
+# Idempotent re-review: on submit, drop findings whose id is ALREADY posted on the
+# PR (an earlier round), so re-running this skill never duplicates comments. A
+# finding can live in EITHER of two places, so we union both — missing one lets that
+# kind re-post every round:
+#   - inline review comments (/pulls/N/comments) → become resolvable threads, also
+#     addressed in-thread by resolve-thread.sh (step 5b).
+#   - prior review summary BODIES (/pulls/N/reviews) → non-anchored findings have NO
+#     thread to resolve, so this dedup is the ONLY thing stopping them re-posting.
+# Computed BEFORE rendering so the triage header excludes them too, not just inline.
+export RP_EXISTING_IDS=""
+if [ "$mode" = "submit" ]; then
+  rp_owner=$(jq -r .owner "$PR_FILE"); rp_repo=$(jq -r .repo "$PR_FILE"); rp_number=$(jq -r .number "$PR_FILE")
+  RP_EXISTING_IDS=$( {
+      gh api "repos/$rp_owner/$rp_repo/pulls/$rp_number/comments" --paginate -q '.[].body' 2>/dev/null || true
+      gh api "repos/$rp_owner/$rp_repo/pulls/$rp_number/reviews"  --paginate -q '.[].body' 2>/dev/null || true
+    } | grep -oE 'zeus:review-pr id=[a-z0-9-]+' | sed 's/.*id=//' | sort -u | tr '\n' ' ' || true)
+  export RP_EXISTING_IDS
+  [ -n "${RP_EXISTING_IDS// /}" ] && { echo "post-review: already posted (skipped — handled in-thread or kept in the prior summary, not duplicated):" >&2; echo "  $RP_EXISTING_IDS" >&2; }
+fi
+
 python3 - "$PR_FILE" "$ANCHORS_FILE" "$findings" "$mode" "$event" "$REVIEW_FILE" <<'PY'
-import sys, json
+import sys, json, os
 
 pr      = json.load(open(sys.argv[1]))
 anchors = json.load(open(sys.argv[2]))
 items   = json.load(open(sys.argv[3]))
 mode, event, review_file = sys.argv[4], sys.argv[5], sys.argv[6]
+
+# Re-review dedup: drop findings already posted in an earlier round (set only on
+# submit, via RP_EXISTING_IDS). Done before rendering so neither the inline
+# comments nor the triage header re-mention them.
+_existing = set(os.environ.get("RP_EXISTING_IDS", "").split())
+if _existing:
+    items = [f for f in items if f.get("id") not in _existing]
 
 LABEL = {
     "confirmed":  "\U0001F534 **Confirmed — reproduced.**",
@@ -165,13 +192,15 @@ if mode in ("dry-run", "self"):
 PY
 
 if [ "$mode" = "submit" ]; then
-  # Idempotent re-review: drop comments whose id marker is already posted.
-  existing=$(gh api "repos/$(jq -r .owner "$PR_FILE")/$(jq -r .repo "$PR_FILE")/pulls/$(jq -r .number "$PR_FILE")/comments" \
-               --paginate -q '.[].body' 2>/dev/null | grep -oE 'zeus:review-pr id=[a-z0-9-]+' | sort -u || true)
-  if [ -n "$existing" ]; then
-    echo "post-review: existing posted ids:" >&2; echo "$existing" >&2
-    # (filter $REVIEW_FILE.comments[] whose marker is in $existing before posting)
+  # Dedup already happened pre-render (RP_EXISTING_IDS). Post one review IFF there
+  # is something NEW — an empty review (all findings already posted, prior threads
+  # handled in-thread) is skipped rather than posted blank.
+  n_inline=$(jq '.comments | length' "$REVIEW_FILE")
+  n_summary=$(jq -r '.body' "$REVIEW_FILE" | grep -c 'zeus:review-pr id=' || true)
+  if [ "$n_inline" -eq 0 ] && [ "$n_summary" -eq 0 ]; then
+    echo "post-review: no new findings to post — earlier comments are handled in-thread (resolve-thread.sh); nothing duplicated." >&2
+  else
+    gh api "repos/$(jq -r .owner "$PR_FILE")/$(jq -r .repo "$PR_FILE")/pulls/$(jq -r .number "$PR_FILE")/reviews" \
+      --input "$REVIEW_FILE" && echo "post-review: review posted." >&2
   fi
-  gh api "repos/$(jq -r .owner "$PR_FILE")/$(jq -r .repo "$PR_FILE")/pulls/$(jq -r .number "$PR_FILE")/reviews" \
-    --input "$REVIEW_FILE" && echo "post-review: review posted." >&2
 fi

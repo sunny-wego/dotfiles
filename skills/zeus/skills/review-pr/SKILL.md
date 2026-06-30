@@ -8,16 +8,23 @@ description: >-
   (checks it out in an isolated worktree, posts findings as comments) OR — when
   you're pre-PR — the local working diff vs its base (renders findings locally,
   posts nothing). Read-only either way: it diagnoses and hands findings back, never
-  edits. Use when asked to review a pull request, critique a PR, or review your
+  edits. On a re-review of a PR it already reviewed, it first re-verifies its own
+  earlier comments — replying and resolving the ones now fixed, flagging the rest —
+  then reviews the new diff and posts only genuinely new findings (no duplicates).
+  Each run is one pass; the user re-runs it per round, it never loops itself. Also
+  accepts a Slack message link: it reads that message to find the PR, reviews it,
+  and replies a short summary in the same thread (re-replies on a same-session
+  re-review). Use when asked to review a pull request, critique a PR, or review your
   local changes before opening a PR. Triggers on: "review pr", "review this pr",
   "code review this pr", "critique this pr", "review my changes/diff before PR", a
-  PR URL, or "/zeus:review-pr [url|number|--local]".
+  PR URL, a Slack message link to review, or
+  "/zeus:review-pr [url|number|slack-link|--local]".
 license: MIT
-compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier.
+compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier. The Slack entry point additionally needs the Slack MCP.
 metadata:
   author: sunnywong
-  version: "0.1"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent
+  version: "0.3"
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__plugin_slack_slack__slack_read_thread mcp__plugin_slack_slack__slack_send_message
 
 ---
 
@@ -59,11 +66,13 @@ The default — **no flag, no arg** — auto-detects `source` and `role` via
 |---|---|
 | `/zeus:review-pr` | **Auto-detect.** No open PR for the branch → **local** self-review (pre-PR). Open PR at the branch head → review that **PR** (`role` = self if you authored it, else peer). Open PR but local has uncommitted/unpushed changes → **local** (review the real on-disk state, not the stale pushed head). |
 | `… <url\|number>` | Force a **remote** PR (role still auto: self if yours, peer otherwise). |
+| `… <slack-message-link>` | **Slack-triggered.** Read the linked Slack message → find the PR URL it contains → review that PR (remote, peer) → reply a summary **in that thread**. The thread coordinate is persisted (step 1), so a same-session re-review (next invocation, even with no arg) replies in the same thread. The linked message must contain the PR URL. |
 | `… --local [--base <ref>] [--include-dirty]` | Force **local** self-review (even if a PR is open). `--base` picks the diff base (default: repo default branch); `--include-dirty` includes uncommitted changes. |
 | `… --as self\|peer` | Force the **role** (e.g. review your own PR as a peer would, or hand a peer PR's findings back instead of posting). |
 | `… --deep` / `… --single` | Force parallel fan-out / single-context regardless of size. |
 | `… <handler>` | Run one dimension standalone (`correctness`, `concurrency-idempotency`, `resilience`, `data-migrations`, `api-contract`, `security`, `tests`) — always single-context. |
-| `… --submit [--request-changes]` | **Peer only.** Post the review (event `COMMENT`, or `REQUEST_CHANGES` explicitly). Without it, peer is a dry-run; refused for self-review (nothing to post). |
+| `… --dry-run` | **Peer only.** Render the review but post **nothing** (preview). Peer **auto-submits by default** (this skill only runs on an explicit review request, so the post is what was asked for); use `--dry-run` when you want to eyeball it first. |
+| `… --request-changes` | **Peer only.** Submit with event `REQUEST_CHANGES` instead of the default `COMMENT`. **Never automatic** — explicit opt-in only; the default leaves the author to decide what to fix. |
 
 `select-mode.sh` independently picks single-context vs parallel fan-out from the diff
 size (parallel when reviewable LOC ≥ 400 or files ≥ 8) for either role.
@@ -71,6 +80,33 @@ size (parallel when reviewable LOC ≥ 400 or files ≥ 8) for either role.
 ## Flow
 
 ### 1. Detect the target (source + role), then resolve
+
+**Slack-triggered first (arg is a Slack message link, `*slack.com/archives/…`).**
+Resolve it to a PR, then fall through to the normal remote path with that PR URL —
+detect-target never sees the Slack link (it rejects one by design):
+```bash
+coords=$(bash ${CLAUDE_SKILL_DIR}/scripts/slack-thread.sh parse "<slack-link>")  # → {channel, thread_ts, msg_ts}
+```
+Read the thread yourself with `slack_read_thread(channel_id=<coords.channel>,
+message_ts=<coords.thread_ts>)`, then from the returned messages capture two things:
+the **PR URL**, and the **requester** = the `user` (Slack id) of the linked message
+(`coords.msg_ts`; fall back to the thread parent) — the person who asked for the
+review, whom step 6b must ping.
+```bash
+printf '%s' "<thread message text>" | bash ${CLAUDE_SKILL_DIR}/scripts/slack-thread.sh extract-pr  # → PR URL
+```
+Now continue as a normal **remote, peer** review of that PR URL (run
+`detect-target.sh <pr-url>`, not `"$@"`). **After** the checkout + EnterWorktree
+(remote branch below), persist the thread + requester so step 6b and any
+same-session re-review can find them:
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/slack-thread.sh save --channel <channel> --thread-ts <thread_ts> --msg-ts <msg_ts> --pr-url <pr-url> --requester <slack-user-id>
+```
+**Same-session re-review:** invoke again with the PR URL/number you already remember
+— `slack-thread.sh get` recovers the stored thread for the reply, so no re-paste is
+needed. (A non-Slack invocation has no `$SLACK_FILE` and simply skips step 6b.)
+
+For a normal (non-Slack) invocation, start here:
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/detect-target.sh "$@" > /tmp/rp-target.json   # → {source, role, ...}
 ```
@@ -102,11 +138,15 @@ bash ${CLAUDE_SKILL_DIR}/scripts/ensure-checkout.sh --pr <n> --repo <owner/repo>
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --pr <n> --repo <owner/repo>
 bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]   # → {mode, applicable_handlers, reviewable_loc, ...}
+bash ${CLAUDE_SKILL_DIR}/scripts/prior-findings.sh                  # → $PRIOR_FILE: our own UNRESOLVED comments from earlier rounds
 ```
 Either way `extract-diff.sh` writes the diff + anchorable lines (the single source of
 truth for where inline comments may land), and `select-mode.sh` deterministically
 reads `.mode` (`single`|`parallel`) and `.applicable_handlers`. Log the line it
-prints so misfires are tunable.
+prints so misfires are tunable. `prior-findings.sh` recovers this skill's own
+unresolved comments from earlier rounds (matched by the `zeus:review-pr id=`
+marker) — a **non-empty `$PRIOR_FILE` means this is a re-review**: you'll address
+those comments in step 5b, and step 6 won't re-post anything already on the PR.
 
 ### 2. Read the contract once
 Read `references/review-contract.md` before the first handler — it owns the
@@ -156,13 +196,40 @@ output** into `evidence`, then set `status: confirmed`; otherwise leave
 serial** even under `--deep` (the parallel agents only diagnose) — never touch
 shared/long-lived infra; on any denial, stay `hypothesis`.
 
+### 5b. Address prior review comments (peer re-review only)
+Skip when `$PRIOR_FILE` is empty (first review of this PR) or `role=self`. Otherwise
+`$PRIOR_FILE` holds this skill's own **unresolved** comments from earlier rounds,
+each with its `prior_status`, `thread_id`, and `comment_id`. **Re-verify every one
+against the CURRENT head** using the same discipline as step 5 (review-contract.md
+Tier-0/Tier-1 + the safety fence) — re-run the recorded repro if it was
+`confirmed`, re-run its `verify` step if it was `hypothesis`. Reach a verdict from
+**fresh, recorded evidence — never infer "fixed" from the diff alone**:
+
+- **Fixed** — the repro no longer reproduces / the gap is closed. Reply with the
+  verdict + fresh evidence, and **resolve** the thread.
+- **Moot** — the code it referenced is gone or rewritten so the concern no longer
+  applies. Reply explaining why, and **resolve**.
+- **Still open** — not addressed, or only partially. Reply with what remains (and
+  why), and **leave the thread open** for the author.
+
+Write the reply body (verdict + evidence) to a file, then:
+```bash
+# verified fixed / moot → reply + resolve
+bash ${CLAUDE_SKILL_DIR}/scripts/resolve-thread.sh --comment-id <id> --thread-id <tid> --body-file <f> --resolve
+# still open → reply only, leave the thread open
+bash ${CLAUDE_SKILL_DIR}/scripts/resolve-thread.sh --comment-id <id> --thread-id <tid> --body-file <f>
+```
+This is the **only** place review-pr writes to a thread it opened. The verdict is
+yours (gated on the re-verification above); the script only posts the reply and,
+when told, resolves. Still read-only on code — you re-test the fix, you never make it.
+
 ### 6. Render & hand off — by `role`
 ```bash
 # role=self (my work — pre-PR diff or my own PR): render, NEVER post
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --self
-# role=peer (someone else's PR): dry-run render, then post on explicit instruction
-bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer            # render, post nothing
-bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer --submit   # post one COMMENT review
+# role=peer (someone else's PR): auto-submit one COMMENT review by default
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer --submit   # post one COMMENT review (DEFAULT)
+bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer            # --dry-run only: render, post nothing
 ```
 The script validates labels (confirmed⇒evidence, hypothesis⇒verify) and demotes
 off-diff anchors to the summary in both roles. (Pass the `.role` from step 1; a local
@@ -172,13 +239,48 @@ diff is forced to `--self` regardless.)
   `--submit`). **Hand the findings back** — summarize the Confirmed findings and
   worthwhile Hypotheses so the LLM (`/zeus:create-pr` or the user) fixes them in its
   normal flow. review-pr does not fix, loop, or re-review.
-- **`role=peer` (someone else's PR):** show the dry-run to the user; only
-  `--submit` on explicit instruction (it dedups already-posted ids on re-review).
-  Never auto-`REQUEST_CHANGES`.
+- **`role=peer` (someone else's PR): auto-submit by default.** This skill only runs
+  when the user explicitly asks for a review, so posting the result IS the request —
+  submit one `COMMENT` review without a confirmation round-trip. `post-review.sh`
+  **drops any finding whose id is already posted** (an earlier round — those are
+  handled in-thread in step 5b), so re-running never duplicates; if nothing new
+  remains it posts nothing rather than an empty review. Only skip the post when the
+  user asked for a `--dry-run`/preview. Every comment must **state plainly what it is** — a
+  reproduced **Confirmed** finding (carries evidence) vs. an unproven **Hypothesis**
+  (carries a verify step) vs. a **Nit** — and pose its question about intent, so the
+  **author decides what to fix**. Event is always `COMMENT`; never
+  auto-`REQUEST_CHANGES` (that verdict is the author's, not the reviewer's).
+
+### 6b. Reply in the Slack thread (Slack-triggered reviews only)
+Run this **only** when `slack-thread.sh get` returns a non-empty record (this review
+was kicked off from a Slack link this session, or a prior round seeded it) and
+`role=peer`. Otherwise skip — a normal review posts nothing to Slack.
+```bash
+coords=$(bash ${CLAUDE_SKILL_DIR}/scripts/slack-thread.sh get)   # {} → skip; else {channel, thread_ts, ...}
+```
+Post a **simple, informational** reply yourself via
+`slack_send_message(channel_id=<coords.channel>, thread_ts=<coords.thread_ts>,
+message=<text>)`. It is a *completion notice*, not a report — the findings live in
+the PR comments; do **not** restate them here. It **must ping the requester** by
+opening with `<@<coords.requester>>` (the Slack id saved in step 1). Keep it to one
+line, naming only the high-level outcome + PR link:
+- **First review:** *"<@U123> Review done — left N comments on <pr>. Details in the PR."*
+  A clean pass: *"<@U123> Reviewed <pr> — no blocking issues. ✅"*
+- **Re-review:** *"<@U123> Re-reviewed <pr> — N resolved, M still open, K new. See the PR."*
+
+Always reply, even on a clean pass — closing the loop is the point. A bare count is
+fine (it's informational); the per-finding detail stays on the PR. If
+`coords.requester` is somehow empty, still post (the threaded reply notifies
+participants) and note the missing ping. This threaded reply is review-pr's **only**
+write to Slack, and it never broadcasts (`reply_broadcast` stays false). Still
+read-only on code and on the author's PR body (we never write the journey marker —
+that's the author's request-review concern, the inverse role).
 
 ### 7. Cleanup
-Remove the per-run state and any throwaway verify resources. Leave the worktree
-(reused on a re-review of the same PR) unless asked to remove it.
+Remove the per-run state and any throwaway verify resources (`cleanup_run_state`).
+Leave the worktree (reused on a re-review of the same PR) unless asked to remove it.
+`$SLACK_FILE` is intentionally preserved (not in `cleanup_run_state`) so a
+same-session re-review replies in the original thread; it dies with the worktree.
 
 ## Scope discipline
 - **Diagnose only — no edits/commits/pushes, in either mode.** Local mode reviews the
@@ -187,3 +289,7 @@ Remove the per-run state and any throwaway verify resources. Leave the worktree
 - Don't report pre-existing issues (true on the base branch) as this change's findings.
 - Default review event is `COMMENT`; never auto-`REQUEST_CHANGES`.
 - A clean pass (no findings) is a valid result — say so; don't manufacture noise.
+- **One pass per invocation — never loop.** Each manual run addresses the existing
+  comments (step 5b) and posts any new findings, then stops. The user re-runs the
+  skill for the next round; the skill never schedules or re-triggers its own
+  re-review. A re-verified-fixed thread is closed with evidence, not on faith.
