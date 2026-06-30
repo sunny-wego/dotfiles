@@ -48,12 +48,19 @@ EXC = [re.compile(p) for p in EXCLUDE]
 def excluded(p): return any(e.search(p) for e in EXC)
 
 # Keyword heuristics → candidate handlers (correctness + tests always on for code).
+# These are CANDIDATE signals, not a mandate: a match should mean "this dimension is
+# probably relevant," not "a common word appeared." The patterns are deliberately
+# specific (decorators, DDL, named constructs) rather than bare common words — generic
+# words like `request`/`try`/`hash`/`index`/`status_code` over-fire on incidental code
+# and prose, so they are intentionally NOT here. Anything these miss is recovered by the
+# LLM gate (SKILL.md step 3) reading the actual diff, with correctness always-on as the
+# recall backstop. Matching skips whole-line comments (see the scan loop below).
 HANDLER_KW = {
-    "concurrency-idempotency": r'\b(lock|mutex|async|await|asyncio|thread|goroutine|queue|dedup|idempoten|retry|concurren|transaction|webhook|claim|Promise\.all|atomic|race)\b',
-    "resilience": r'\b(try|except|catch|finally|timeout|retr(y|ies)|raise|throw|HTTPException|status_code|5\d\d|fallback|circuit|backoff|cancel)\b',
-    "data-migrations": r'\b(CREATE TABLE|ALTER|add_column|drop_column|migrat|schema|Column\(|@Entity|alembic|prisma|flyway|liquibase|index|constraint)\b',
-    "api-contract": r'\b(request|response|payload|serialize|deserialize|endpoint|route|@app|@router|@router\.|header|status_code|json\.loads|json\.dumps|pydantic|BaseModel|DTO)\b',
-    "security": r'\b(auth|token|secret|password|hmac|signature|crypto|hash|jwt|verify|sanitiz|escape|sql|subprocess|os\.system|eval\(|exec\()\b',
+    "concurrency-idempotency": r'(asyncio\.Lock|threading\.(Lock|RLock|Semaphore)|sync\.(Mutex|RWMutex|WaitGroup)|multiprocessing\.Lock|SELECT\b.*\bFOR UPDATE|\bdedup|idempoten|Promise\.all|\bgoroutine\b|\bwebhook\b|\bmutex\b|\bsemaphore\b|@(shared_task|celery|task)\b)',
+    "resilience": r'(except\s+\w*(Timeout|ConnectionError|HTTPError)|\.timeout\b|\bbackoff\b|circuit.?breaker|\bretry\(|\btenacity\b|\bfallback\b|raise\s+HTTPException|HTTPException\(|abort\(\d)',
+    "data-migrations": r'(\b(CREATE|ALTER|DROP)\s+TABLE\b|\badd_column\b|\bdrop_column\b|\bmigrat|\balembic\b|\bprisma\b|\bflyway\b|\bliquibase\b|op\.(create_table|add_column|drop_column|create_index)|\bCREATE\s+INDEX\b|@Entity\b)',
+    "api-contract": r'(@(app|router|blueprint|api)\.(get|post|put|patch|delete)\b|class\s+\w+\((BaseModel|Schema|Serializer)\)|\bserialize|\bdeserialize|json\.(loads|dumps)|\bpydantic\b|response_model=|@(api_view|require_http_methods))',
+    "security": r'(\bhmac\b|\bjwt\b|verify_signature|secrets\.compare_digest|hashlib\.|\bsubprocess\.|os\.system|\beval\(|\bexec\(|\bauth(n|z|enticat|oriz)|\bsecret\b|\bsignature\b|\bsanitiz|\bescape\(|\bSSRF\b)',
 }
 
 cur, reviewable, excluded_files = None, {}, []
@@ -80,8 +87,15 @@ with open(diff_path, encoding="utf-8", errors="replace") as fh:
             if add.match(line):
                 body = line[1:]
                 code_seen = True
-                for h, rx in HANDLER_KW.items():
-                    if re.search(rx, body, re.I): added_text[h].append(1)
+                # Skip whole-line comments for keyword purposes (still counted above):
+                # a line whose first non-space chars are a line/block-comment marker is
+                # prose, not code, and shouldn't activate a dimension. Cheap and robust;
+                # we deliberately don't track mid-line comments or multi-line strings.
+                stripped = body.lstrip()
+                is_comment = stripped[:2] in ('//', '/*', '--') or stripped[:1] in ('#', '*')
+                if not is_comment:
+                    for h, rx in HANDLER_KW.items():
+                        if re.search(rx, body, re.I): added_text[h].append(1)
 
 reviewable_loc = sum(reviewable.values())
 reviewable_files = len([f for f, n in reviewable.items() if n > 0])

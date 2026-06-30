@@ -154,22 +154,44 @@ severity rubric, the Tier-0/Tier-1 verification protocol, the Tier-1 safety
 fence, and the diagnose-only discipline. Read `references/findings-schema.md` for
 the finding shape and `references/comment-format.md` only when rendering.
 
-### 3. Select applicable dimensions
-`select-mode.sh` already emitted `.applicable_handlers` from the diff (path +
-keyword heuristics). Treat that as the candidate set: read those handler files,
-and use the table below to sanity-check it — add a lens the heuristic missed, or
-drop one whose precondition doesn't truly hold. A docs/config-only PR may trigger
-none of the heavy ones.
+### 3. Select applicable dimensions — gate decisively, run only what the diff warrants
+**Running fewer dimensions is correct, not lazy.** Each extra lens is an Agent (parallel)
+or an in-context pass (single) — spend one only when the diff actually calls for it. The
+goal is to run *only* the dimensions whose precondition the diff plainly meets.
 
-| Pri | Dimension | Precondition (from the diff) | Handler |
+`select-mode.sh` emitted `.applicable_handlers` from the diff (path + de-noised keyword
+heuristics, comments stripped). Treat it as a **candidate set, not a mandate**:
+
+- **`correctness` always runs.** It reads the whole diff regardless of heuristics, so it is
+  also the **recall backstop**: if it spots a concern outside its lens (a race, an
+  unguarded failure path, an auth/secret boundary, a schema/data hazard), it raises that
+  rather than staying silent — so a lens the heuristic missed still gets caught.
+- **For every other candidate, confirm the precondition against the actual diff before
+  running it.** Open the cited lines; run the dimension **only when its precondition below
+  plainly holds**. **Default to dropping** a candidate whose only basis is a faint or
+  incidental signal — a lone keyword, a match in a string/test fixture, a token unrelated to
+  the change's intent. A dropped weak candidate is the expected outcome, not a gap.
+- A docs / config / constant-only change may legitimately run **only `correctness`** (plus
+  `tests` when there is real logic to guard). That is a complete review — do not pad it.
+- **Escape hatch (rare):** add a lens the heuristic missed only when the diff clearly meets
+  its precondition (correctness's backstop is the usual route for this).
+
+Log the `select-mode.sh` line (per step 1) and note which candidates you dropped and why,
+so misfires stay tunable.
+
+The **Precondition** column is the gate. A 🔒 marks a *strong* signal (a path or an
+unambiguous construct) — when present it's near-certain the lens applies; the keyword cues
+are *weak* and must be confirmed against the diff before the lens runs.
+
+| Pri | Dimension | Precondition — run only if the diff shows this | Handler |
 |--|--|--|--|
-| 1 | Correctness | any code change | `handlers/correctness.md` |
-| 2 | Concurrency / idempotency | shared state, queues, webhooks, retries, dedup, background tasks, locks | `handlers/concurrency-idempotency.md` |
-| 3 | Resilience (failure paths) | any external call, error branch, timeout, retry, new failure mode | `handlers/resilience.md` |
-| 4 | Data / migrations | `migrations/`, schema/model changes, new tables/columns/indexes | `handlers/data-migrations.md` |
-| 5 | API contract | request/response handlers, serializers, event parsing, external-API calls, identity/keys | `handlers/api-contract.md` |
-| 6 | Security | auth, secrets, crypto, signature verify, untrusted input, bot/loop/abuse guards | `handlers/security.md` |
-| 7 | Tests / verifiability | every code change (is the change guarded?) | `handlers/tests.md` |
+| 1 | Correctness | **always** — any code change (also the recall backstop) | `handlers/correctness.md` |
+| 2 | Concurrency / idempotency | a real lock/mutex/semaphore, queue/worker, webhook, dedup/idempotency key, or retry-with-side-effect — 🔒 a named concurrency construct | `handlers/concurrency-idempotency.md` |
+| 3 | Resilience (failure paths) | a new external call, error/timeout branch, retry/backoff, or fail-open/closed choice — 🔒 an explicit timeout/except-on-failure/HTTPException | `handlers/resilience.md` |
+| 4 | Data / migrations | 🔒 `migrations/` path, DDL (`CREATE/ALTER/DROP TABLE`), or a schema/model/column/index change | `handlers/data-migrations.md` |
+| 5 | API contract | 🔒 a request/response handler, route decorator, serializer/schema class, or external-payload parsing — request/response shape or identity/key choices | `handlers/api-contract.md` |
+| 6 | Security | 🔒 auth/authz, secret/crypto/signature handling, `subprocess`/`eval`/`exec`, or untrusted input flowing to SQL/shell/path — bot/loop/abuse guards | `handlers/security.md` |
+| 7 | Tests / verifiability | a behavioral code change to guard, **or** any finding raised by another lens (then ask: would a test have caught it?). Skip on inert docs/config/data-only diffs. | `handlers/tests.md` |
 
 ### 4. Diagnose (branch on `.mode`)
 - **`mode == "single"`:** work each applicable handler in turn in this context.
