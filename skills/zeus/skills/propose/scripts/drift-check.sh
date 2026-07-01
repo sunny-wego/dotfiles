@@ -13,6 +13,8 @@
 # Normalization (cosmetic deltas that must NOT count as drift):
 #   - pinned code refs: blob/<sha>/path#Lx-Ly URLs → stable repo-relative token
 #     (re-pinning at a new HEAD is expected, not drift)
+#   - the `_via `zeus:<skill>`_` origin watermark (post-time signature; the live
+#     body carries it, a fresh render(state) need not — so it's always footer noise)
 #   - telemetry/usage footers and audit guard comments
 #   - trailing whitespace / blank-line runs
 #
@@ -46,6 +48,7 @@ normalize() {
   # `|` delimiter: the pattern contains both `/` and `#` (the #L anchor).
   sed -E \
     -e 's|https://github\.com/[^/]+/[^/]+/blob/[0-9a-f]{7,40}/([^#) ]+)(#L[0-9L-]+)?|REF:\1|g' \
+    -e '/^_via `zeus:[^`]*`_$/d' \
     -e 's/[[:space:]]+$//' \
     "$1" \
   | sed -E '/Claude Code session usage/,$d' \
