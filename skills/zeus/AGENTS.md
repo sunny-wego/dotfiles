@@ -232,7 +232,7 @@ directly and never routed through the identifier parser.
 | `ensure-checkout.sh` | `--pr <n> --repo <owner/repo> [--foreign <bool>] [--sha <head>]` — isolate the PR head in a worktree / blobless clone (remote only). |
 | `extract-diff.sh` | `--pr <n> --repo <owner/repo>` (remote)  •  `--local [--base <ref>] [--include-dirty]` (local, no network) — writes the diff + anchorable lines. |
 | `select-mode.sh` | `[--deep\|--single]` — reads the extracted diff; emits `{mode:single\|parallel, applicable_handlers, …}`. |
-| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` — `--submit` posts one COMMENT review (the peer default per SKILL.md; bare `--peer` is the dry-run preview), dedups already-posted ids on re-review. `[--findings <file>]`; a local diff is forced to `--self`. |
+| `post-review.sh` | `--self` (render + hand back, never posts) • `--peer [--submit [--request-changes]]` — `--submit` posts one COMMENT review (the peer default per SKILL.md; bare `--peer` is the dry-run preview), dedups already-posted ids on re-review. `[--findings <file>] [--coverage <file>]` (Coverage block, defaults to `$COVERAGE_FILE`); a local diff is forced to `--self`. |
 
 **Re-review & Slack entry point** (the re-review loop + the Slack-triggered entry):
 
@@ -245,7 +245,9 @@ directly and never routed through the identifier parser.
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
 by both `extract-diff.sh` paths), `select-mode.py` (`<diff> <loc-thr> <file-thr> <override>`
 → the mode JSON; invoked by `select-mode.sh` after it resolves thresholds/override),
-`lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+`render-coverage.sh` (*no args*; reconciles `$SELECT_FILE`+`$SCOUT_FILE`+`$TESTS_FILE`
+→ `$COVERAGE_FILE` via `coverage.sh`), `coverage.sh` (shared renderer, symlinked from
+`lib/`; normalized JSON → `<details>` block), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
 
 > The other skills (`propose`, `investigate`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
@@ -266,7 +268,9 @@ zeus/
 │   │      gh-issue.sh (gh_issue_number/ensure_label — shared by propose + investigate)
 │   │      ↳ sourced by each skill's scripts/lib.sh — define functions, no top-level code
 │   ├── (vendored scripts)  journey.sh  journey-marker.sh  preflight.sh
-│   │      watermark.sh  telemetry.sh  preview.sh   ↳ symlinked into skills' scripts/
+│   │      watermark.sh  telemetry.sh  preview.sh
+│   │      coverage.sh (scout run/skip decision → collapsible Coverage <details> block)
+│   │      ↳ symlinked into skills' scripts/
 │   ├── config.defaults.json          shipped config defaults (the only config in the repo)
 │   └── check-arg-conventions.sh      the CLI-convention lint (run from anywhere)
 ├── hooks/hooks.json

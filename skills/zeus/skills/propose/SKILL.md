@@ -364,8 +364,9 @@ ownership.sh <N> [--repo R]
 gh issue view <N> [--repo R] --json body,title -q .body > "$THEIR_BODY"
 HEAD_SHA=$(bash ${CLAUDE_SKILL_DIR}/scripts/issue-context.sh | jq -r .head_sha)
 # 1.5 STAGE 0 — SCOUT (Haiku 4.5; Sonnet 5 for a contested decision doc): one cheap pass over
-#      "$THEIR_BODY" → {doc_type, stages, claim_inventory, tier_per_check, hotspots}. Sizes the
-#      Stage-2 fan-out and picks model tiers. Recall-guarded: never skips Stage 2 grounding.
+#      "$THEIR_BODY" → {doc_type, stages, claim_inventory, tier_per_check, skipped, hotspots}.
+#      Sizes the Stage-2 fan-out, picks tiers, and records skipped:[{unit,why}]. Recall-guarded:
+#      never skips Stage 2 grounding. Persist it: Write the JSON to .git/propose/scout.json.
 # 2. run the cross-check read-only against "$THEIR_BODY" (rfc-mode.md → Stage 0 + Peer review):
 #      Stage 1 reader test · Stage 2 grounding — fan-out SIZED by claim_inventory, TIERED per
 #      tier_per_check (citation-drift/spot-check → Haiku/Sonnet, lean-claim refute → Opus) ·
@@ -374,6 +375,9 @@ HEAD_SHA=$(bash ${CLAUDE_SKILL_DIR}/scripts/issue-context.sh | jq -r .head_sha)
 #      → merge + verdict synthesis in the MAIN context on Opus (only this promotes to Confirmed)
 # 3. render findings to a file: factual layer trust-labeled (Confirmed w/ evidence / Hypothesis
 #      w/ verify / drop), judgment layer (reader-test, steelman) posed as questions — per template
+# 3.5 append the COVERAGE block (what ran / what the scout skipped + why) built from scout.json —
+#      coverage.sh no-ops when review.show_diagnostics=false (rfc-mode.md → Peer review template):
+printf '%s' "$COVERAGE_JSON" | bash ${CLAUDE_SKILL_DIR}/scripts/coverage.sh - >> "$FINDINGS"
 # 4. post — body untouched
 post-issue.sh --comment <N> --body-file "$FINDINGS" [--repo R]
 ```

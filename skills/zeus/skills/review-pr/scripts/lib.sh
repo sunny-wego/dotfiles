@@ -15,6 +15,9 @@
 #   $ANCHORS_FILE   {path: [valid RIGHT-side line numbers]} for inline comments
 #   $FINDINGS_FILE  accumulated findings (validated against findings-schema.md)
 #   $TESTS_FILE     result of the changed-area test slice (run-changed-tests.sh)
+#   $SELECT_FILE    select-mode.sh's floor JSON (mode + applicable_handlers)
+#   $SCOUT_FILE     the scout's decision (live_lenses/tier_per_lens/skipped) — step 3.75
+#   $COVERAGE_FILE  rendered Coverage <details> block (coverage.sh), appended to the review
 #   $REVIEW_FILE    rendered GH review payload (pre-post)
 #   $REVIEWED_HEAD_FILE  SHA of the head last reviewed (persists → next re-review's delta base)
 #   cleanup_run_state   clear all per-run artifacts before a fresh review
@@ -50,6 +53,9 @@ DELTA_DIFF_FILE="$STATE_DIR/delta.patch"   # re-review: diff since $REVIEWED_HEA
 ANCHORS_FILE="$STATE_DIR/anchors.json"
 FINDINGS_FILE="$STATE_DIR/findings.json"
 TESTS_FILE="$STATE_DIR/tests.json"   # changed-area test slice result (run-changed-tests.sh)
+SELECT_FILE="$STATE_DIR/select-mode.json"  # floor JSON (mode + applicable_handlers), teed by select-mode.sh
+SCOUT_FILE="$STATE_DIR/scout.json"   # the scout's decision (step 3.75) — input to the Coverage block
+COVERAGE_FILE="$STATE_DIR/coverage.md"     # rendered Coverage <details> block (coverage.sh)
 REVIEW_FILE="$STATE_DIR/review.json"
 PRIOR_FILE="$STATE_DIR/prior.json"   # our own unresolved findings from earlier rounds (re-review)
 SLACK_FILE="$STATE_DIR/slack-thread.json"  # Slack reply coordinate {channel, thread_ts, ...} (Slack-triggered entry point)
@@ -63,5 +69,5 @@ LOCK_DIR="$STATE_DIR/lock"
 # per-PR by construction (STATE_DIR lives inside the per-PR worktree) and die with it.
 cleanup_run_state() {
   rm -f "$PR_FILE" "$DIFF_FILE" "$DELTA_DIFF_FILE" "$ANCHORS_FILE" "$FINDINGS_FILE" \
-        "$TESTS_FILE" "$REVIEW_FILE" "$PRIOR_FILE"
+        "$TESTS_FILE" "$SELECT_FILE" "$SCOUT_FILE" "$COVERAGE_FILE" "$REVIEW_FILE" "$PRIOR_FILE"
 }

@@ -36,7 +36,10 @@ SRC_DIFF="$DIFF_FILE"
 [ -s "$DELTA_DIFF_FILE" ] && SRC_DIFF="$DELTA_DIFF_FILE"
 [ -f "$SRC_DIFF" ] || { echo '{"error":"select-mode: missing diff (run extract-diff.sh first)"}' >&2; exit 2; }
 
-python3 - "$SRC_DIFF" "$LOC_THRESHOLD" "$FILE_THRESHOLD" "$override" <<'PY'
+# Tee the floor JSON to $SELECT_FILE too: the Coverage renderer (render-coverage.sh)
+# reads .mode/.applicable_handlers from it to reconcile floor→scout→executed without
+# re-running this. stdout stays the machine contract for the orchestrator.
+python3 - "$SRC_DIFF" "$LOC_THRESHOLD" "$FILE_THRESHOLD" "$override" <<'PY' | tee "$SELECT_FILE"
 import sys, json, re
 diff_path, loc_thr, file_thr, override = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 

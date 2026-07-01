@@ -25,12 +25,14 @@ The layering principle: **scripts prove structure** (`check.sh`: sections, Q-ref
   "claim_inventory": [ { "claim": "...", "cite": "x.py:42", "looks_stale": true } ],
   "tier_per_check": { "citation-drift": "haiku", "spot-check": "sonnet", "lean-claim-refute": "opus", "steelman": "opus" },
   "contract_gaps": [ "kind derivation is prose, not MUST/MUST-NOT" ],
+  "skipped": [ { "unit": "steelman", "why": "not a contested/high-stakes decision" } ],
   "hotspots": [ "§4 vs §2 consistency", "the 10k-req/day premise" ] }
 ```
 
 - **Recall-guarded, exactly like the code reviewer's scout.** It may narrow which stages run and localize effort, but it **cannot drop a stage `requires-review.sh` armed**, and it **cannot skip Stage 2 grounding when the doc carries grounded claims**. Its mistakes cost a wrong tier or an extra check — never a missed defect. It **localizes and routes; it never confirms** (only Stage 2's grounding pass promotes a finding to Confirmed).
 - **`claim_inventory` sizes the Stage-2 fan-out** — how many grounding subagents spawn and where they point — and pre-flags suspicious cites for the citation-drift check. This replaces the old ad-hoc "scoped to ROI" guess with an explicit list.
 - **`build_ready_test` arms the execution axis.** Set it when the doc is a **work-order** — `requires-review.sh` reports `build_ready_required` (Closes-when = a PR merge, code signals present, no `MUST`/`MUST NOT` yet). It arms the **implementer persona** in Stage 1; `contract_gaps` may pre-list suspected prose-only rules for that persona to confirm. Like every scout output it **only arms** — the persona finds, `review-gate.sh` enforces.
+- **`skipped` records what the scout chose NOT to run and why** — one `{unit, why}` per stage/check it dropped below the floor (e.g. `{"unit": "steelman", "why": "not contested"}`). It is the structured form of the recall-guard's "stated reason", and it feeds the reader-facing **Coverage** block on a peer review (see the comment template). **Persist the whole decision**: on a peer review, `Write` the returned JSON to `.git/propose/scout.json` (the state dir) so `coverage.sh` can render it — the scout decision is otherwise ephemeral.
 - **The finding contract has two layers** — carry this through every stage:
   - **Factual layer** (Stage 2 grounding, citation-drift, consistency, completeness): trust-labeled. **Confirmed ⇒ reproduced + recorded evidence** (commands + literal output against a pinned HEAD); **Hypothesis ⇒ a concrete `verify:` step**; **refuted ⇒ dropped**. Can't ground it safely/cheaply (no DB branch for the DDL) → it stays Hypothesis. **Evidence before Confirmed, always.**
   - **Judgment layer** (Stage 1 reader-test, Stage 3 steelman, clarity, soundness/prediction): posed as **observations and questions the author adjudicates** — never a Confirmed badge on an opinion.
@@ -121,7 +123,40 @@ Ran a grounding pass — verified the concrete `file:line` / claim-level asserti
 
 ### Assessment
 <what holds, what to fix, in the author's frame — posed as questions about intent, not directives.>
+
+<the Coverage block — appended last, see below>
 ```
+
+**Append a Coverage block** as the last thing in the comment, so the author sees *which
+checks you ran, which you skipped, and why* — the same floor→scout→executed transparency
+`review-pr` posts, over the docs stages instead of code lenses. Build a normalized JSON
+from the scout decision and render it with the shared renderer (symlinked into
+`scripts/`), then append its stdout to the comment file before posting:
+
+```bash
+# units = the stages/checks this review actually weighed; ran=false for what Stage 0
+# skipped, with scout.skipped[].why. unit_noun "checks"; tests null (docs has no oracle).
+printf '%s' "$COVERAGE_JSON" | bash ${CLAUDE_SKILL_DIR}/scripts/coverage.sh - >> "$FINDINGS"
+```
+
+where `$COVERAGE_JSON` is:
+
+```jsonc
+{ "skill": "propose", "unit_noun": "checks",
+  "floor": "grounding armed (claims present)",   // from requires-review.sh's intent
+  "selected_note": "Scout ran 3 of 4",
+  "units": [
+    { "name": "reader-test",    "ran": true,  "tier": "haiku", "why": "" },
+    { "name": "grounding",      "ran": true,  "tier": "opus",  "why": "3 lean-claims" },
+    { "name": "citation-drift", "ran": true,  "tier": "haiku", "why": "" },
+    { "name": "steelman",       "ran": false, "tier": null,    "why": "not contested" } ],
+  "tests": null,                                 // docs review has no test oracle → omitted
+  "hotspots": [ "the 10k-req/day premise" ] }
+```
+
+The renderer no-ops when `review.show_diagnostics=false`. Its marker is
+`<!-- zeus:propose coverage -->`; on a re-review, replace the prior block (grep the
+marker) rather than stacking a second.
 
 Rules (mirroring `review-pr`'s peer stance): **state plainly what each finding is** (reproduced vs unproven vs nit); **pose the question, let the author decide** — event is a plain comment, never a "request changes"; **one comment, not one per finding** (a reviewer scanning the thread sees the whole review at a glance). Post nothing to the body — the ownership gate and `--comment` mode both guarantee it, but the discipline is yours too: you re-test their claims, you never rewrite their doc.
 

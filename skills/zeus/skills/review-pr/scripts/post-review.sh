@@ -10,10 +10,13 @@
 #           default; add --submit to POST one review.
 #
 # Usage:
-#   post-review.sh --self  [--findings <file>]
-#   post-review.sh --peer  [--submit [--request-changes]] [--findings <file>]
+#   post-review.sh --self  [--findings <file>] [--coverage <file>]
+#   post-review.sh --peer  [--submit [--request-changes]] [--findings <file>] [--coverage <file>]
 #     --submit          (peer only) actually POST the review (event COMMENT)
 #     --request-changes with --submit, use event REQUEST_CHANGES (explicit only)
+#     --coverage <file> a pre-rendered Coverage <details> block (render-coverage.sh)
+#                       appended to the review body; defaults to $COVERAGE_FILE. Empty
+#                       or absent → no block (diagnostics off / nothing to say).
 # Default role: self when $PR_FILE is a local diff, else peer (dry-run).
 #
 # Requires $PR_FILE, $ANCHORS_FILE, $FINDINGS_FILE to exist (setup steps run first).
@@ -22,7 +25,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-role="" submit=false event="COMMENT" findings="$FINDINGS_FILE"
+role="" submit=false event="COMMENT" findings="$FINDINGS_FILE" coverage="${COVERAGE_FILE:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --self) role="self"; shift ;;
@@ -30,6 +33,7 @@ while [ $# -gt 0 ]; do
     --submit) submit=true; shift ;;
     --request-changes) event="REQUEST_CHANGES"; shift ;;
     --findings) findings="${2:?}"; shift 2 ;; --findings=*) findings="${1#*=}"; shift ;;
+    --coverage) coverage="${2:?}"; shift 2 ;; --coverage=*) coverage="${1#*=}"; shift ;;
     *) shift ;;
   esac
 done
@@ -72,13 +76,17 @@ if [ "$mode" = "submit" ]; then
   [ -n "${RP_EXISTING_IDS// /}" ] && { echo "post-review: already posted (skipped — handled in-thread or kept in the prior summary, not duplicated):" >&2; echo "  $RP_EXISTING_IDS" >&2; }
 fi
 
-python3 - "$PR_FILE" "$ANCHORS_FILE" "$findings" "$mode" "$event" "$REVIEW_FILE" <<'PY'
+python3 - "$PR_FILE" "$ANCHORS_FILE" "$findings" "$mode" "$event" "$REVIEW_FILE" "${coverage:-}" <<'PY'
 import sys, json, os
 
 pr      = json.load(open(sys.argv[1]))
 anchors = json.load(open(sys.argv[2]))
 items   = json.load(open(sys.argv[3]))
 mode, event, review_file = sys.argv[4], sys.argv[5], sys.argv[6]
+cov_path = sys.argv[7] if len(sys.argv) > 7 else ""
+coverage_md = ""
+if cov_path and os.path.isfile(cov_path):
+    coverage_md = open(cov_path).read().strip()
 
 # Re-review dedup: drop findings already posted in an earlier round (set only on
 # submit, via RP_EXISTING_IDS). Done before rendering so neither the inline
@@ -154,6 +162,11 @@ if summary:
     header += ["", "---", "", "### Findings without an inline anchor", ""]
     for f in summary:
         header += [render_body(f), "", "---", ""]
+# Coverage diagnostics — the scout's floor→selected→executed decision, rendered by
+# coverage.sh (empty when diagnostics are off). Sits after the findings, before the
+# via footer, so every review carries "what ran / what didn't / why" once.
+if coverage_md:
+    header += ["", coverage_md]
 header += ["", "<sub>via `zeus:review-pr`</sub>"]
 body = "\n".join(header).rstrip() + "\n"
 

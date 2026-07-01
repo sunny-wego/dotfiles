@@ -94,6 +94,37 @@ I couldn't reproduce locally — each says how to confirm or refute it.
 Findings without a valid anchor are then rendered in full beneath this index
 (same 6-part anatomy), since they have no inline home.
 
+## The Coverage block (scout diagnostics footer)
+
+After the findings and before the trailing `via` footer, the body carries one
+collapsible **Coverage** block — the scout's floor→selected→executed decision made
+visible, so a reader sees *what the reviewer chose to run, skip, or down-tier, and
+why*. It is rendered by `render-coverage.sh` (→ `$COVERAGE_FILE`, via the shared
+`lib/coverage.sh`) and appended by `post-review.sh` unless
+`review.show_diagnostics=false`:
+
+```
+<details><summary>🔎 Coverage — 3 lenses run, 3 skipped · tests passed</summary>
+
+| Lens | Ran? | Tier | Why |
+|---|---|---|---|
+| correctness | ✅ | opus | — |
+| resilience | ⛔ skipped | — | no error/timeout paths touched |
+| security | ⛔ skipped | — | no auth/crypto/untrusted input in diff |
+
+Floor: parallel (6 candidate). Scout kept 3 of 6. Tests: passed.
+Hotspots: worker.py (claim/dedup under retry)
+</details>
+<!-- zeus:review-pr coverage -->
+```
+
+- Rows reconcile `select-mode`'s `applicable_handlers` (the recall-safe candidates)
+  against the scout's `live_lenses`; each skipped row cites the scout's `skipped[].why`.
+- Its marker is `<!-- zeus:review-pr coverage -->` — **not** an `id=` marker, so it is
+  invisible to the re-review finding-dedup and never counts as "a finding to post"
+  (a review with only a Coverage block and zero findings is still skipped, not posted).
+- It renders once per review; on a re-review it reflects that round's delta scope.
+
 ## GH review payload
 
 Assemble ONE review (never N standalone comments), via

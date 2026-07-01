@@ -222,13 +222,20 @@ title/body, `select-mode`'s JSON, and `$TESTS_FILE`.
   `review.scout_escalate_model` (default `claude-sonnet-5`)** on a high-blast-radius diff
   — i.e. `select-mode`'s `.applicable_handlers` includes `data-migrations` or `security`.
 - **Returns:** `{difficulty: low|medium|high, live_lenses: [...], hotspots:
-  [{file, why}], tier_per_lens: {lens: model}, recommend: single|targeted-fanout}`.
+  [{file, why}], tier_per_lens: {lens: model}, skipped: [{lens, why}],
+  recommend: single|targeted-fanout}`. `skipped` records every `.applicable_handlers`
+  lens the scout dropped **and the reason** — one line per lens (e.g. `{lens:
+  "security", why: "no auth/crypto/untrusted input in diff"}`). This is not optional
+  bookkeeping: it is the structured form of the "stated reason" the guardrail requires,
+  and it feeds the reader-facing Coverage block (step 6).
+- **Persist the decision** so the Coverage renderer can read it:
+  `Write` the returned JSON verbatim to `$SCOUT_FILE` (`.git/review-pr/scout.json`).
 - **Guardrails (recall-safe):** the scout may only **refine within `select-mode`'s
   deterministic floor** — narrow `live_lenses`, assign tiers, localize hotspots. It may
   **not** downgrade a floor-`parallel` (`.mode == "parallel"`) into `single`, nor drop a
-  `.applicable_handlers` lens without a stated reason (a kept-but-doubted lens stays at
-  ≥ Sonnet 5). A mis-scored scout thus costs a wrong tier or an extra lens — never a
-  missed bug.
+  `.applicable_handlers` lens without recording it in `skipped` with a reason (a
+  kept-but-doubted lens stays at ≥ Sonnet 5). A mis-scored scout thus costs a wrong
+  tier or an extra lens — never a missed bug.
 - Skip the scout when `review.enable_scout=false` (→ fall back to the deterministic
   `.mode` branch) or on a trivial docs/config-only diff.
 
@@ -293,16 +300,25 @@ yours (gated on the re-verification above); the script only posts the reply and,
 when told, resolves. Still read-only on code — you re-test the fix, you never make it.
 
 ### 6. Render & hand off — by `role`
+First render the **Coverage** diagnostics block from the scout's decision, then post.
 ```bash
+# Reconcile floor → scout → executed into $COVERAGE_FILE (reads $SELECT_FILE +
+# $SCOUT_FILE + $TESTS_FILE). No-op when review.show_diagnostics=false or the scout
+# was skipped-with-nothing-to-say; safe to always run.
+bash ${CLAUDE_SKILL_DIR}/scripts/render-coverage.sh
+
 # role=self (my work — pre-PR diff or my own PR): render, NEVER post
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --self
 # role=peer (someone else's PR): auto-submit one COMMENT review by default
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer --submit   # post one COMMENT review (DEFAULT)
 bash ${CLAUDE_SKILL_DIR}/scripts/post-review.sh --peer            # --dry-run only: render, post nothing
 ```
-The script validates labels (confirmed⇒evidence, hypothesis⇒verify) and demotes
-off-diff anchors to the summary in both roles. (Pass the `.role` from step 1; a local
-diff is forced to `--self` regardless.)
+`post-review.sh` appends `$COVERAGE_FILE` to the review body by default (a collapsible
+`<details>` footer: what ran, what was skipped and why, per-lens tier, tests) — so
+every review, local or posted, carries the reviewer's coverage decision once. The
+script validates labels (confirmed⇒evidence, hypothesis⇒verify) and demotes off-diff
+anchors to the summary in both roles. (Pass the `.role` from step 1; a local diff is
+forced to `--self` regardless.)
 
 - **`role=self` (my work):** always renders and **posts nothing** (it refuses
   `--submit`). **Hand the findings back** — summarize the Confirmed findings and
@@ -324,8 +340,9 @@ diff is forced to `--self` regardless.)
   nothing (it skips an empty review). Leaving zero trace on a review the user
   explicitly asked for is a bad signal, so post one brief `COMMENT` review
   yourself (`gh pr review --comment`) stating it passed and naming what you
-  checked (the dimensions from step 3) — enough for the author to trust the
-  review ran. This is the ONE case where you post outside `post-review.sh`; the
+  checked — append the rendered `$COVERAGE_FILE` block, which *is* the
+  what-ran/what-skipped record, so a clean pass still shows its coverage. This is
+  the ONE case where you post outside `post-review.sh`; the
   re-review "already posted" skip stays silent (its findings live in-thread).
 
 ### 6b. Reply in the Slack thread (Slack-triggered reviews only)
