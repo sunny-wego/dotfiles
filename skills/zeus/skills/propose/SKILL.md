@@ -12,7 +12,7 @@ description: >-
   draft an issue", "turn this plan into an issue", "track this in github",
   "write an RFC / decision doc / ADR", "draft a technical proposal",
   "amend/update/supersede the issue/RFC", "fold this into #N".
-argument-hint: "[#N | new | \"topic\"]"
+argument-hint: "[#N | new | review #N | \"topic\"]"
 license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
@@ -29,8 +29,9 @@ The output style is modelled on a small set of exemplars (see `references/exempl
 
 ## Routing: create vs update (the front door)
 
-`/zeus:propose` is one skill with two entry points — **compose a new issue** (the Workflow below) or **amend an existing one** (Updating, near the end). They share the same `state → render → gate → post` pipeline; routing only decides *which state you start from*. The `argument-hint` is `[#N | new | "topic"]`. Parse `$ARGUMENTS` and walk this ladder, **strongest signal first** — an explicit instruction always beats an inference:
+`/zeus:propose` is one skill with three entry points — **compose a new issue** (the Workflow below), **amend an existing one** (Updating, near the end), or **peer-review someone else's** (Reviewing someone else's proposal, near the end). All three share the same `state → render → gate` engine; routing only decides *which state you start from* and *which output adapter runs* (post your own body / comment on theirs). The `argument-hint` is `[#N | new | review #N | "topic"]`. Parse `$ARGUMENTS` and walk this ladder, **strongest signal first** — an explicit instruction always beats an inference:
 
+0. **Peer-review verb** (`/zeus:propose review #840`, "review #840", or any `#N` with `--as peer`) → **REVIEW #840** read-only: run the cross-check against *their* body and post one trust-labeled comment, never editing the artifact. See *Reviewing someone else's proposal*. (`--as self` forces the opposite — treat a target as your own draft to gate; `--as` overrides the ownership auto-detection in the gate paragraph below.)
 1. **Explicit `#N`** (`/zeus:propose #840 …`, or "amend/update/supersede #840") → **UPDATE #840**. An id is an instruction; it wins over every pin or guess, and re-points the worktree pin.
 2. **Leading `new`** (`/zeus:propose new "<topic>"`) → **CREATE**, bypassing the pin.
 3. **Session target** — an issue created or amended **in this conversation** → **UPDATE it** (conversation context outranks all scripts).
@@ -38,7 +39,7 @@ The output style is modelled on a small set of exemplars (see `references/exempl
 5. **A topic phrase, no pin/session** → `resolve-target.sh "<phrase>"`: `high` → confirm then UPDATE; `ambiguous` → one AskUserQuestion with the candidates; `none` → **CREATE**.
 6. **No argument at all** → resume the worktree pin / session target if one exists (step 3–4); otherwise **CREATE** (interview for the source).
 
-Any branch that resolves to **UPDATE** then passes an **ownership gate**: an amend rewrites the whole artifact, so it's only allowed on a proposal you authored. Not yours → it becomes a **comment** instead (see *Updating → amend only your own proposal*). On GitHub this is enforced in `post-issue.sh`; on the Confluence path (no post-issue.sh backstop) the agent MUST honour `ownership.sh` before `updateConfluencePage`.
+Any branch that resolves to **UPDATE** then passes an **ownership gate** (`ownership.sh`): an amend rewrites the whole artifact, so it's only allowed on a proposal you authored. **Not yours splits by intent**: an explicit *review* (step 0, or `--as peer`) runs the full **peer-review** flow (*Reviewing someone else's proposal*); a bare amend of someone else's issue **degrades to a disposition comment** instead of a body rewrite (*Updating → amend only your own proposal*). Both land as a comment and never touch the body — the difference is that peer-review actively runs the cross-check and labels its findings, where the amend-degrade just posts what you'd have written. On GitHub the read-only guarantee is enforced in `post-issue.sh` (`--update` hard-refuses a non-owned issue; `--comment` never edits); on the Confluence path (no post-issue.sh backstop) the agent MUST honour `ownership.sh` before `updateConfluencePage`.
 
 This skill spans **two destinations** (GitHub issues, Confluence pages — see *Destination*), and routing is destination-agnostic: the worktree pin (`state.sh current`) and `resolve-target.sh` candidates each carry a `provider` + `ref` (a bare `<number>` for GitHub, `confluence:<id>` for a page), so an explicit `#N`, a resumed pin, or a resolved phrase lands on whichever destination that proposal lives in. The UPDATE then follows the matching sequence in *Updating*.
 
@@ -344,6 +345,33 @@ Two things the sequence rests on, with the rationale and the disposition-comment
 - **Confirm the target before any write** (step 0) and **run the drift gate before editing** (step 2) — a wrong-target amend and an out-of-band edit are both invisible to every other gate. **GitHub** drift is a text diff (`drift-check.sh`, render vs live body); **Confluence** drift is a version check (`confluence-drift.sh`, stored `confluence_version` vs live `version.number`) — Confluence reformats markdown on round-trip, so a text diff would false-positive; the version number is the reliable signal. Re-run Stage 1 + re-stamp on **every** amend, both destinations.
 - **Amend vs supersede:** decision unchanged → amend; the decision itself changed → supersede. **GitHub:** new issue, `Supersedes #<N>`, **close** the old. **Confluence:** new page, `Supersedes <old url>`, and prepend a **"⚠️ Superseded by"** banner to the old page (pages have no close, and the MCP has no delete). When the amend answers **reviewer feedback**, post **one** disposition comment afterward (`gh issue comment` / `createConfluenceFooterComment`) quoting each concern by its verbatim header with what changed — the artifact is the latest truth, the comment is the audit trail.
 
+## Reviewing someone else's proposal (peer review)
+
+Triggers: `/zeus:propose review #N`, "review #N", or any `#N` with `--as peer` (step 0 of Routing). This is the **inverse of an amend**: the self-gate (Stages 1–3) proves *your* draft before you post it; peer review points the **same cross-check at someone else's posted issue** and hands back trust-labeled findings as one comment. It is **read-only on the artifact** — it never `rehydrate`s, `--update`s, or pins (the target isn't yours). The output adapter is `post-issue.sh --comment`, which by construction skips the reader-test stamp, the state pin, and telemetry.
+
+The engine and the finding contract (trust labels, the citation-drift check, the comment template) live in **`references/rfc-mode.md` → Peer review**. Operational sequence (GitHub):
+
+```bash
+# 0. resolve + CONFIRM the target (explicit #N wins; a phrase resolves via resolve-target.sh)
+resolve-target.sh "<#N|phrase>" [--repo R]
+# 0.5 ownership: peer expects mine:false. mine:true + --as peer is allowed (review your own as an outsider);
+#     mine:true without --as peer is NOT a review — route to the self-gate / amend instead.
+ownership.sh <N> [--repo R]
+# 1. fetch THEIR live body + the head SHA to pin drift against (NO rehydrate, NO state file)
+gh issue view <N> [--repo R] --json body,title -q .body > "$THEIR_BODY"
+HEAD_SHA=$(bash ${CLAUDE_SKILL_DIR}/scripts/issue-context.sh | jq -r .head_sha)
+# 2. run the cross-check read-only against "$THEIR_BODY" (rfc-mode.md → Peer review):
+#      Stage 1 reader test · Stage 2 grounding (pin-refs + refutation fan-out) · Stage 3 steelman (optional)
+#      → citation-drift check: every `path:line` / blob-SHA cite in their body vs current HEAD_SHA
+# 3. render findings to a file with trust labels (Confirmed / Hypothesis / Nit) per the template
+# 4. post — body untouched
+post-issue.sh --comment <N> --body-file "$FINDINGS" [--repo R]
+```
+
+Gating note: peer review is **explicitly invoked**, so it does **not** consult `requires-review.sh` (that reads a *state* file, which a peer target doesn't have). Always run at least Stage 2 grounding; Stage 1 and Stage 3 by judgment on the doc's size and contentiousness. Event is **comment-only** — findings pose questions about intent so the author decides what to change; there is no "request changes" analogue (that verdict is the author's, exactly as in `review-pr`).
+
+**Confluence parity:** the same flow posts a footer comment via `createConfluenceFooterComment(pageId, body)` — `ownership.sh --author <pageAuthorId> --viewer <myAccountId>` gates it (see SKILL.md ownership note and `references/rfc-mode.md`).
+
 ## Progressive disclosure
 
 Load these references when you need the detail; the headings above are enough for a happy path.
@@ -352,7 +380,7 @@ Load these references when you need the detail; the headings above are enough fo
 - `references/section-patterns.md` — extraction rules per section (what to look for in source, how to render).
 - `references/diagram-recipes.md` — Mermaid `flowchart TD` and ASCII state-diagram templates; "when to use which".
 - `references/before-after-recipes.md` — diff fence vs twin `BEFORE`/`AFTER` fences vs side-by-side table; "when to use which".
-- `references/rfc-mode.md` — the review + amend playbook (the depth behind steps 4b and "Updating"): the authoring loop, full Stage 1/2/3 procedures + the reader-test stamp command, the amend operational sequence with its target-confirmation and drift-gate safeguards, amend vs supersede, the disposition-comment template, the Amendment Log, invariants-in-content.
+- `references/rfc-mode.md` — the review + amend + peer-review playbook (the depth behind steps 4b, "Updating", and "Reviewing someone else's proposal"): the authoring loop, full Stage 1/2/3 procedures + the reader-test stamp command, the amend operational sequence with its target-confirmation and drift-gate safeguards, amend vs supersede, the disposition-comment template, the Amendment Log, invariants-in-content, and the **peer-review finding contract** (trust labels, citation-drift, comment template).
 - `references/quality-criteria.md` — the 7 quality criteria, scored by the Stage-1 reader from the outside.
 - `references/code-guidelines.md` — when a code snippet earns its place in an issue ("if removing it changes nothing, delete it").
 - `references/house-style.md` — the conventions this skill writes by, and *why* (progressive disclosure, mention-once, before/after, the RFC-2119 layer split).

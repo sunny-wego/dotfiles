@@ -58,6 +58,38 @@ Evidence (dated queries, branch id, claims checked/refuted) lands in `code_groun
 
 For contested or high-stakes decisions only. One agent per *anticipated objector* (objectors are fewer and more concrete than rejected alternatives), with repo access, writes the strongest comment that person would post — a concrete losing scenario, not rhetoric. Spawn them in a single turn: objections are independent by construction; A's steelman never depends on B's. Amend to pre-answer each, or post it yourself as a named open question. Arriving with the opposition's best argument already addressed is the cheapest buy-in accelerator there is.
 
+## Peer review (someone else's doc)
+
+The self-gate above (Stages 1–3) proves *your* draft before you post it. **Peer review points the same stages at someone else's posted issue** and hands the findings back as one comment — the inverse role, read-only on the artifact (the routing + operational sequence is in SKILL.md → *Reviewing someone else's proposal*). The stages are identical; only two things change: what they run *against*, and how the findings are *labeled*.
+
+**What changes vs the self-gate:**
+
+- **Target is their live body, not your state.** Fetch it (`gh issue view <N> --json body`); there is no state file, no `rehydrate`, no reader-test *stamp* (the stamp gates *your* post; a peer review posts a comment, which `post-issue.sh --comment` never stamps or pins). Run Stage 1 (reader test) and Stage 2 (grounding) exactly as written, reading the fetched body. `requires-review.sh` is **not** consulted (it reads state) — peer review is explicitly invoked, so always run Stage 2; Stages 1/3 by judgment.
+- **Findings carry a trust label, not a READY/BLOCKED verdict.** A self-gate verdict is a gate on your own post; a peer finding is an observation the author will adjudicate. Label every one:
+  - **Confirmed** — reproduced against the repo/data, carries the ordered commands + literal evidence (a Stage-2 refutation that *failed to refute* the doc's claim, or that *confirmed* a defect the doc rests on).
+  - **Hypothesis** — a concern you could not cheaply/safely settle; carries a concrete `verify:` step the author (or a follow-up) can run. Never dress a hypothesis as confirmed.
+  - **Nit** — style/clarity; non-blocking.
+- **Add a citation-drift check** (peer-specific — the self-gate's `drift-check.sh` compares *your* state to *your* body; it can't see a stale cite in someone else's doc). For every `path:line` or `blob/<sha>` citation in their body, resolve it against a **pinned** `HEAD` and flag any that no longer point where the prose claims (moved line ranges, renamed symbols, a SHA far behind `HEAD`). This is the "systematically stale line numbers" class — cheap, high-signal, and the author usually can't see it themselves.
+- **Pin the SHA and read immutable blobs — the checkout can move under you.** Capture `HEAD_SHA` once (`issue-context.sh`) and ground every claim with `git show <SHA>:path` / `sed` on that blob, **not** the mutable working tree. A shared checkout fast-forwards when parallel jobs `git pull`, which silently shifts every line number mid-review — a *stale-tree* drift that masquerades as *doc* drift and will make you "correct" citations that were right and mark real bugs unsubstantiated. If line numbers seem off by a consistent offset, suspect the tree, not the doc: `git rev-parse HEAD` + `git status` before concluding, and re-fetch/re-pin. Sub-verifiers must be handed the pinned SHA, never told to "read the file."
+
+**The comment template** (write to a file, post with `post-issue.sh --comment <N> --body-file <f>`):
+
+```markdown
+## Grounded review of this <RFC|proposal>
+
+Ran a grounding pass — verified the concrete `file:line` / claim-level assertions against `HEAD`. Each finding is labeled by trust level with evidence.
+
+### <Claim / section under review>
+**<one-line finding> → ✅ Confirmed | ⚠️ Hypothesis | 💬 Nit**
+<evidence: commands + literal output for Confirmed; a `verify:` step for Hypothesis>
+<_citation drift, if any: "RFC cites X:580-594; actual is X:535-551."_>
+
+### Assessment
+<what holds, what to fix, in the author's frame — posed as questions about intent, not directives.>
+```
+
+Rules (mirroring `review-pr`'s peer stance): **state plainly what each finding is** (reproduced vs unproven vs nit); **pose the question, let the author decide** — event is a plain comment, never a "request changes"; **one comment, not one per finding** (a reviewer scanning the thread sees the whole review at a glance). Post nothing to the body — the ownership gate and `--comment` mode both guarantee it, but the discipline is yours too: you re-test their claims, you never rewrite their doc.
+
 ## Amend vs supersede
 
 ```
