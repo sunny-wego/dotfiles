@@ -17,7 +17,7 @@ license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
-  version: "0.6"
+  version: "0.7"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Write Edit AskUserQuestion Task Agent
 ---
 

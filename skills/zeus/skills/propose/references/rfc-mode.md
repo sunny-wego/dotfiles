@@ -192,6 +192,8 @@ Two safeguards the sequence rests on:
 
 Re-run Stage 1 + re-stamp on **every** amend (rehydrate cleared the stamp; `post-issue --update` refuses without a match) — no "non-structural" exemption. Because the body regenerates from state, unrelated sections stay coherent automatically.
 
+**When an amend changes a settled answer, sweep for the superseded term first.** Editing a `discussion_questions[i].decided` (or a decision in `whats_excluded`/`proposal`) does **not** touch that question's option `meaning` bodies or the downstream sections (Verification/acceptance, worked examples) that described the *old* answer — those go stale silently. `check.sh` can't catch it (the drift is semantic, not structural: numbering and anchors still resolve), so the reader test catches it **late, as a BLOCK, after a full render→test round**. Before re-rendering, grep the old term across the changed question's option bodies **and** the Verification section and reconcile them. Example: switching a result unit from *fares* to *trips* left `10 fares` in a Q5 option body and the acceptance steps while the decided line already said trips — a BLOCK a two-second pre-render sweep would have avoided.
+
 **Acknowledging a review (the disposition comment).** When an amend is *driven by reviewer feedback*, the body update is only half the job — it makes the design say the new thing but doesn't tell the reviewer their points landed. Post **one** reply comment (not one per point — a reviewer scanning the thread sees the whole disposition at a glance):
 
 ```bash
