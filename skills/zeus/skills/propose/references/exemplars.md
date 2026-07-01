@@ -1,6 +1,6 @@
 # Exemplars
 
-Five GitHub issues from `wego/sprinklr-iran-conflict` whose authoring style this skill models. When in doubt, mirror these.
+GitHub issues whose authoring style this skill models. When in doubt, mirror these. Two groups: the **section exemplars** below (each demonstrating a specific block) from `wego/sprinklr-iran-conflict`, and the **weight-calibration set** at the end (`wego/wego-ai`) — three issues at light / medium / heavy that show *how much apparatus a change earns*. Read the weight set first when deciding structure; read a section exemplar when you need one block's shape.
 
 ## #632 — cs-agent v1 shadow pipeline
 
@@ -82,3 +82,63 @@ Five GitHub issues from `wego/sprinklr-iran-conflict` whose authoring style this
 | Verification list | ✓ | ◦ | ◦ | ◦ | ✓ |
 
 Use this matrix to decide which sections fit the current source. Don't force all of them — pick the ones that make the discussion concrete.
+
+---
+
+## Weight-calibration set (`wego/wego-ai`) — how much apparatus a change earns
+
+Three issues at increasing weight. They share a spine (Status header · Context · What's Excluded · Verification · code grounding) and differ only in the **optional blocks** each earns (`section-patterns.md` → *Optional block palette*). Match a new proposal to the nearest of the three rather than reaching for every block — richness scales with **scope × novelty × audience** (`house-style.md` → *Right-size the apparatus*).
+
+### #982 — protected `GET /v1/places` endpoint + CLI *(LIGHT)*
+
+<https://github.com/wego/wego-ai/issues/982>
+
+A small, mechanical change that *builds on* an established pattern. Adds almost no apparatus, and is better for it.
+
+**What it demonstrates:**
+- **TL;DR-led Context** + a **Key-decisions table** tagged *"settled — challenge any row"* — the skim shape for a doc with nothing actually open (no `### Q<n>` blocks).
+- **Inherited-context summary** — a short "Auth & verification (inherited from #883)" section instead of re-deriving what a linked issue already settled.
+- **Amendment Log** for its edit history.
+
+**Lift these patterns:** any change that extends a known pattern; anything where the decisions are settled before posting. **No** primer, requirements ladder, or milestones — correctly right-sized.
+
+### #988 — flight-search endpoints + `wego flights` CLI *(MEDIUM)*
+
+<https://github.com/wego/wego-ai/issues/988>
+
+A larger build with a real data contract, still team-internal.
+
+**What it demonstrates:**
+- **"What we're building" + User-journey narrative** — the human/agent flow before the interface tables.
+- **Concrete-shape example** — a full result JSON inside `<details>`, grounding the contract for the executor without burdening the skim.
+- **Binding invariants** (`MUST` / `MUST NOT`) — the load-bearing rules pinned for the implementer (the fix for the align-ready-but-not-build-ready gap #988 itself first shipped with).
+- Discussion questions rendered **mostly `✅ Decided`** — a record, not an open ask.
+
+**Lift these patterns:** any endpoint/feature with a data contract and an agent-facing flow; work-orders that must satisfy both the aligner and the executor.
+
+### #883 — `apps/api` as an OAuth2 resource server *(HEAVY)*
+
+<https://github.com/wego/wego-ai/issues/883>
+
+A novel-domain, cross-team RFC read by non-engineers. Earns the full apparatus.
+
+**What it demonstrates:**
+- **Plain-language primer + glossary** — the "office building with a security desk" OAuth analogy, skippable for experts, load-bearing for the non-technical stakeholder (the *Three audiences* device; it demonstrably drew a stakeholder into the thread).
+- **Requirements ladder → Guarantees → MUST/MUST NOT invariants** — the bar alternatives are judged against, then testable guarantees, then binding rules; separates "what we align on" from "what must hold when built".
+- **Summary paragraph + Decisions-needed digest** skim layer; **alternatives matrix** scored against the requirements; **Mermaid** flow; **capability/support table**; **milestones with sizing**; **standards/conformance table**; **security acceptance checklist**; a route-sensitivity **litmus**.
+
+**Lift these patterns:** cross-team RFCs; novel or unfamiliar domains; anything a non-engineer must ratify. Reach for the primer + requirements ladder here — and *only* here-class docs.
+
+### Weight → apparatus, at a glance
+
+| Block | #982 (light) | #988 (medium) | #883 (heavy) |
+|---|---|---|---|
+| Shared spine (Status/Context/Excluded/Verification) | ✓ | ✓ | ✓ |
+| Key-decisions "challenge any row" table | ✓ | ◦ | ◦ |
+| User-journey narrative | ◦ | ✓ | ✓ |
+| Concrete-shape example (`<details>`) | ◦ | ✓ | ✓ |
+| MUST / MUST NOT invariants | ◦ | ✓ | ✓ |
+| Summary + Decisions-needed digest | ◦ | ◦ | ✓ |
+| Requirements ladder + Guarantees | ◦ | ◦ | ✓ |
+| Plain-language primer / glossary | ◦ | ◦ | ✓ |
+| Capability table · milestones · conformance table | ◦ | ◦ | ✓ |

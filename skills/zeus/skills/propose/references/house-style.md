@@ -29,6 +29,21 @@ This is progressive disclosure applied to the *decision itself*: the visible
 layer should answer "what am I deciding, and what does each path cost" before
 any proof.
 
+The skim layer takes one of three shapes — pick by the *state* of the decisions,
+don't apply all three:
+
+- **TL;DR + Decisions-needed digest** — open questions remain: one line per `Q<n>`
+  with its `Default lean`, so a stakeholder ratifies in 30 seconds and expands a
+  full table only to disagree. *(#883)*
+- **Key-decisions table ("settled — challenge any row")** — everything's already
+  decided: a compact table records each call + its one-phrase why, and still invites
+  a quoted objection. Use this instead of open `### Q<n>` blocks when nothing is
+  actually open. *(#982)*
+- **Requirements → Guarantees ladder** (`R1..Rn` → `G1..Gn`) — the *bar itself* is
+  contested: state the requirements an alternative must meet (and their testable
+  guarantee forms) before any mechanism, so alternatives are judged against a fixed
+  bar rather than vibes. *(#883)*
+
 ## Mention a rejected alternative once
 
 When a design rejects an option, state it once — in **What's Excluded** — with the reason. Repeating it across sections re-litigates a settled call and reads as indecision. The main body should describe only what you *are* doing; the reader shouldn't have to hold two designs in their head.
@@ -54,9 +69,17 @@ These pull in opposite directions and both are right, at different layers:
 
 So: explain *why* in the framing, state *what must hold* in the invariants.
 
-## Two audiences: align-ready vs build-ready
+## Three audiences, not two
 
-A proposal is read by an **aligner** (decides — needs tradeoffs, alternatives, quotable rows) and, when it's a work-order, an **executor** (builds — needs invariants, a concrete shape, an error matrix). These are *different completeness bars*: an issue can be align-ready yet not build-ready — every question Decided, the load-bearing rule still prose (this is exactly how #988 shipped). When `Closes-when` is a PR merge, satisfy **both** — the discussion matrix *and* the implementer contract. The build-ready gate (`rfc-mode.md` → Stage 1 implementer persona) enforces the second axis so a settled-but-underspecified issue can't slip through.
+A proposal is read by up to three people, and they need different things:
+
+- an **aligner** (decides — needs tradeoffs, alternatives, quotable rows);
+- an **executor** (builds — needs invariants, a concrete shape, an error matrix), when it's a work-order; and
+- a **non-technical stakeholder** (ratifies / funds / sponsors — needs the *concept and the stakes*, not the mechanism), whenever the decision reaches beyond the implementing team.
+
+The first two are technical; the third is the one most docs quietly fail. **Aligner vs executor are different completeness bars** on the *same* technical content: an issue can be align-ready yet not build-ready — every question Decided, the load-bearing rule still prose (this is exactly how #988 shipped). When `Closes-when` is a PR merge, satisfy **both** — the discussion matrix *and* the implementer contract. The build-ready gate (`rfc-mode.md` → Stage 1 implementer persona) enforces that second axis so a settled-but-underspecified issue can't slip through.
+
+The **non-technical stakeholder is a different axis again** — not a deeper bar on the same content but a *translation* of it. When a doc is jargon-heavy **and** its audience includes non-engineers (a cross-team RFC, anything a PM / lead / sponsor must sign off), add a **skippable plain-language layer**: a `<details>` primer that teaches the core idea by analogy, plus a jargon→plain glossary, tagged *"New to X? Start here — skip if you know X."* It's progressive disclosure aimed at an audience: free for experts to skip, load-bearing for everyone else. The render recipe is in `section-patterns.md` → *Plain-language primer / glossary*; the exemplar is #883's "office building with a security desk" OAuth primer + glossary. Don't add it to an engineer-only or mechanical change — an unearned primer is noise (see *Right-size the apparatus*).
 
 ## Tables stay scannable
 
@@ -69,6 +92,19 @@ When the doc links one of its own sections (`[…](#…)`), put an explicit `<a 
 ## Don't keep an inline changelog
 
 An amended proposal grows a running "changelog/history" only if you write one — and it bloats until someone bulk-deletes it. Don't: GitHub already versions every edit (the issue's edit history *is* the changelog). If a re-scope genuinely needs a note, keep a short collapsed "recent changes" (last few) and prune it on material shifts — never an append-only ledger in the body.
+
+## Right-size the apparatus
+
+Structural richness scales with **scope × novelty × audience** — exactly as review
+depth scales with content (`requires-review.sh`). A small, mechanical change gets a
+decision table plus an inherited-context summary and *stops*; a large, novel,
+cross-team change earns the full kit (plain-language primer, requirements ladder,
+milestones with sizing, conformance table). Selecting a block the doc hasn't earned
+is a cost, not a courtesy — it buries the decision the reader came for. Consult the
+**Optional block palette** (`section-patterns.md`) and take only what fits.
+Calibration points, light → heavy: **#982** (decision table + inherited auth, no
+primer) · **#988** (journey + concrete-shape example + invariants) · **#883** (the
+full apparatus). When in doubt, match the nearest of the three.
 
 ## Per-repo overrides
 

@@ -1,10 +1,10 @@
 # Quality criteria (decision docs)
 
-Seven criteria a design/decision issue should pass before it's posted or declared ready. They are scored **by the Stage-1 reviewer-simulation reader, from the outside** (see `rfc-mode.md` → Stage 1, the discussability output) — a cold reader judging "is the decision clear?" beats the author judging it, which is why the old author-run self-check step was folded into the reader test. They're adapted for the GitHub-issue venue from the RFC tradition — an issue that fails one is weak by definition.
+Eight criteria a design/decision issue should pass before it's posted or declared ready. They are scored **by the Stage-1 reviewer-simulation reader, from the outside** (see `rfc-mode.md` → Stage 1, the discussability output) — a cold reader judging "is the decision clear?" beats the author judging it, which is why the old author-run self-check step was folded into the reader test. They're adapted for the GitHub-issue venue from the RFC tradition — an issue that fails one is weak by definition.
 
 Note the boundary: these criteria (and the whole Stage-1 reader) verify the document agrees *with itself* and is discussable. Whether its claims agree *with the world* is Stage 2's job (`rfc-mode.md` → Targeted Grounding) — a perfectly self-consistent RFC proposing from false premises passes all seven.
 
-## The 7 criteria
+## The 8 criteria
 
 ### 1. Decision clarity
 A reader knows within ~60 seconds: what's changing, who needs to agree, and what happens if the answer is yes — **including the rough scope of work it commits to** (which components change, the upstream/cross-team dependencies, relative size), so a reviewer can judge effort and sequencing, not just direction. *Fail smells:* "we propose to explore a potential approach…" (exploration dressed as a decision is procrastination); a clear *direction* with no discoverable *shape of work*.
@@ -36,5 +36,8 @@ For issues that an implementing agent will execute against:
 
 This is the **BUILD-READY** bar, evaluated by the Stage-1 implementer persona for merge-closing work-orders (`references/rfc-mode.md` → Stage 1). It is a *distinct audience* from the aligner: an issue can be align-ready (every question decided) yet fail this bar (the load-bearing rule still prose). Rank gaps by **blast-radius** — pin the rule the whole thing hinges on, not every mechanical detail; over-enumeration trains authors to ignore the gate.
 
+### 8. Audience fit
+The doc is legible to *everyone whose sign-off it needs*, not just its author's peers. **Conditional — it only bites when the audience reaches beyond the implementing team** (a cross-team RFC, a `cc @non-eng`, a decision a PM / lead / sponsor must ratify) **and** the domain is jargon-heavy. When it bites, a non-technical reader must be able to state *what's being decided and why it matters* from the visible layer — which in practice means a **skippable plain-language layer** (analogy primer + jargon→plain glossary; `house-style.md` → *Three audiences, not two*, `section-patterns.md` → *Plain-language primer / glossary*). This is the **third audience** (aligner · executor · non-technical stakeholder). *Fail smells:* an acronym load-bearing to the decision used before it's defined; the only path to "what does this mean" runs through code or a spec; a stakeholder in the intended audience who couldn't summarize the ask. *Not a fail:* an engineer-only or mechanical change with no primer — that's correctly right-sized, not a gap (`house-style.md` → *Right-size the apparatus*). Don't penalize a missing primer the doc never needed.
+
 ## Pass test
-If a fresh reader can state **the problem and the requirements an alternative would have to meet**, the decision, the main tradeoff, **the rough scope of work**, and what's out of scope in under a minute — and an implementing agent could act on the invariants without guessing — the issue passes. Otherwise, return to the relevant section (don't ship around the gap).
+If a fresh reader can state **the problem and the requirements an alternative would have to meet**, the decision, the main tradeoff, **the rough scope of work**, and what's out of scope in under a minute — and an implementing agent could act on the invariants without guessing, **and (when the audience reaches beyond the team) a non-technical reader can state what's being decided and why** — the issue passes. Otherwise, return to the relevant section (don't ship around the gap).

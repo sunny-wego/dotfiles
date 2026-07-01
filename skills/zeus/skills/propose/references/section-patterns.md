@@ -212,6 +212,54 @@ Keep it adjacent to the original matrix so readers see both at once.
 - Don't nest `<details>` more than one level deep.
 - Headings inside `<details>` should be one level deeper than the surrounding section.
 
+## Plain-language primer / glossary (when the audience includes non-engineers)
+
+**When:** the doc is jargon-heavy **and** a non-technical stakeholder must understand or ratify it (a cross-team RFC, anything a PM / lead / sponsor signs off). **Skip** it for engineer-only or mechanical changes — an unearned primer is noise (`house-style.md` → *Right-size the apparatus*). This is the third-audience device from `house-style.md` → *Three audiences, not two*.
+
+**Source signals:** a domain the reader can't be assumed to know (auth protocols, a pricing model, a data pipeline's semantics); a `cc @non-eng-stakeholder`; an explicit "for stakeholders" framing; acronyms used before they're defined.
+
+**Render:** a `<details>` block at `before_proposal` placement (a `sections` entry, not a `##` heading), summary tagged so an expert skips it, containing two tables:
+
+```markdown
+<details>
+<summary><b>🧭 New to <X>? Start here — plain-language primer + glossary</b> (skip if you know <X>)</summary>
+
+<one-line framing: "this whole design is one idea wearing three hats. Picture …">
+
+| In the <analogy>… | …is this <domain> role | …and in our system |
+|---|---|---|
+| <everyday thing> | <the term> | <the concrete component> |
+
+<b>Glossary — jargon → plain meaning</b>
+
+| Term | Plain meaning |
+|---|---|
+| **<term>** | <one plain sentence, no nested jargon> |
+</details>
+```
+
+**Style rules:** the analogy must be *concrete and sustained* (one world — a building, a post office — not a grab-bag of metaphors); every glossary entry resolves to plain words, never more jargon; keep it skippable (the tag earns an expert's trust that they can collapse it). One blank line after `<summary>` so GitHub renders the inner tables.
+
+**Example (#883):** the "office building with a security desk" analogy mapping *authorization server → security desk*, *client → you + your badge*, *resource server → the inner door*, then a `sub`/`iss`/`aud`/JWKS/PKCE glossary — the device that let a non-engineer stakeholder engage the thread substantively.
+
+## Optional block palette — select, don't apply all
+
+Beyond the required spine (Status · Context · What's Excluded · Verification for `kind=implementation`), these are the addressable blocks the exemplars use. Each is a `sections` entry (`{heading, body, placement}`) so it stays quotable and survives an amend. **Include a block only when its trigger fires** — richness scales with scope × novelty × audience (`house-style.md` → *Right-size the apparatus*). This is the menu the agent picks from at compose time; a light ticket may add none.
+
+| Block | Include when… | Exemplar |
+|---|---|---|
+| One-paragraph **Summary** | design prose runs long (the review-arming >~200-word class) | #883 |
+| **Decisions-needed** digest | ≥2 open questions — skim layer for a stakeholder | #883 |
+| **Key-decisions** table ("challenge any row") | the calls are settled *before* posting | #982 |
+| **Requirements ladder** (`R1..Rn`) | alternatives need a shared bar to be judged against | #883 |
+| **Guarantees** (`G1..Gn`) | requirements have crisp testable forms | #883 |
+| **Plain-language primer / glossary** | audience includes non-engineers (recipe above) | #883 |
+| **Capability / support table** | the design leans on what an upstream/other team already does | #883 |
+| **Milestones + rough sizing** | the work is phased / sequenced | #883 |
+| **Standards / conformance table** | the design must map to named specs, standards, or an OWASP-style checklist | #883 |
+| **Concrete-shape example** (`<details>`) | a data / request / response contract exists (ground it for the executor, hidden from the skim) | #988 |
+| **User-journey narrative** | a human- or agent-facing flow makes the change legible | #988 |
+
 ## Section ordering
 
 The body does **not** repeat the title (GitHub shows it). Status/Closes-when render as a two-row header **table** at the very top. A `## Mermaid` diagram renders **right after `## Context`** — a flow/architecture diagram is orientation, so it comes before the detail (progressive disclosure: problem → picture → approach → detail → appendices).
