@@ -4,7 +4,7 @@ description: >-
   Retrospective that turns a coding session's zeus-workflow friction into durable
   improvements — to the zeus skills themselves (skill-level) and the repo's
   AGENTS.md (repo-level). Use after any zeus skill (propose/investigate,
-  create-pr/address-pr, request-review) when the user wants to improve or iterate on
+  create-pr/address-pr, review-pr, request-review) when the user wants to improve or iterate on
   the workflow/tooling. Triggers: "/zeus:improve", "improve the workflow", "what
   should we fix in zeus", "retro this session", "iterate on the skills", "capture
   what we learned". It harvests friction, grades it real-vs-imaginary, classifies
@@ -15,7 +15,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. SonarQube MCP optional (validation only).
 metadata:
   author: sunnywong
-  version: "0.2"
+  version: "0.3"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Edit Write Grep AskUserQuestion ScheduleWakeup Skill Task Agent mcp__sonarqube__*
 ---
 
@@ -71,7 +71,7 @@ is — don't hardcode a path.
 - **(b) Durable signals (corroboration).** Run the harvester for the recurrence/severity numbers:
 
   ```bash
-  bash "$SKILL_DIR/scripts/harvest.sh"   # → friction JSON across the family: issue/epic pointers, spec-commits, iterations, failed checks, ping markers, cycle count
+  bash "$SKILL_DIR/scripts/harvest.sh"   # → friction JSON across the family: issue/epic pointers, spec-commits, iterations, failed checks, ping markers, review findings + carryover + scout coverage, cycle count
   ```
 
 The conversation surfaces candidates and rationale; the signals quantify them.

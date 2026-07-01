@@ -13,6 +13,9 @@
 #   .git/<wt>/address-pr/state.json    iteration depth, handler outcomes
 #   .git/<wt>/address-pr/status.json   failed/pending checks at last snapshot
 #   .git/<wt>/request-review/          ping markers (stop-nudged-<sha>) + thread
+#   .git/<wt>/review-pr/findings.json  findings raised (count/status/severity) — review-pr
+#   .git/<wt>/review-pr/prior.json     unresolved carryover into a re-review (churn)
+#   .git/<wt>/review-pr/scout.json     Stage-0 scout coverage (difficulty/skipped lenses)
 #   git log --grep "address-pr iteration" + reflog   fix-cycle count, churn
 #
 # Usage: harvest.sh [--pr <n>] [--repo <owner/repo>]   (both optional; defaults
@@ -26,6 +29,7 @@ resolve_target "$@"
 GITDIR="$(git rev-parse --absolute-git-dir)"
 AP="$GITDIR/address-pr"
 RR="$GITDIR/request-review"
+RV="$GITDIR/review-pr"
 JD="$GITDIR/journey"
 
 # PR: explicit flag > journey > none.
@@ -80,6 +84,39 @@ if [ -d "$RR" ]; then
   ping_shas=$(ls "$RR" 2>/dev/null | sed -n 's/^stop-nudged-//p' | jq -R . | jq -sc . || echo '[]')
 fi
 
+# review-pr (the reviewer role): what the last review on this checkout surfaced.
+# findings.json is the schema-shaped finding array; count + confirmed/high-severity
+# breakdown is a proxy for how much the diff let through (an authoring-side signal
+# for create-pr/address-pr, cross-checked against the conversation).
+findings_total=0; findings_confirmed=0; findings_high=0; findings_by_status='{}'
+if [ -f "$RV/findings.json" ]; then
+  findings_total=$(jq 'length' "$RV/findings.json" 2>/dev/null || echo 0)
+  findings_confirmed=$(jq '[.[]|select(.status=="confirmed")]|length' "$RV/findings.json" 2>/dev/null || echo 0)
+  findings_high=$(jq '[.[]|select(.severity=="high")]|length' "$RV/findings.json" 2>/dev/null || echo 0)
+  findings_by_status=$(jq -c 'group_by(.status)|map({(.[0].status): length})|add // {}' "$RV/findings.json" 2>/dev/null || echo '{}')
+fi
+
+# prior.json: findings still unresolved when a re-review started — one element per
+# open thread from an earlier round. Non-empty = the PR took another review round
+# (reviewer-side churn, the analog of address-pr iteration depth); still-confirmed
+# carryover is the sharper signal.
+prior_unresolved=0; prior_confirmed=0
+if [ -f "$RV/prior.json" ]; then
+  prior_unresolved=$(jq 'length' "$RV/prior.json" 2>/dev/null || echo 0)
+  prior_confirmed=$(jq '[.[]|select(.prior_status=="confirmed")]|length' "$RV/prior.json" 2>/dev/null || echo 0)
+fi
+
+# scout.json: the Stage-0 scout's coverage decision — how hard the diff scored and
+# which floor lenses it dropped (each recorded with a reason). A lens repeatedly in
+# skipped across sessions is a coverage-gap signal; repeated high difficulty is a
+# spend signal.
+scout_difficulty=null; scout_recommend=null; scout_skipped='[]'
+if [ -f "$RV/scout.json" ]; then
+  scout_difficulty=$(jq -c '.difficulty // null' "$RV/scout.json" 2>/dev/null || echo null)
+  scout_recommend=$(jq -c '.recommend // null' "$RV/scout.json" 2>/dev/null || echo null)
+  scout_skipped=$(jq -c '[.skipped[]?.lens]' "$RV/scout.json" 2>/dev/null || echo '[]')
+fi
+
 # Fix-cycle count from commit markers ("address-pr iteration N") on this branch,
 # and branch churn (merges/resets) from reflog — both reconstruct how hard the
 # PR was to settle.
@@ -99,6 +136,15 @@ jq -nc \
   --argjson pending "${pending:-0}" \
   --argjson all_passed "${all_passed:-null}" \
   --argjson ping_shas "$ping_shas" \
+  --argjson findings_total "${findings_total:-0}" \
+  --argjson findings_confirmed "${findings_confirmed:-0}" \
+  --argjson findings_high "${findings_high:-0}" \
+  --argjson findings_by_status "$findings_by_status" \
+  --argjson prior_unresolved "${prior_unresolved:-0}" \
+  --argjson prior_confirmed "${prior_confirmed:-0}" \
+  --argjson scout_difficulty "$scout_difficulty" \
+  --argjson scout_recommend "$scout_recommend" \
+  --argjson scout_skipped "$scout_skipped" \
   --argjson iter_commits "${iter_commits:-0}" \
   --argjson merges "${merges:-0}" \
   '{
@@ -112,6 +158,13 @@ jq -nc \
                   last_failed_checks: $failed, last_pending: $pending,
                   all_passed: $all_passed },
     review_ping: { nudged_shas: $ping_shas, distinct_nudges: ($ping_shas|length) },
+    review_pr: {
+      findings: { total: $findings_total, confirmed: $findings_confirmed,
+                  high_severity: $findings_high, by_status: $findings_by_status },
+      prior_unresolved: { total: $prior_unresolved, still_confirmed: $prior_confirmed },
+      scout: { difficulty: $scout_difficulty, recommend: $scout_recommend,
+               skipped_lenses: $scout_skipped }
+    },
     fix_cycles: { iteration_commits: $iter_commits, merges: $merges },
     note: "Quantitative only. Pair with the conversation (the *why*) per SKILL.md."
   }'

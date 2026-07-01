@@ -31,6 +31,9 @@ issue→code→PR→review family, not just the PR pair. All per-worktree under
 | `address-pr` | Last check snapshot | `address-pr/status.json` (`.failed[]`, `.pending`, `.all_passed`) | which checks blocked, how often |
 | `address-pr` | Fix-cycle markers | `git log --grep "address-pr iteration"` + `git log --merges` | cycle count and merge/reset churn |
 | `request-review` | Reviewer-ping markers | `request-review/stop-nudged-<sha>` (one file per nudged head) + `review-thread.json` | premature pings / re-pings: multiple distinct SHAs = the head moved under the reviewer; a nudge on a SHA that later failed = a premature-ping signal |
+| `review-pr` | Findings raised | `review-pr/findings.json` (count + `confirmed`/`high_severity`/`by_status` breakdown) | how much the last review surfaced — an authoring-side proxy: many confirmed-high findings = the diff let a lot through (a signal *about* `create-pr`/`address-pr`, cross-checked against the conversation) |
+| `review-pr` | Re-review carryover | `review-pr/prior.json` (unresolved threads from earlier rounds; `still_confirmed`) | non-empty = the PR took another review round — reviewer-side churn, the analog of `address-pr`'s iteration depth; still-confirmed carryover is the sharper signal |
+| `review-pr` | Scout coverage | `review-pr/scout.json` (`.difficulty`, `.recommend`, `.skipped[].lens`) | which floor lenses the Stage-0 scout dropped (each with a reason): a lens repeatedly skipped across sessions is a coverage-gap signal; repeated high difficulty is a spend signal |
 
 The agent cross-references these against the conversation: e.g. "3 distinct nudge SHAs (signal) + the user said the ping fired too early (conversation) → premature-ping, real, high-severity."
 
