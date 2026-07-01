@@ -82,11 +82,6 @@ are shared helpers; a backend wires them, it does not re-implement them.
    backend's identity (`state.sh save <key>` / `pin <key>`: `<number>` for GitHub,
    `confluence:<id>` for Confluence). A handoff write (`journey.sh`) where the
    destination is journey-anchored.
-6. **Telemetry footer — `create` only**, best-effort, self-disabling outside Claude
-   Code / under `CLAUDE_*_TELEMETRY=0`. Skipped on `update` (the body is re-rendered
-   from state, so re-appending would fight the render). *Where* it lands is the
-   backend's choice, same reasoning as the watermark (GitHub appends via the API;
-   Confluence stamps upstream pre-conversion).
 
 ### Gate order (normative)
 

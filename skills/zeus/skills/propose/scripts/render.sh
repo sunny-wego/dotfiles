@@ -26,20 +26,15 @@
 #           lands here — the last script before the page is published. Safe every
 #           (re-)render: watermark.sh no-ops when present, and Confluence drift is
 #           VERSION-based (confluence-drift.sh), so body content never perturbs it.
-#         - optional --telemetry: append the create-only usage footer (Confluence
-#           analogue of post-issue.sh's footer). Pass ONLY on create — on amend the
-#           body is re-rendered and the footer naturally drops. Self-disabling outside
-#           Claude Code / under CLAUDE_*_TELEMETRY=0.
 #       Deliberately NOT touched: ```mermaid fences and <details>/<summary> structure
 #       (left verbatim; degrade readably in markdown mode).
 #
 # Usage: render.sh <state-file> [--format github|confluence] [--sha <sha>]
-#                  [--repo <owner/repo>] [--issue-url <url>] [--telemetry] [--out <path>]
+#                  [--repo <owner/repo>] [--issue-url <url>] [--out <path>]
 #   --sha / --repo : forwarded to pin-refs. Derived from issue-context.sh when omitted
 #                    (pass them in the create flow — you already have them — to avoid a
 #                    second `gh` round-trip).
 #   --issue-url    : (confluence) `both`-mode backlink to the canonical GitHub issue.
-#   --telemetry    : (confluence) append the create-only usage footer; pass on create only.
 #   --out          : output path. Defaults to
 #                    ${CLAUDE_JOB_DIR}/tmp (or /tmp)/{issue-draft,confluence-body}-<pid>.md
 #
@@ -49,15 +44,14 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-state="${1:?Usage: render.sh <state-file> [--format github|confluence] [--sha S] [--repo R] [--issue-url U] [--telemetry] [--out path]}"; shift || true
-format="github"; sha=""; repo=""; issue_url=""; out=""; telemetry=0
+state="${1:?Usage: render.sh <state-file> [--format github|confluence] [--sha S] [--repo R] [--issue-url U] [--out path]}"; shift || true
+format="github"; sha=""; repo=""; issue_url=""; out=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --format)    format="$2";    shift 2 ;;
     --sha)       sha="$2";       shift 2 ;;
     --repo)      repo="$2";      shift 2 ;;
     --issue-url) issue_url="$2"; shift 2 ;;
-    --telemetry) telemetry=1;    shift ;;
     --out)       out="$2";       shift 2 ;;
     *) echo "render.sh: unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -103,12 +97,6 @@ if [ "$format" = confluence ]; then
   # Origin watermark, last (the page is published verbatim from $out). Idempotent +
   # best-effort: a missing/failed helper leaves the body unstamped rather than blocking.
   bash "$script_dir/watermark.sh" propose --in-place "$out" 2>/dev/null || true
-  # Telemetry footer — create-only (caller passes --telemetry only on create), after
-  # the watermark so it converts to storage with the rest of the markdown.
-  if [ "$telemetry" = "1" ]; then
-    footer="$(bash "$script_dir/telemetry.sh" --dry-run 2>/dev/null || true)"
-    [ -n "$footer" ] && printf '\n%s\n' "$footer" >> "$out"
-  fi
 fi
 
 echo "$out"

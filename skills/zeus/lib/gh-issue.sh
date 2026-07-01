@@ -3,7 +3,7 @@
 # (propose, investigate). SOURCE this (don't execute); functions only.
 #
 # The two skills open issues for DIFFERENT shapes — propose is a full publish
-# backend (review/ownership/drift gates, state persistence, telemetry); investigate
+# backend (review/ownership/drift gates, state persistence); investigate
 # opens lightweight labelled epics + hypothesis/remediation sub-issues — so the
 # issue-open itself is deliberately NOT one wrapper. These are the primitives they
 # genuinely share, kept in one place so the two don't drift (investigate's number

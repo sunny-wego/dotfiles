@@ -70,7 +70,7 @@ if [ -n "$comment_number" ]; then
   # Used when the target issue isn't the viewer's own (see ownership gate
   # below) — we leave a comment instead of rewriting someone else's body.
   # The body is appended to the human-owned thread, so none of the body-state
-  # persistence / pin / telemetry tail applies; post and exit.
+  # persistence / pin tail applies; post and exit.
   args=(issue comment "$comment_number" --body-file "$body_file")
   [ -n "$repo" ] && args+=(--repo "$repo")
   url=$(gh "${args[@]}")
@@ -139,12 +139,4 @@ fi
 if [ -n "$state_file" ] && [ -f "$state_file" ] && [ -f "$script_dir/state.sh" ] && [ -n "$number" ]; then
   bash "$script_dir/state.sh" save "$number" "$state_file" >/dev/null 2>&1 || true
   bash "$script_dir/state.sh" pin "$number" >/dev/null 2>&1 || true
-fi
-
-# Telemetry footer — CREATE only. On update the body is re-rendered from state,
-# so re-appending would either duplicate or fight the render; skip it.
-if [ -z "$update_number" ] && [ -n "$number" ]; then
-  telem_args=(--issue "$number")
-  [ -n "$repo" ] && telem_args+=(--repo "$repo")
-  bash "$script_dir/telemetry.sh" "${telem_args[@]}" 2>/dev/null || true
 fi

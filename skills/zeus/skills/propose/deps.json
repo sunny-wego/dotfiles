@@ -12,13 +12,6 @@
   ],
   "optional_any": [
     {
-      "name": "ccusage-runner",
-      "cmds": ["bunx", "npx"],
-      "install": "see https://nodejs.org",
-      "present": "npx/bun present",
-      "missing": "no npx/bun — token-usage footer is skipped"
-    },
-    {
       "name": "confluence-converter",
       "cmds": ["mark"],
       "install": "brew install mark (https://github.com/kovetskiy/mark)",

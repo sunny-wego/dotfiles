@@ -128,12 +128,3 @@ number=$(printf '%s\n' "$url" | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+$' | h
 if [ -x "$script_dir/journey.sh" ] && [ -n "$number" ]; then
   bash "$script_dir/journey.sh" write-pr "$number" "$url" 2>/dev/null || true
 fi
-
-# Best-effort: append a Claude Code token-usage + cost footer to the PR body.
-# Self-disabling outside Claude Code (no session id) and via CLAUDE_PR_TELEMETRY=0.
-# Never blocks PR creation — failures are swallowed inside the script.
-if [ -n "$number" ]; then
-  telem_args=(--pr "$number")
-  [ -n "$repo" ] && telem_args+=(--repo "$repo")
-  bash "$script_dir/telemetry.sh" "${telem_args[@]}" 2>/dev/null || true
-fi

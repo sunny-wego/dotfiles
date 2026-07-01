@@ -268,7 +268,7 @@ zeus/
 │   │      gh-issue.sh (gh_issue_number/ensure_label — shared by propose + investigate)
 │   │      ↳ sourced by each skill's scripts/lib.sh — define functions, no top-level code
 │   ├── (vendored scripts)  journey.sh  journey-marker.sh  preflight.sh
-│   │      watermark.sh  telemetry.sh  preview.sh
+│   │      watermark.sh  preview.sh
 │   │      coverage.sh (scout run/skip decision → collapsible Coverage <details> block)
 │   │      ↳ symlinked into skills' scripts/
 │   ├── config.defaults.json          shipped config defaults (the only config in the repo)

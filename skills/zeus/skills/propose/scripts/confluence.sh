@@ -264,10 +264,3 @@ if [ -n "$state_file" ] && [ -f "$state_file" ] && [ -n "${page_id:-}" ]; then
     bash "$script_dir/state.sh" pin  "confluence:$page_id" >/dev/null 2>&1 || true
   fi
 fi
-
-# NOTE — the create-only telemetry footer is stamped UPSTREAM, on the markdown, by
-# `render.sh --format confluence --telemetry` (passed only on create), alongside the watermark
-# and before the md→storage conversion — not here, because by the time the body
-# reaches this script it is storage XHTML and can't take a markdown append. So footer
-# parity with the GitHub path is achieved in the render step; this backend just posts
-# whatever body it's handed.

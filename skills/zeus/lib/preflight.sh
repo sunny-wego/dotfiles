@@ -128,7 +128,7 @@ collect() {
   done < <(echo "$manifest" | jq -r '(.require // [])[]
     | [.name, (.brew // .name), (.apt // .name), (.url // ""), (.missing // (.name + " is required"))] | @tsv')
 
-  # Optional any-of groups (e.g. a JS runner for the telemetry footer).
+  # Optional any-of groups (e.g. a markdown→storage converter for Confluence).
   while IFS=$'\t' read -r name cmds install present missing; do
     [ -n "$name" ] || continue
     found=false

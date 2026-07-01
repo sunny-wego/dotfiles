@@ -94,7 +94,6 @@ Picking order (highest priority first):
 ## Prerequisites
 
 - **Required:** `git` (run inside a repo), `gh` (GitHub CLI, authenticated), `jq`, and `python3` (used by `pin-refs.sh` to pin file citations to blob URLs).
-- **Optional:** a JS runner — `npx` (bundled with Node) or `bun` — enables the token-usage footer; safely skipped if absent.
 - **Confluence destination (optional):** the **Atlassian MCP** server, for repos configured to publish to Confluence (see *Destination* below). It's an agent tool, not a CLI, so it can't be probed from a script and is **unavailable in headless / cron runs** — confirm it with a live `getAccessibleAtlassianResources` call before relying on it, and fall back to GitHub-only when it's absent.
 
 ## Workflow
@@ -263,9 +262,7 @@ GH_URL=$(bash ${CLAUDE_SKILL_DIR}/scripts/post-issue.sh \
 ```
 
 Prints the URL and exits. `--state` persists the
-JSON under the issue number (`state.sh`) so a later amend reloads it. Appends a
-create-only Claude Code usage footer (`telemetry.sh --issue`; self-disabling outside
-Claude Code or under `CLAUDE_ISSUE_TELEMETRY=0` / the shared `CLAUDE_PR_TELEMETRY=0`).
+JSON under the issue number (`state.sh`) so a later amend reloads it.
 
 #### 6b. Confluence (`confluence.sh`) — when the destination resolved `configured: true`
 
@@ -281,13 +278,11 @@ either, `confluence.sh` fails loudly rather than posting wrong-format.
 
 1. **Order by mode.** `both` → run the GitHub post (6) FIRST so the page can backlink
    the canonical issue. `confluence` → skip GitHub entirely.
-2. **Render the Confluence body** from the same approved state. `--telemetry` adds the
-   create-only Claude Code usage footer (the Confluence analogue of `post-issue.sh`'s;
-   pass it on **create**, omit on amend — the footer drops on re-render, same as GitHub).
-   This step also bakes the `_via_` watermark and, in `both` mode, the issue backlink:
+2. **Render the Confluence body** from the same approved state. This step bakes the
+   `_via_` watermark and, in `both` mode, the issue backlink:
    ```bash
    BODY=$(bash ${CLAUDE_SKILL_DIR}/scripts/render.sh "$STATE_FILE" --format confluence \
-     --sha "$HEAD_SHA" --repo "$REPO" --telemetry [--issue-url "$GH_URL"])   # --issue-url only in `both` mode
+     --sha "$HEAD_SHA" --repo "$REPO" [--issue-url "$GH_URL"])   # --issue-url only in `both` mode
    ```
 3. **Publish.** `confluence.sh` resolves cloud/space/parent from `--repo` (via
    `confluence-target.sh`), resolves `spaceId` from `spaceKey` if needed (persisting it
@@ -350,7 +345,7 @@ Two things the sequence rests on, with the rationale and the disposition-comment
 
 ## Reviewing someone else's proposal (peer review)
 
-Triggers: `/zeus:propose review #N`, "review #N", or any `#N` with `--as peer` (step 0 of Routing). This is the **inverse of an amend**: the self-gate (Stages 1–3) proves *your* draft before you post it; peer review points the **same cross-check at someone else's posted issue** and hands back trust-labeled findings as one comment. It is **read-only on the artifact** — it never `rehydrate`s, `--update`s, or pins (the target isn't yours). The output adapter is `post-issue.sh --comment`, which by construction skips the reader-test stamp, the state pin, and telemetry.
+Triggers: `/zeus:propose review #N`, "review #N", or any `#N` with `--as peer` (step 0 of Routing). This is the **inverse of an amend**: the self-gate (Stages 1–3) proves *your* draft before you post it; peer review points the **same cross-check at someone else's posted issue** and hands back trust-labeled findings as one comment. It is **read-only on the artifact** — it never `rehydrate`s, `--update`s, or pins (the target isn't yours). The output adapter is `post-issue.sh --comment`, which by construction skips the reader-test stamp and the state pin.
 
 The engine and the finding contract (trust labels, the citation-drift check, the comment template) live in **`references/rfc-mode.md` → Peer review**. Operational sequence (GitHub):
 

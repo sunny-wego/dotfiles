@@ -45,7 +45,6 @@ Refresh mode rewrites only the machine-owned block. Everything else is preserved
 ## Prerequisites
 
 - **Required:** `git` (run inside a repo), `gh` (GitHub CLI, authenticated), `jq`.
-- **Optional:** a JS runner — `npx` (bundled with Node) or `bun` — enables the token-usage footer; safely skipped if absent.
 
 ## Workflow
 
@@ -280,7 +279,6 @@ If the user is creating a PR:
    draft** (e.g. "open a draft PR", "draft only", "not ready yet"). Omitting the flag makes `gh pr create`
    open a ready PR, which is what triggers reviewers and the `/zeus:address-pr` → `request-review` handoff.
 3. The wrapper prints the PR URL on success and (best-effort) persists `pr.number` / `pr.url` to `journey.json` for downstream skills (`/zeus:address-pr`).
-4. The wrapper appends a best-effort Claude Code session-usage footer via `telemetry.sh --pr` (vendored identically with `/zeus:propose`; self-disabling outside Claude Code or when `CLAUDE_PR_TELEMETRY=0`). See that script's header for the cost/marker details.
 
 ### 4. Refresh mode
 
