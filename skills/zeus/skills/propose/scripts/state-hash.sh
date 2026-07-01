@@ -14,7 +14,9 @@
 # reader test. Same state → same hash, regardless of when it's rendered.
 #
 # Excluded from the hash: the stamp fields themselves (so stamping doesn't change
-# the hash being stamped) and `review` (a gating knob, not rendered content —
+# the hash being stamped) — both the align stamp (`reader_test`/`reader_test_hash`)
+# and the build stamp (`build_ready`/`build_ready_hash`/`build_ready_gaps`/
+# `build_ready_consent`) — and `review` (a gating knob, not rendered content —
 # toggling it must not invalidate a test of an unchanged document).
 #
 # Usage: state-hash.sh <state-file>
@@ -28,4 +30,4 @@ state="${1:?Usage: state-hash.sh <state-file>}"
 if command -v sha256sum >/dev/null 2>&1; then hasher=(sha256sum)
 else hasher=(shasum -a 256); fi
 
-jq -S 'del(.reader_test, .reader_test_hash, .review)' "$state" | "${hasher[@]}" | awk '{print $1}'
+jq -S 'del(.reader_test, .reader_test_hash, .review, .build_ready, .build_ready_hash, .build_ready_gaps, .build_ready_consent)' "$state" | "${hasher[@]}" | awk '{print $1}'

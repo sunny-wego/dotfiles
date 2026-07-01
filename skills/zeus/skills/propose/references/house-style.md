@@ -54,6 +54,10 @@ These pull in opposite directions and both are right, at different layers:
 
 So: explain *why* in the framing, state *what must hold* in the invariants.
 
+## Two audiences: align-ready vs build-ready
+
+A proposal is read by an **aligner** (decides — needs tradeoffs, alternatives, quotable rows) and, when it's a work-order, an **executor** (builds — needs invariants, a concrete shape, an error matrix). These are *different completeness bars*: an issue can be align-ready yet not build-ready — every question Decided, the load-bearing rule still prose (this is exactly how #988 shipped). When `Closes-when` is a PR merge, satisfy **both** — the discussion matrix *and* the implementer contract. The build-ready gate (`rfc-mode.md` → Stage 1 implementer persona) enforces the second axis so a settled-but-underspecified issue can't slip through.
+
 ## Tables stay scannable
 
 Body table cells are short phrases — no permalinks, no multi-sentence grounding. Evidence goes in the collapsed `code_grounding` appendix; rationale goes in a `<details>` under the table. A reader should get the whole decision from the visible layer and only expand for proof.

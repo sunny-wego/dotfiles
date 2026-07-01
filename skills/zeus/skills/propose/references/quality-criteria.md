@@ -34,5 +34,7 @@ For issues that an implementing agent will execute against:
 | Acceptance signals defined | Bridges issue → tests → agent verification (the Verification section) |
 | Coexistence/partial-state model explicit | Agents handle partial states badly — say what the in-between looks like |
 
+This is the **BUILD-READY** bar, evaluated by the Stage-1 implementer persona for merge-closing work-orders (`references/rfc-mode.md` → Stage 1). It is a *distinct audience* from the aligner: an issue can be align-ready (every question decided) yet fail this bar (the load-bearing rule still prose). Rank gaps by **blast-radius** — pin the rule the whole thing hinges on, not every mechanical detail; over-enumeration trains authors to ignore the gate.
+
 ## Pass test
 If a fresh reader can state **the problem and the requirements an alternative would have to meet**, the decision, the main tradeoff, **the rough scope of work**, and what's out of scope in under a minute — and an implementing agent could act on the invariants without guessing — the issue passes. Otherwise, return to the relevant section (don't ship around the gap).

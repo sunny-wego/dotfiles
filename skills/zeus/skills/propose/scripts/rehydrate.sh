@@ -66,13 +66,15 @@ else
   fi
 fi
 
-# Clear the reader-test stamp (boolean AND hash): an amend invalidates a prior
-# reader test, so the next post must re-run step 4b (post enforces this whenever
-# requires-review.sh says so — and the hash gate re-fires on every subsequent state
-# edit too). Also drop the retired `depth` key from older stored states; review
-# gating is derived from content now. confluence_page_id / confluence_version are
-# preserved — they identify the page to UPDATE and gate its drift.
-jq 'del(.depth) | .reader_test = false | .reader_test_hash = ""' "$out" > "$out.tmp" 2>/dev/null && mv "$out.tmp" "$out" || true
+# Clear both gate stamps (boolean AND hash): an amend invalidates a prior reader
+# test AND a prior build-ready test, so the next post must re-run step 4b (post
+# enforces this whenever requires-review.sh says so — and the hash gates re-fire on
+# every subsequent state edit too). build_ready_consent resets too: consent to post
+# an incomplete contract can't carry across an amend. Also drop the retired `depth`
+# key from older stored states; review gating is derived from content now.
+# confluence_page_id / confluence_version are preserved — they identify the page to
+# UPDATE and gate its drift.
+jq 'del(.depth) | .reader_test = false | .reader_test_hash = "" | .build_ready = "" | .build_ready_hash = "" | .build_ready_gaps = [] | .build_ready_consent = false' "$out" > "$out.tmp" 2>/dev/null && mv "$out.tmp" "$out" || true
 
 # Drift reminder: when persisted state was loaded, the live artifact may carry
 # out-of-band edits the state never saw. The amend flow MUST run the destination's

@@ -17,7 +17,7 @@ license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
   author: sunnywong
-  version: "0.4"
+  version: "0.5"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Write Edit AskUserQuestion Task Agent
 ---
 
@@ -216,8 +216,9 @@ Anything with open questions, grounded claims, a substantial proposal, or invari
 - **Stage 1 — reader test (always, when required).** A fresh subagent with *only* the rendered body, role-played as a skeptical 10-minute reviewer, returns comprehension + a contradiction sweep + a discussability audit + `READY|BLOCKED`. Loop fix-state → re-render → re-test until READY, then **stamp** `reader_test` + `reader_test_hash` (`post-issue` refuses without a matching stamp).
 - **Stage 2 — targeted grounding (when it carries empirical claims or executable artifacts).** A refutation-framed pass against repo/data; execute fenced SQL/code somewhere the author didn't seed; ledger what can't be verified.
 - **Stage 3 — steelman the objector (contested / high-stakes only).** One agent per anticipated objector writes their strongest comment; pre-answer it.
+- **Build-ready — the execution axis (work-orders).** When `requires-review.sh` reports `build_ready_required` (a merge-closing issue with code signals and no invariants yet), Stage 1 also runs an **implementer persona** — "the agent that implements this cold" — and stamps `build_ready` (`ready|incomplete`) with its own hash. `review-gate.sh` requires it; `BUILD-INCOMPLETE` posts only with recorded `build_ready_consent`. This catches an issue that's *align-ready but not build-ready* (all questions decided, load-bearing rule still prose).
 
-Full procedure — the contradiction-class checklist, the stamp command, the grounding plan, and Stage 3 — is in **`references/rfc-mode.md`**. An issue that derives `required: false` (a tracking ticket) skips this step entirely.
+Full procedure — the contradiction-class checklist, the implementer persona, the stamp command, the grounding plan, and Stage 3 — is in **`references/rfc-mode.md`**. An issue that derives both `required: false` and `build_ready_required: false` (a tracking ticket) skips this step entirely.
 
 ### 5. Confirm with the user
 
@@ -233,6 +234,8 @@ Options:
 - **Edit** — open the draft for inline edits, then re-ask.
 - **Save draft only** — print the draft path and stop.
 - **Cancel** — discard.
+
+When the build-ready gate reports **`BUILD-INCOMPLETE`**, surface the ranked contract gaps here as a **visible choice** (like a `review:"never"` skip — never a silent default): *pin them* (recommended — add the `MUST`/`MUST NOT` invariants + a concrete shape example, then re-render and re-test) or *post anyway* (sets `build_ready_consent`, recorded on the issue).
 
 **Fallback (other agents):** if AskUserQuestion isn't available, pipe `preview.sh` to stdout, then prompt via bash:
 

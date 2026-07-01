@@ -25,7 +25,9 @@
 #   - MUST/MUST NOT in that prose       (binding invariants an agent will obey)
 #
 # Usage:  requires-review.sh <state-file>
-# Output: {"required":bool,"mode":"auto|always|never","reasons":[...]}
+# Output: {"required":bool,"mode":"auto|always|never","reasons":[...],"build_ready_required":bool}
+#         (build_ready_required = the execution axis: a merge-closing work-order
+#          whose contract is still prose — see the build-ready block below)
 # Exit:   0 always (the JSON carries the verdict; post-issue interprets it)
 
 set -euo pipefail
@@ -35,9 +37,32 @@ state="${1:?Usage: requires-review.sh <state-file>}"
 
 mode=$(jq -r '.review // "auto"' "$state")
 
+# ── build-ready axis (independent of the review/align axis) ───────────────────
+# The review axis (below) gates DISCUSSION readiness. But a merge-closing
+# implementation issue is ALSO a work-order an agent executes — and can pass every
+# review gate with its load-bearing contract left as prose (issue #988). Derive a
+# SEPARATE trigger so Stage 1 also runs the implementer persona. Fire when the
+# issue closes on a PR MERGE (a work-order — a decision doc closes on alignment)
+# AND carries code signals (a source-file citation, an apps/src/lib/packages path,
+# or a versioned route) AND has no MUST/MUST NOT yet (invariants already present ⇒
+# the author did the contract work; don't nag). Surfaced in every output; enforced
+# — as a consent-nudge, not a block — by review-gate.sh.
+cw=$(jq -r '.closes_when // ""' "$state")
+allprose=$(jq -r '[ .proposal // "", (.sections // [] | map(.body // "") | join("\n")) ] | join("\n")' "$state")
+build_ready_required=false
+if printf '%s' "$cw" | grep -qiE '\bmerge|\bpull request\b' \
+   && printf '%s' "$allprose" | grep -qE '`[A-Za-z0-9_./-]+\.(ts|tsx|js|jsx|py|go|rs|sql|sh)`|(^|[^A-Za-z])(apps|src|lib|packages)/|/v[0-9]+/' \
+   && ! printf '%s' "$allprose" | grep -qE 'MUST( NOT)?\b'; then
+  build_ready_required=true
+fi
+
+# Merge the build axis into every verdict, then exit. Computed above the mode
+# switch so `always`/`never`/`auto` all carry it.
+emit() { printf '%s' "$1" | jq -c --argjson br "$build_ready_required" '. + {build_ready_required: $br}'; exit 0; }
+
 case "$mode" in
-  always) jq -nc '{required: true, mode: "always", reasons: ["review: \"always\" set in state"]}'; exit 0 ;;
-  never)  jq -nc '{required: false, mode: "never", reasons: ["review: \"never\" set in state — MUST be surfaced in the confirmation dialog"]}'; exit 0 ;;
+  always) emit '{"required": true, "mode": "always", "reasons": ["review: \"always\" set in state"]}' ;;
+  never)  emit '{"required": false, "mode": "never", "reasons": ["review: \"never\" set in state — MUST be surfaced in the confirmation dialog"]}' ;;
   auto) ;;
   *) echo "requires-review.sh: unknown review mode '$mode' (auto|always|never)" >&2; exit 2 ;;
 esac
@@ -57,7 +82,7 @@ if printf '%s' "$prose" | grep -qE 'MUST( NOT)?\b'; then
 fi
 
 if [ "${#reasons[@]}" -gt 0 ]; then
-  printf '%s\n' "${reasons[@]}" | jq -Rcs '{required: true, mode: "auto", reasons: (split("\n") | map(select(length > 0)))}'
+  emit "$(printf '%s\n' "${reasons[@]}" | jq -Rcs '{required: true, mode: "auto", reasons: (split("\n") | map(select(length > 0)))}')"
 else
-  jq -nc '{required: false, mode: "auto", reasons: ["no questions, no grounded claims, short proposal, no invariants"]}'
+  emit '{"required": false, "mode": "auto", "reasons": ["no questions, no grounded claims, short proposal, no invariants"]}'
 fi

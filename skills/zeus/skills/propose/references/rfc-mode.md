@@ -21,14 +21,16 @@ The layering principle: **scripts prove structure** (`check.sh`: sections, Q-ref
 
 ```jsonc
 { "doc_type": "ticket | proposal | decision-doc",
-  "stages": { "reader_test": true, "grounding": true, "steelman": false },
+  "stages": { "reader_test": true, "grounding": true, "steelman": false, "build_ready_test": false },
   "claim_inventory": [ { "claim": "...", "cite": "x.py:42", "looks_stale": true } ],
   "tier_per_check": { "citation-drift": "haiku", "spot-check": "sonnet", "lean-claim-refute": "opus", "steelman": "opus" },
+  "contract_gaps": [ "kind derivation is prose, not MUST/MUST-NOT" ],
   "hotspots": [ "§4 vs §2 consistency", "the 10k-req/day premise" ] }
 ```
 
 - **Recall-guarded, exactly like the code reviewer's scout.** It may narrow which stages run and localize effort, but it **cannot drop a stage `requires-review.sh` armed**, and it **cannot skip Stage 2 grounding when the doc carries grounded claims**. Its mistakes cost a wrong tier or an extra check — never a missed defect. It **localizes and routes; it never confirms** (only Stage 2's grounding pass promotes a finding to Confirmed).
 - **`claim_inventory` sizes the Stage-2 fan-out** — how many grounding subagents spawn and where they point — and pre-flags suspicious cites for the citation-drift check. This replaces the old ad-hoc "scoped to ROI" guess with an explicit list.
+- **`build_ready_test` arms the execution axis.** Set it when the doc is a **work-order** — `requires-review.sh` reports `build_ready_required` (Closes-when = a PR merge, code signals present, no `MUST`/`MUST NOT` yet). It arms the **implementer persona** in Stage 1; `contract_gaps` may pre-list suspected prose-only rules for that persona to confirm. Like every scout output it **only arms** — the persona finds, `review-gate.sh` enforces.
 - **The finding contract has two layers** — carry this through every stage:
   - **Factual layer** (Stage 2 grounding, citation-drift, consistency, completeness): trust-labeled. **Confirmed ⇒ reproduced + recorded evidence** (commands + literal output against a pinned HEAD); **Hypothesis ⇒ a concrete `verify:` step**; **refuted ⇒ dropped**. Can't ground it safely/cheaply (no DB branch for the DDL) → it stays Hypothesis. **Evidence before Confirmed, always.**
   - **Judgment layer** (Stage 1 reader-test, Stage 3 steelman, clarity, soundness/prediction): posed as **observations and questions the author adjudicates** — never a Confirmed badge on an opinion.
@@ -53,14 +55,27 @@ A design doc that only its author can parse isn't aligned. Validate it works col
    - **`VERDICT: READY | BLOCKED`** with severity-tagged numbered gaps.
 3. BLOCKED → fix the relevant section **in state**, re-render, **re-test**. Loop until READY. Fix rounds are where regressions are born — a fix that renumbers a list orphans a cross-reference; a confident clarification overclaims. The hash stamp makes skipping the re-test unrepresentable, not just discouraged.
 
-On READY, **stamp the passing render** — a boolean AND the state hash, so the gate knows the test ran against *this* state:
+### The implementer persona (work-orders only — `build_ready_test`)
+
+The stakeholder reader above tests **align-readiness** (can I decide?). A merge-closing implementation issue is also a **work-order**, and can pass every alignment gate with its load-bearing contract left as prose — issue #988 shipped with the fare-`kind` rule (the branch "the whole funnel hinges on") unpinned, because a stakeholder persona under-weights criterion 7. So when the scout sets `build_ready_test` (or `requires-review.sh` reports `build_ready_required`), spawn a **second** fresh subagent alongside the reader, with *only* `render(state)`, role-played as **the agent that will implement this cold — repo access, no conversation**. It returns, **ranked by blast-radius** (load-bearing first — not an exhaustive nano-list; over-enumeration trains authors to ignore the gate):
+
+- rules it would have to **invent** — stated as prose, not `MUST`/`MUST NOT`;
+- shapes / enums it would have to **guess** — no concrete example or interface;
+- error / edge / partial-state cases left unspecified.
+
+Verdict: **`BUILD-READY | BUILD-INCOMPLETE`**. `BUILD-INCOMPLETE` is a **nudge, not a block** — either pin the gaps (add invariants + a concrete shape example, re-render, re-test) *or* post with recorded consent (`build_ready_consent`), which step 5 surfaces as a visible choice. Delegated design is legitimate; the only forbidden move is skipping **silently** (the #988 failure). The two personas run in one Stage-1 pass on the same render, so both verdicts share one hash.
+
+On READY, **stamp the passing render** — a boolean AND the state hash, so the gate knows the test ran against *this* state. When the implementer persona ran, stamp its verdict at the **same** hash (`$BUILD_VERDICT` ∈ `ready|incomplete`, `$BUILD_GAPS_JSON` its ranked gaps; leave `$BUILD_VERDICT` empty when it didn't run):
 
 ```bash
 HASH=$(bash ${CLAUDE_SKILL_DIR}/scripts/state-hash.sh "$STATE_FILE")
-jq --arg h "$HASH" '.reader_test = true | .reader_test_hash = $h' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+jq --arg h "$HASH" --arg bv "$BUILD_VERDICT" --argjson gaps "${BUILD_GAPS_JSON:-[]}" \
+  '.reader_test = true | .reader_test_hash = $h
+   | (if $bv == "" then . else .build_ready = $bv | .build_ready_hash = $h | .build_ready_gaps = $gaps end)' \
+  "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
 ```
 
-`post-issue.sh` refuses a review-required post/update without the stamp **or on a hash mismatch** (state edited after the test = untested fixes); `rehydrate.sh` clears both, so every amend re-runs the test. An issue that derives `required: false` (a tracking ticket) skips Stages 1–3 entirely.
+`post-issue.sh` refuses a review-required post/update without the stamp **or on a hash mismatch** (state edited after the test = untested fixes); it likewise refuses a work-order whose `build_ready` is unstamped, stale, or `incomplete` without recorded consent. `rehydrate.sh` clears **both** stamps (and `build_ready_consent`), so every amend re-runs both tests. An issue that derives `required: false` **and** `build_ready_required: false` (a tracking ticket) skips Stages 1–3 entirely.
 
 ## Stage 2 — Targeted Grounding
 

@@ -28,28 +28,65 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 
 rr=$(bash "$script_dir/requires-review.sh" "$state" 2>/dev/null || echo '{"required":false,"mode":"auto","reasons":[]}')
 required=$(printf '%s' "$rr" | jq -r '.required')
+build_req=$(printf '%s' "$rr" | jq -r '.build_ready_required // false')
 mode=$(printf '%s' "$rr" | jq -r '.mode')
+
+# review:"never" is an explicit, surfaced author skip of BOTH axes.
 if [ "$mode" = "never" ]; then
   echo "review-gate: review explicitly skipped (review: \"never\") — this must have been a visible choice in the confirmation dialog." >&2
+  exit 0
 fi
-[ "$required" = "true" ] || exit 0
 
-why=$(printf '%s' "$rr" | jq -r '.reasons | join("; ")')
-rt=$(jq -r '.reader_test // false' "$state" 2>/dev/null || echo false)
-if [ "$rt" != "true" ]; then
-  echo "review-gate: this proposal requires a reader test (Stage 1) before posting — $why." >&2
-  echo "  Run the reviewer simulation on render(state), then stamp it:" >&2
-  echo "    HASH=\$(bash \"$script_dir/state-hash.sh\" \"$state\")" >&2
-  echo "    jq --arg h \"\$HASH\" '.reader_test=true | .reader_test_hash=\$h' \"$state\" > tmp && mv tmp \"$state\"" >&2
-  exit 1
-fi
-stamped=$(jq -r '.reader_test_hash // ""' "$state" 2>/dev/null || echo "")
+# Nothing to gate on either axis.
+[ "$required" = "true" ] || [ "$build_req" = "true" ] || exit 0
+
 current=$(bash "$script_dir/state-hash.sh" "$state" 2>/dev/null || echo "")
-if [ -z "$stamped" ] || [ "$stamped" != "$current" ]; then
-  echo "review-gate: state was edited AFTER the last reader test (hash mismatch) — the fixes are untested." >&2
-  echo "  stamped: ${stamped:-<none>}" >&2
-  echo "  current: $current" >&2
-  echo "  Re-run the reviewer simulation on the current render, then re-stamp (see above)." >&2
-  exit 1
+
+# ── align axis: a review-warranting proposal needs a fresh reader test (Stage 1)
+if [ "$required" = "true" ]; then
+  why=$(printf '%s' "$rr" | jq -r '.reasons | join("; ")')
+  rt=$(jq -r '.reader_test // false' "$state" 2>/dev/null || echo false)
+  if [ "$rt" != "true" ]; then
+    echo "review-gate: this proposal requires a reader test (Stage 1) before posting — $why." >&2
+    echo "  Run the reviewer simulation on render(state), then stamp it:" >&2
+    echo "    HASH=\$(bash \"$script_dir/state-hash.sh\" \"$state\")" >&2
+    echo "    jq --arg h \"\$HASH\" '.reader_test=true | .reader_test_hash=\$h' \"$state\" > tmp && mv tmp \"$state\"" >&2
+    exit 1
+  fi
+  stamped=$(jq -r '.reader_test_hash // ""' "$state" 2>/dev/null || echo "")
+  if [ -z "$stamped" ] || [ "$stamped" != "$current" ]; then
+    echo "review-gate: state was edited AFTER the last reader test (hash mismatch) — the fixes are untested." >&2
+    echo "  stamped: ${stamped:-<none>}" >&2
+    echo "  current: $current" >&2
+    echo "  Re-run the reviewer simulation on the current render, then re-stamp (see above)." >&2
+    exit 1
+  fi
+fi
+
+# ── build axis: a merge-closing work-order needs an executable contract ───────
+# BUILD-INCOMPLETE may STILL post — but only with the author's RECORDED consent
+# (.build_ready_consent). Silent skipping is the exact failure mode this closes
+# (#988). The verdict is hash-pinned exactly like the align stamp, so any content
+# edit forces a re-test.
+if [ "$build_req" = "true" ]; then
+  bv=$(jq -r '.build_ready // ""' "$state" 2>/dev/null || echo "")
+  if [ -z "$bv" ]; then
+    echo "review-gate: this is a merge-closing work-order — run the Stage 1 implementer persona (BUILD-READY test) before posting." >&2
+    echo "  It reads render(state) as the cold implementing agent and ranks the contract gaps by blast-radius (rfc-mode.md → Stage 1)." >&2
+    exit 1
+  fi
+  bh=$(jq -r '.build_ready_hash // ""' "$state" 2>/dev/null || echo "")
+  if [ -z "$bh" ] || [ "$bh" != "$current" ]; then
+    echo "review-gate: state was edited AFTER the build-ready test (hash mismatch) — re-run the implementer persona and re-stamp." >&2
+    exit 1
+  fi
+  if [ "$bv" = "incomplete" ] && [ "$(jq -r '.build_ready_consent // false' "$state" 2>/dev/null || echo false)" != "true" ]; then
+    echo "review-gate: BUILD-INCOMPLETE — the implementer persona found load-bearing contract gaps:" >&2
+    gaps=$(jq -r '.build_ready_gaps // [] | to_entries[] | "    \(.key + 1). \(.value)"' "$state" 2>/dev/null || true)
+    [ -n "$gaps" ] && printf '%s\n' "$gaps" >&2
+    echo "  Pin them (MUST/MUST-NOT invariants + a concrete shape example), or record the skip on purpose:" >&2
+    echo "    jq '.build_ready_consent = true' \"$state\" > tmp && mv tmp \"$state\"   (MUST be a visible choice in the confirmation dialog)" >&2
+    exit 1
+  fi
 fi
 exit 0
