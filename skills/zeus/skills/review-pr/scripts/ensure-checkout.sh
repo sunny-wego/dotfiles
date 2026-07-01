@@ -36,6 +36,13 @@ pr="$PR"; slug="$REPO_SLUG"; sha="$SHA"
 
 current_top=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 emit() { # emit <path> <mode> <created> <reused>
+  # Seed the review-pr state dir in the checkout's OWN git dir up front, so the
+  # address-pr / create-pr push+stop hooks (which bail when this dir exists — the
+  # reviewer role is read-only) can't false-positive in the window between HEAD
+  # landing on the PR branch here and the first lib.sh source (extract-diff.sh)
+  # that would otherwise create it. Best-effort; lib.sh's own mkdir -p is idempotent.
+  local gd; gd=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || gd=""
+  [ -n "$gd" ] && mkdir -p "$gd/review-pr" 2>/dev/null || true
   local ai=false; [ "$current_top" = "$1" ] && ai=true
   jq -nc --arg path "$1" --arg mode "$2" --argjson created "$3" --argjson reused "$4" --argjson ai "$ai" \
     '{path:$path, mode:$mode, created:$created, reused:$reused, already_inside:$ai}'
