@@ -11,7 +11,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Vercel MCP optional.
 metadata:
   author: sunnywong
-  version: "4.6"
+  version: "4.7"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__*
 ---
 

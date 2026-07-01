@@ -49,6 +49,13 @@ marker_dir="$gitdir/address-pr"
 marker="$marker_dir/push-nudged-$head"
 [ -f "$marker" ] && exit 0
 
+# A review-pr checkout is the INVERSE (reviewer) role — read-only, never authored
+# work to address. Its HEAD is on the remote because the PR branch already exists,
+# not because THIS session pushed, so EFFECT CHECK #1 below would false-positive
+# and wrongly demand /zeus:address-pr during a peer/self review. review-pr's
+# lib.sh always creates this per-checkout state dir; bail before we nudge.
+[ -d "$gitdir/review-pr" ] && exit 0
+
 # Opt-out.
 [ "${SKIP_REVIEW:-}" = "1" ] && exit 0
 

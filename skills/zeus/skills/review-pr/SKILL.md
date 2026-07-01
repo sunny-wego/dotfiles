@@ -23,7 +23,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier. The Slack entry point additionally needs the Slack MCP.
 metadata:
   author: sunnywong
-  version: "0.3"
+  version: "0.4"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__plugin_slack_slack__slack_read_thread mcp__plugin_slack_slack__slack_send_message
 
 ---
@@ -250,6 +250,14 @@ diff is forced to `--self` regardless.)
   (carries a verify step) vs. a **Nit** — and pose its question about intent, so the
   **author decides what to fix**. Event is always `COMMENT`; never
   auto-`REQUEST_CHANGES` (that verdict is the author's, not the reviewer's).
+  **Clean pass:** on a genuine first-round clean pass (zero findings — not the
+  re-review case where everything was already posted), `post-review.sh` posts
+  nothing (it skips an empty review). Leaving zero trace on a review the user
+  explicitly asked for is a bad signal, so post one brief `COMMENT` review
+  yourself (`gh pr review --comment`) stating it passed and naming what you
+  checked (the dimensions from step 3) — enough for the author to trust the
+  review ran. This is the ONE case where you post outside `post-review.sh`; the
+  re-review "already posted" skip stays silent (its findings live in-thread).
 
 ### 6b. Reply in the Slack thread (Slack-triggered reviews only)
 Run this **only** when `slack-thread.sh get` returns a non-empty record (this review

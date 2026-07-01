@@ -34,6 +34,12 @@ gitdir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 marker="$gitdir/create-pr/pr-suggested-$head"
 [ -f "$marker" ] && exit 0
 
+# A review-pr checkout is the INVERSE (reviewer) role — read-only, never authored
+# work to PR. Its branch/HEAD belong to the PR under review, not to this session,
+# and the gh-pr-list guard below can come back empty in the review worktree's
+# remote context — so bail here. review-pr's lib.sh always creates this state dir.
+[ -d "$gitdir/review-pr" ] && exit 0
+
 # On a feature branch (never the repo default — resolved, never hard-coded main/master).
 branch=$(git branch --show-current 2>/dev/null) || exit 0
 [ -n "$branch" ] || exit 0
