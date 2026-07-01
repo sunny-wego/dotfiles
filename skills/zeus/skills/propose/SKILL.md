@@ -258,7 +258,7 @@ GH_URL=$(bash ${CLAUDE_SKILL_DIR}/scripts/post-issue.sh \
   [--label <label>] [--assignee <user>] [--milestone <m>])
 ```
 
-Prints the URL and exits (`--yes` for non-interactive callers). `--state` persists the
+Prints the URL and exits. `--state` persists the
 JSON under the issue number (`state.sh`) so a later amend reloads it. Appends a
 create-only Claude Code usage footer (`telemetry.sh --issue`; self-disabling outside
 Claude Code or under `CLAUDE_ISSUE_TELEMETRY=0` / the shared `CLAUDE_PR_TELEMETRY=0`).
@@ -282,7 +282,7 @@ either, `confluence.sh` fails loudly rather than posting wrong-format.
    pass it on **create**, omit on amend — the footer drops on re-render, same as GitHub).
    This step also bakes the `_via_` watermark and, in `both` mode, the issue backlink:
    ```bash
-   BODY=$(bash ${CLAUDE_SKILL_DIR}/scripts/render-confluence.sh "$STATE_FILE" \
+   BODY=$(bash ${CLAUDE_SKILL_DIR}/scripts/render.sh "$STATE_FILE" --format confluence \
      --sha "$HEAD_SHA" --repo "$REPO" --telemetry [--issue-url "$GH_URL"])   # --issue-url only in `both` mode
    ```
 3. **Publish.** `confluence.sh` resolves cloud/space/parent from `--repo` (via
@@ -330,7 +330,7 @@ resolve-target.sh "<phrase>"                            # 0. resolve + CONFIRM (
 STATE_FILE=$(rehydrate.sh "confluence:<id>" [--body-file <fetched-page-md>])   # 1. load persisted state; --body-file re-ingests a fetched page only if state was lost
 # 2. (no separate ownership/drift step — confluence.sh --update enforces BOTH in-backend at write)
 # 3. edit state + append an Amendment Log line
-BODY=$(render-confluence.sh "$STATE_FILE" --sha "$HEAD_SHA" --repo "$REPO")       # 4. render + check + Stage-1 re-stamp
+BODY=$(render.sh "$STATE_FILE" --format confluence --sha "$HEAD_SHA" --repo "$REPO")   # 4. render + check + Stage-1 re-stamp
 check.sh "$BODY" [--kind …]
 confluence.sh --update <id> --title "<t>" --body-file "$BODY" --repo "$REPO" --state "$STATE_FILE"   # 5a. amend (ownership + version-drift gated in-backend; bumps version, re-persists, re-pins)
 confluence.sh --comment <id> --body-file <findings> --repo "$REPO"                                    # 5b. not mine → comment (a non-owned --update is refused)

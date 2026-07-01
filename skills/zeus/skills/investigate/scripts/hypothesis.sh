@@ -28,14 +28,11 @@ if [ "$DRY_RUN" = "1" ]; then
   echo "H$k"; exit 0
 fi
 
-gh label create hypothesis --description "an investigation hypothesis" 2>/dev/null || true
 body="Hypothesis under investigation #$epic.
 
 Evidence accrues as \`E<n>\` items (tagged \`(H$k, supports|refutes)\`). Conclude with:
 \`/zeus:investigate conclude H$k confirmed|refuted|inconclusive\`."
-body="$(printf '%s' "$body" | bash "$HERE/watermark.sh" investigate - 2>/dev/null || printf '%s' "$body")"
-url="$(gh issue create --title "$title" --label hypothesis --body "$body")"
-num="$(echo "$url" | grep -oE '[0-9]+$')"
+num="$(create_labeled_issue "$title" hypothesis "$body" "an investigation hypothesis")"
 log "opened $title — #$num"
 "$HERE/link-to-epic.sh" "$num" >/dev/null 2>&1 || log "could not auto-link #$num — run /zeus:investigate link $num"
 echo "H$k #$num"

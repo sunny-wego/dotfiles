@@ -30,16 +30,11 @@ ensure_queue() {
   # Lazy-init the queue object if missing (state may have been initialised
   # before queue support shipped).
   if ! jq -e 'has("queue")' "$STATE_FILE" >/dev/null 2>&1; then
-    tmp="$STATE_FILE.tmp"
-    jq '. + {queue: {replies: [], review_body_replies: [], resolves: [], reactions: []}}' \
-      "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '. + {queue: {replies: [], review_body_replies: [], resolves: [], reactions: []}}'
   fi
   # Lazy-add reactions for state files initialised before reaction support.
   if ! jq -e '.queue | has("reactions")' "$STATE_FILE" >/dev/null 2>&1; then
-    tmp="$STATE_FILE.tmp"
-    jq '.queue.reactions = []' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.queue.reactions = []'
   fi
 }
 
@@ -67,9 +62,7 @@ case "$cmd" in
 
   bump-iteration)
     [ -f "$STATE_FILE" ] || { echo "state file missing — run state.sh init first" >&2; exit 1; }
-    tmp="$STATE_FILE.tmp"
-    jq '.iteration += 1' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.iteration += 1'
     jq -r '.iteration' "$STATE_FILE"
     ;;
 
@@ -77,9 +70,7 @@ case "$cmd" in
     handler="${2:?handler name required}"
     outcome="${3:?outcome JSON required}"
     [ -f "$STATE_FILE" ] || { echo "state file missing — run state.sh init first" >&2; exit 1; }
-    tmp="$STATE_FILE.tmp"
-    jq       --arg handler "$handler"       --argjson outcome "$outcome"       '.outcomes += [{iteration: .iteration, handler: $handler} + $outcome]'       "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.outcomes += [{iteration: .iteration, handler: $handler} + $outcome]'       --arg handler "$handler" --argjson outcome "$outcome"
     ;;
 
   read)
@@ -125,9 +116,7 @@ case "$cmd" in
         fi
       fi
     fi
-    tmp="$STATE_FILE.tmp"
-    jq --argjson r "$payload" '.queue.replies += [$r]' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.queue.replies += [$r]' --argjson r "$payload"
     ;;
 
   queue-review-body-reply)
@@ -148,17 +137,13 @@ case "$cmd" in
         fi
       fi
     fi
-    tmp="$STATE_FILE.tmp"
-    jq --argjson r "$payload" '.queue.review_body_replies += [$r]' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.queue.review_body_replies += [$r]' --argjson r "$payload"
     ;;
 
   queue-resolve)
     thread_id="${2:?thread id required}"
     ensure_queue
-    tmp="$STATE_FILE.tmp"
-    jq --arg id "$thread_id" '.queue.resolves += [$id]' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.queue.resolves += [$id]' --arg id "$thread_id"
     ;;
 
   queue-reaction)
@@ -173,17 +158,15 @@ case "$cmd" in
       echo "queue-reaction: payload must be {target_type: \"inline\"|\"issue\", target_id: <id>}" >&2
       exit 1
     fi
-    tmp="$STATE_FILE.tmp"
     # De-dup on (target_type, target_id) so iterating the same comment across
     # passes doesn't queue the same reaction twice. GitHub treats repeat POSTs
     # as idempotent, but skipping locally saves API calls.
-    jq --argjson r "$payload" '
+    json_mutate "$STATE_FILE" '
       .queue.reactions |= (
         if any(.[]; .target_type == $r.target_type and (.target_id|tostring) == ($r.target_id|tostring))
         then . else . + [$r] end
       )
-    ' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    ' --argjson r "$payload"
     ;;
 
   flush-queue)
@@ -191,10 +174,8 @@ case "$cmd" in
     # captured; subsequent calls see an empty queue. Callers (typically
     # flush-pending-replies.sh) own the side effects after that.
     ensure_queue
-    tmp="$STATE_FILE.tmp"
     jq '.queue' "$STATE_FILE"
-    jq '.queue = {replies: [], review_body_replies: [], resolves: [], reactions: []}' "$STATE_FILE" > "$tmp"
-    mv "$tmp" "$STATE_FILE"
+    json_mutate "$STATE_FILE" '.queue = {replies: [], review_body_replies: [], resolves: [], reactions: []}'
     ;;
 
   *)

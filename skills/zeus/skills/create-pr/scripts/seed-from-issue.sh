@@ -12,7 +12,6 @@
 #   seed-from-issue.sh test-plan       <issue_number_or_url>
 #   seed-from-issue.sh design-decisions <issue_number_or_url>
 #   seed-from-issue.sh closes-line     <issue_number_or_url>
-#   seed-from-issue.sh fetch           <issue_number_or_url>   # prints body to stdout
 #
 # Source: the RENDERED ISSUE BODY only, parsed by the section grammar the
 # propose skill writes:
@@ -32,7 +31,7 @@
 
 set -euo pipefail
 
-cmd="${1:?Usage: seed-from-issue.sh <original-intent|test-plan|design-decisions|closes-line|fetch> <issue>}"
+cmd="${1:?Usage: seed-from-issue.sh <original-intent|test-plan|design-decisions|closes-line> <issue>}"
 target="${2:-}"
 
 if [ -z "$target" ]; then
@@ -99,10 +98,6 @@ collapse_inline() {
 }
 
 case "$cmd" in
-  fetch)
-    fetch_body
-    ;;
-
   closes-line)
     # Normalise input to a bare number for the GitHub keyword.
     number=$(printf '%s' "$target" | grep -oE '[0-9]+' | tail -1)

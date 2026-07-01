@@ -39,15 +39,8 @@ else
     echo "[dry-run] gh issue create --title \"$title\" --label investigation  (body from template)" >&2
     epic="DRYRUN"
   else
-    # The `investigation` label may not exist yet; create-if-missing (idempotent).
-    gh label create investigation --description "tracked by /zeus:investigate" 2>/dev/null || true
-    bf="$(mktemp)"; printf '%s\n' "$body" > "$bf"
-    # Sign the epic body with the zeus origin tag (idempotent; lands after the
-    # managed block's end marker, so `status --write` re-renders preserve it).
-    bash "$HERE/watermark.sh" investigate --in-place "$bf" 2>/dev/null || true
-    url="$(gh issue create --title "$title" --label investigation --body-file "$bf")"
-    epic="$(echo "$url" | grep -oE '[0-9]+$')"
-    log "created investigation #$epic — $url"
+    epic="$(create_labeled_issue "$title" investigation "$body" "tracked by /zeus:investigate")"
+    log "created investigation #$epic"
   fi
 fi
 
@@ -63,15 +56,7 @@ fi
 
 # Add the investigation issue to the board if we can.
 proj="$(state_get '.project')"
-if [ -n "$proj" ] && [ "$epic" != "DRYRUN" ]; then
-  if have_project_scope; then
-    run gh project item-add "$proj" --owner "$(repo_owner)" \
-      --url "https://github.com/$(repo_slug)/issues/$epic" --format json >/dev/null \
-      && log "investigation added to board #$proj"
-  else
-    log "no project scope — skipping board add (gh auth refresh -s project to enable)"
-  fi
-fi
+[ "$epic" != "DRYRUN" ] && add_to_board "https://github.com/$(repo_slug)/issues/$epic"
 
 # Print the per-investigation view URL to save (UI-only step).
 if [ -n "$proj" ] && [ "$epic" != "DRYRUN" ]; then

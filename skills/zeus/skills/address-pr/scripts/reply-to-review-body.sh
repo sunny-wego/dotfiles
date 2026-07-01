@@ -37,19 +37,7 @@ resolve_target "$@"
 owner="$OWNER"; repo="$REPO_NAME"; pr="$PR"
 [ -n "$pr" ] && [ -n "$REPO_SLUG" ] || {
   echo "Usage: reply-to-review-body.sh --pr <n> --repo <owner/repo> [--from <bodies.json>|-]" >&2; exit 2; }
-bodies_src="-"
-if [ "${#REST[@]}" -gt 0 ]; then set -- "${REST[@]}"; else set --; fi
-while [ $# -gt 0 ]; do case "$1" in
-  --from)   bodies_src="${2:?--from needs a value}"; shift 2 ;;
-  --from=*) bodies_src="${1#*=}"; shift ;;
-  *)        bodies_src="$1"; shift ;;
-esac; done
-
-if [ "$bodies_src" = "-" ]; then
-  bodies=$(cat)
-else
-  bodies=$(cat "$bodies_src")
-fi
+bodies=$(read_from ${REST[@]+"${REST[@]}"})
 
 posted="[]"
 errors="[]"

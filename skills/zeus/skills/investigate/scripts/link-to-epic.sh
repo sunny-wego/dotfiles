@@ -16,16 +16,7 @@ if [ "${1:-}" = "--pr" ]; then is_pr=1; shift; fi
 num="${1:?usage: link-to-epic.sh [--pr] <number>}"
 
 epic="$(active_epic)"; [ -n "$epic" ] || die "no active investigation in this worktree (run /zeus:investigate new)"
-proj="$(state_get '.project')"
-slug="$(repo_slug)"; owner="$(repo_owner)"
-
-add_to_board() { # $1 = issue/PR url
-  have_project_scope || { log "no project scope — skipping board (gh auth refresh -s project to enable)"; return 0; }
-  [ -n "$proj" ] || { log "no project recorded in state — skipping board"; return 0; }
-  if [ "$DRY_RUN" = "1" ]; then echo "[dry-run] gh project item-add $proj --owner $owner --url $1" >&2; return 0; fi
-  gh project item-add "$proj" --owner "$owner" --url "$1" --format json >/dev/null \
-    && log "added to board #$proj"
-}
+slug="$(repo_slug)"
 
 if [ "$is_pr" = "1" ]; then
   url="$(gh pr view "$num" --json url --jq .url)"

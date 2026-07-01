@@ -3,7 +3,7 @@
 #
 # Create:
 #   post-issue.sh --title "feat(x): …" --body-file draft.md \
-#     [--label l] [--assignee u] [--milestone m] [--repo owner/name] [--state f] [--yes]
+#     [--label l] [--assignee u] [--milestone m] [--repo owner/name] [--state f]
 #
 # Update (amend an existing issue — re-render the whole body from state and edit):
 #   post-issue.sh --update <number> --title "…" --body-file draft.md \
@@ -14,7 +14,7 @@
 # so we replace the body wholesale — consistency holds by construction.
 #
 # --state <file> persists the state JSON under the issue number via state.sh so a
-#   later amend can reload it. --yes is a no-op (confirmation happens in the agent).
+#   later amend can reload it.
 #
 # Prints the issue URL on success.
 
@@ -36,7 +36,6 @@ while [ "$#" -gt 0 ]; do
     --comment) comment_number="$2"; shift 2 ;;
     --force-amend) force_amend="true"; shift ;;
     --state) state_file="$2"; shift 2 ;;
-    --yes) shift ;;
     *) echo "error: unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -48,6 +47,9 @@ fi
 [ -f "$body_file" ] || { echo "error: body file not found: $body_file" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+# gh_issue_number — shared issue-number parse (lib/gh-issue.sh, shared with investigate).
+# shellcheck source=../../../lib/gh-issue.sh
+source "$script_dir/../../../lib/gh-issue.sh"
 
 # Sign the issue/RFC body — or, in --comment mode, the disposition comment — with
 # the zeus origin tag (idempotent). One call covers all three modes since each
@@ -121,7 +123,7 @@ else
   for a in "${assignees[@]:-}"; do [ -n "$a" ] && args+=(--assignee "$a"); done
   url=$(gh "${args[@]}")
   echo "$url"
-  number=$(printf '%s\n' "$url" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+$' | head -1)
+  number=$(gh_issue_number "$url")
 fi
 
 # Best-effort journey handoff write — never block the success path.

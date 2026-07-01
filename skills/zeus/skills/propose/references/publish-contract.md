@@ -18,12 +18,12 @@ Every backend exposes exactly these, with this signature (mirrors `gh issue`):
 
 | Verb | Invocation | Maps to |
 |---|---|---|
-| **create** | `<backend> --title <t> --body-file <path> --repo <owner/repo> [--state <f>] [--yes]` | new artifact |
+| **create** | `<backend> --title <t> --body-file <path> --repo <owner/repo> [--state <f>]` | new artifact |
 | **update** | `<backend> --update <id> --title <t> --body-file <path> [--state <f>] [--force-amend]` | amend the artifact **in place** (full re-render from state) |
 | **comment** | `<backend> --comment <id> --body-file <path> --repo <owner/repo>` | append a comment (the *not-mine* path) — never touches the artifact body |
 
 - `--state <file>` is the proposal's state JSON (the source of truth a later amend
-  reloads). `--yes` is a no-op (confirmation happens in the agent, not the script).
+  reloads).
 - `--repo <owner/repo>` is how a backend resolves *where* to post (GitHub: the repo
   itself; Confluence: `confluence-target.sh <owner/repo>` → cloud/space/parent).
 - A backend that cannot satisfy a required argument exits `2` (usage), loudly.
@@ -73,7 +73,7 @@ are shared helpers; a backend wires them, it does not re-implement them.
    makes this clause literally true rather than duplicated.)*
 4. **Watermark.** The published body carries the `_via `zeus:propose`_` origin tag
    (idempotent). *Where* it is stamped is the backend's choice: `post-issue.sh`
-   stamps the markdown body-file directly; `render-confluence.sh` bakes it into the
+   stamps the markdown body-file directly; `render.sh --format confluence` bakes it into the
    markdown upstream (because by the time `confluence.sh` has the body it is storage
    XHTML and can't take a markdown append). The invariant is *the artifact is
    signed*, not *which script signs it*.

@@ -18,7 +18,6 @@ source "$SCRIPT_DIR/lib.sh"
 resolve_pr "$@"
 pr="${PR:?Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>}"
 expected="$SHA"
-[ -z "$expected" ] && [ "${#REST[@]}" -gt 0 ] && expected="${REST[0]}"
 [ -n "$expected" ] || { echo "Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>" >&2; exit 1; }
 
 MAX_RETRIES=6

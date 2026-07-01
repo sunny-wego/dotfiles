@@ -29,7 +29,6 @@ source "$SCRIPT_DIR/lib.sh"
 
 resolve_target "$@"
 pr="$PR"; owner="$OWNER"; repo="$REPO_NAME"; head_sha="$SHA"
-[ -z "$head_sha" ] && [ "${#REST[@]}" -gt 0 ] && head_sha="${REST[0]}"
 [ -n "$pr" ] && [ -n "$REPO_SLUG" ] || {
   echo "usage: rehydrate.sh --pr <n> [--repo <owner/repo>] [--sha <head>]" >&2; exit 2; }
 

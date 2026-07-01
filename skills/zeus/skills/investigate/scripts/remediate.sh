@@ -34,10 +34,7 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
-gh label create remediation 2>/dev/null || true
-body="$(printf '%s' "$body" | bash "$HERE/watermark.sh" investigate - 2>/dev/null || printf '%s' "$body")"
-url="$(gh issue create --title "$fix" --label remediation --body "$body")"
-num="$(echo "$url" | grep -oE '[0-9]+$')"
+num="$(create_labeled_issue "$fix" remediation "$body")"
 log "opened remediation #$num — $fix"
 cbody="Remediation opened: #$num — $fix"
 cbody="$(printf '%s' "$cbody" | bash "$HERE/watermark.sh" investigate - 2>/dev/null || printf '%s' "$cbody")"

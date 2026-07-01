@@ -8,10 +8,7 @@
 # Usage:
 #   post-pr.sh --title "feat(x): …" --body-file path/to/body.md \
 #     [--base <branch>] [--draft] [--label <l>] [--assignee <u>] [--reviewer <u>] \
-#     [--repo <owner/name>] [--yes]
-#
-# --yes is accepted for parity with non-interactive callers but is a no-op
-#   here (confirmation happens in the agent, not in this script).
+#     [--repo <owner/name>]
 #
 # Self-audit chokepoint: refuses to create the PR if validate-pr.sh fails on the
 # body (missing required sections), so a malformed body can't publish even when a
@@ -42,7 +39,6 @@ while [ "$#" -gt 0 ]; do
     --assignee) assignees+=("$2"); shift 2 ;;
     --reviewer) reviewers+=("$2"); shift 2 ;;
     --repo) repo="$2"; shift 2 ;;
-    --yes) shift ;;
     *) echo "error: unknown flag: $1" >&2; exit 1 ;;
   esac
 done

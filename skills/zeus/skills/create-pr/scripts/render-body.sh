@@ -81,14 +81,9 @@ fi
 # Each emit_* reads from the state and writes a markdown fragment. Returning
 # an empty string means "omit this section."
 
-emit_original_intent() {
-  jq -r '
-    "## Original Intent\n" +
-    "- Purpose: " + (.purpose // "") + "\n" +
-    "- Scope: " + (.scope // "") + "\n" +
-    (if (.non_goals // "") == "" then "" else "- Non-goals: " + .non_goals + "\n" end)
-  ' "$state_file"
-}
+# The Original Intent grammar is owned by lib/original-intent.sh (sourced via
+# lib.sh), shared with address-pr's parser so writer and reader can't drift.
+emit_original_intent() { oi_emit_from_state "$state_file"; }
 
 emit_what_this_does() {
   jq -r '

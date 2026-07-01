@@ -12,15 +12,44 @@ ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 source "$ZEUS_LIB_DIR/run.sh"
 # shellcheck source=../../../lib/repo.sh
 source "$ZEUS_LIB_DIR/repo.sh"
+# atomic_write lives in lib/state.sh (one copy for the family).
+# shellcheck source=../../../lib/state.sh
+source "$ZEUS_LIB_DIR/state.sh"
+# gh_issue_number / ensure_label — shared with propose.
+# shellcheck source=../../../lib/gh-issue.sh
+source "$ZEUS_LIB_DIR/gh-issue.sh"
 
 die() { echo "investigate: $*" >&2; exit 1; }
 log() { echo "investigate: $*" >&2; }
 
 require() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
-# base_branch — investigate's name for the repo default branch (now the resilient,
-# stack-agnostic resolver from repo.sh; callers unchanged).
-base_branch() { repo_default_branch; }
+# Scripts dir — this lib and the vendored watermark.sh symlink both live here.
+INVESTIGATE_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# create_labeled_issue <title> <label> <body> [label-desc] — the shared issue-opening
+# core for ensure-epic / hypothesis / remediate: idempotently ensure the label exists,
+# sign the body with the zeus origin tag, create the issue, and echo its number. Each
+# caller does its own sub-issue linking / cross-refs afterward.
+create_labeled_issue() {
+  local title="$1" label="$2" body="$3" desc="${4:-}" url
+  ensure_label "$label" "$desc"
+  body="$(printf '%s' "$body" | bash "$INVESTIGATE_SCRIPTS_DIR/watermark.sh" investigate - 2>/dev/null || printf '%s' "$body")"
+  url="$(gh issue create --title "$title" --label "$label" --body "$body")"
+  gh_issue_number "$url"
+}
+
+# add_to_board <issue-or-pr-url> — add the URL to the recorded project board, if any.
+# No-op (with a log line) when project scope is missing, no project is recorded, or
+# DRY_RUN=1. Shared by ensure-epic / link-to-epic.
+add_to_board() {
+  local url="$1" proj; proj="$(state_get '.project')"
+  [ -n "$proj" ] || { log "no project recorded in state — skipping board"; return 0; }
+  have_project_scope || { log "no project scope — skipping board (gh auth refresh -s project to enable)"; return 0; }
+  if [ "$DRY_RUN" = "1" ]; then echo "[dry-run] gh project item-add $proj --owner $(repo_owner) --url $url" >&2; return 0; fi
+  run gh project item-add "$proj" --owner "$(repo_owner)" --url "$url" --format json >/dev/null \
+    && log "added to board #$proj"
+}
 
 # ── Per-worktree investigation state ────────────────────────────────────────
 # Stored under <gitdir>/investigate/ as ONE FILE PER FIELD (epic, project, report,
@@ -32,14 +61,7 @@ base_branch() { repo_default_branch; }
 # A pre-rename manage-incident dir AND a pre-split state.json are migrated on first
 # touch, so an in-flight investigation never orphans.
 
-# atomic_write <path> <content> — publish a value by write-to-tmp + rename (sibling
-# tmp on the same fs; PID-keyed so concurrent writers don't share a tmp).
-atomic_write() {
-  local path="$1" content="$2" tmp
-  mkdir -p "$(dirname "$path")"
-  tmp="$path.tmp.$$"
-  printf '%s' "$content" > "$tmp" && mv "$tmp" "$path"
-}
+# atomic_write comes from lib/state.sh (sourced above) — one copy for the family.
 
 # _migrate_state <dir> — split a legacy single-file state.json into per-field files,
 # then remove it. Tolerant; invoke as `_migrate_state "$d" || true`.

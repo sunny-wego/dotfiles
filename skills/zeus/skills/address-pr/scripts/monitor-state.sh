@@ -67,9 +67,7 @@ case "$cmd" in
   set-last-seen)
     ts="${2:?ISO8601 timestamp required}"
     [ -f "$MONITOR_FILE" ] || { echo "monitor state missing — run monitor-state.sh init first" >&2; exit 1; }
-    tmp="$MONITOR_FILE.tmp"
-    jq --arg ts "$ts" '.last_seen = $ts' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.last_seen = $ts' --arg ts "$ts"
     ;;
 
   pr)
@@ -84,17 +82,13 @@ case "$cmd" in
 
   bump-idle)
     [ -f "$MONITOR_FILE" ] || { echo "monitor state missing — run monitor-state.sh init first" >&2; exit 1; }
-    tmp="$MONITOR_FILE.tmp"
-    jq '.idle_streak = ((.idle_streak // 0) + 1)' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.idle_streak = ((.idle_streak // 0) + 1)'
     jq -r '.idle_streak' "$MONITOR_FILE"
     ;;
 
   reset-idle)
     [ -f "$MONITOR_FILE" ] || { echo "monitor state missing — run monitor-state.sh init first" >&2; exit 1; }
-    tmp="$MONITOR_FILE.tmp"
-    jq '.idle_streak = 0' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.idle_streak = 0'
     ;;
 
   idle-streak)
@@ -104,17 +98,13 @@ case "$cmd" in
 
   bump-probe-failure)
     [ -f "$MONITOR_FILE" ] || { echo "monitor state missing — run monitor-state.sh init first" >&2; exit 1; }
-    tmp="$MONITOR_FILE.tmp"
-    jq '.probe_failures = ((.probe_failures // 0) + 1)' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.probe_failures = ((.probe_failures // 0) + 1)'
     jq -r '.probe_failures' "$MONITOR_FILE"
     ;;
 
   reset-probe-failures)
     [ -f "$MONITOR_FILE" ] || { echo "monitor state missing — run monitor-state.sh init first" >&2; exit 1; }
-    tmp="$MONITOR_FILE.tmp"
-    jq '.probe_failures = 0' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.probe_failures = 0'
     ;;
 
   probe-failures)
@@ -130,9 +120,7 @@ case "$cmd" in
       echo "set-last-acked: argument must be a JSON array, got: $arr" >&2
       exit 1
     fi
-    tmp="$MONITOR_FILE.tmp"
-    jq --argjson ids "$arr" '.last_acked_ids = ($ids | map(tostring))' "$MONITOR_FILE" > "$tmp"
-    mv "$tmp" "$MONITOR_FILE"
+    json_mutate "$MONITOR_FILE" '.last_acked_ids = ($ids | map(tostring))' --argjson ids "$arr"
     ;;
 
   last-acked)

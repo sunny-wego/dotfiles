@@ -14,28 +14,15 @@
 # not committed — and are read by their owning scripts, not through config_get.
 #
 # API:  config_get <dotted.key> [default]
-#       config_set [--scope user|repo] <dotted.key> <value>
-#       config_path [user|repo|defaults]
-#       config_dir                      # the ZEUS_CONFIG_DIR root
 
 ZEUS_CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}"
 ZEUS_DEFAULTS_FILE="${ZEUS_DEFAULTS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.defaults.json}"
-
-config_dir() { printf '%s\n' "$ZEUS_CONFIG_DIR"; }
 
 _zeus_repo_config() {
   local gd; gd="$(git rev-parse --absolute-git-dir 2>/dev/null)" || return 1
   printf '%s\n' "$gd/zeus/config.json"
 }
 _zeus_user_config() { printf '%s\n' "$ZEUS_CONFIG_DIR/config.json"; }
-
-config_path() {
-  case "${1:-user}" in
-    repo)     _zeus_repo_config ;;
-    defaults) printf '%s\n' "$ZEUS_DEFAULTS_FILE" ;;
-    *)        _zeus_user_config ;;
-  esac
-}
 
 # config_get <dotted.key> [default]
 config_get() {
@@ -51,21 +38,4 @@ config_get() {
     [ -n "$val" ] && { printf '%s\n' "$val"; return 0; }
   done
   printf '%s\n' "$def"
-}
-
-# config_set [--scope user|repo] <dotted.key> <value>  (default scope: user)
-config_set() {
-  local scope="user"
-  if [ "${1:-}" = "--scope" ]; then scope="$2"; shift 2; fi
-  local key="$1" value="$2" f tmp
-  case "$scope" in
-    repo) f="$(_zeus_repo_config)" || { echo "config_set: not in a git worktree (repo scope)" >&2; return 1; } ;;
-    *)    f="$(_zeus_user_config)" ;;
-  esac
-  mkdir -p "$(dirname "$f")"
-  [ -f "$f" ] || printf '{}\n' > "$f"
-  tmp="$f.tmp.$$"
-  # store raw JSON when the value parses as JSON, else as a string
-  jq --arg k "$key" --arg v "$value" \
-     'setpath($k|split("."); ($v|fromjson? // $v))' "$f" > "$tmp" && mv "$tmp" "$f"
 }

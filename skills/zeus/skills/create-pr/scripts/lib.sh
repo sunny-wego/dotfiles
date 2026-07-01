@@ -11,6 +11,8 @@ fi
 ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 # shellcheck source=../../../lib/repo.sh
 source "$ZEUS_LIB_DIR/repo.sh"
+# shellcheck source=../../../lib/original-intent.sh
+source "$ZEUS_LIB_DIR/original-intent.sh"
 
 # shellcheck disable=SC2034  # REPO_ROOT/MANAGED_* are consumed by scripts that source this lib
 REPO_ROOT="$(git rev-parse --show-toplevel)"

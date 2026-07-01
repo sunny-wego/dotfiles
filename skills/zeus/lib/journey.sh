@@ -88,6 +88,11 @@ migrate_legacy() {
   rm -f "$LEGACY"
 }
 
+# _field <json-file> <jq-path> — bare value of a JSON field, or "" if the file is
+# absent. The accessor commands (issue-number/url, pr-number/url, reviewed-sha) all
+# reduce to this.
+_field() { if [ -f "$1" ]; then jq -r "$2 // empty" "$1"; else echo ""; fi; }
+
 cmd="${1:?Usage: journey.sh <write-issue|write-pr|write-review|write-investigation|lookup|issue-number|issue-url|pr-number|pr-url|reviewed-sha|investigation-epic|clear> ...}"
 
 migrate_legacy
@@ -151,25 +156,11 @@ case "$cmd" in
     fi
     ;;
 
-  issue-number)
-    if [ -f "$DIR/issue.json" ]; then jq -r '.number // empty' "$DIR/issue.json"; else echo ""; fi
-    ;;
-
-  issue-url)
-    if [ -f "$DIR/issue.json" ]; then jq -r '.url // empty' "$DIR/issue.json"; else echo ""; fi
-    ;;
-
-  pr-number)
-    if [ -f "$DIR/pr.json" ]; then jq -r '.number // empty' "$DIR/pr.json"; else echo ""; fi
-    ;;
-
-  pr-url)
-    if [ -f "$DIR/pr.json" ]; then jq -r '.url // empty' "$DIR/pr.json"; else echo ""; fi
-    ;;
-
-  reviewed-sha)
-    if [ -f "$DIR/review.json" ]; then jq -r '.sha // empty' "$DIR/review.json"; else echo ""; fi
-    ;;
+  issue-number) _field "$DIR/issue.json" .number ;;
+  issue-url)    _field "$DIR/issue.json" .url ;;
+  pr-number)    _field "$DIR/pr.json" .number ;;
+  pr-url)       _field "$DIR/pr.json" .url ;;
+  reviewed-sha) _field "$DIR/review.json" .sha ;;
 
   clear)
     rm -rf "$DIR"

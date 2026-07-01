@@ -26,19 +26,7 @@ resolve_target "$@"
 owner="$OWNER"; repo="$REPO_NAME"; pr="$PR"
 [ -n "$pr" ] && [ -n "$REPO_SLUG" ] || {
   echo "Usage: reply-to-comments.sh --pr <n> --repo <owner/repo> [--from <pairs.json>|-]" >&2; exit 2; }
-pairs_src="-"
-if [ "${#REST[@]}" -gt 0 ]; then set -- "${REST[@]}"; else set --; fi
-while [ $# -gt 0 ]; do case "$1" in
-  --from)   pairs_src="${2:?--from needs a value}"; shift 2 ;;
-  --from=*) pairs_src="${1#*=}"; shift ;;
-  *)        pairs_src="$1"; shift ;;
-esac; done
-
-if [ "$pairs_src" = "-" ]; then
-  pairs=$(cat)
-else
-  pairs=$(cat "$pairs_src")
-fi
+pairs=$(read_from ${REST[@]+"${REST[@]}"})
 
 replied="[]"
 errors="[]"

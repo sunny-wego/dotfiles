@@ -20,10 +20,11 @@ ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 source "$ZEUS_LIB_DIR/pr-ident.sh"
 # shellcheck source=../../../lib/lock.sh
 source "$ZEUS_LIB_DIR/lock.sh"
+# shellcheck source=../../../lib/state.sh
+source "$ZEUS_LIB_DIR/state.sh"
 
 # Per-worktree run state (isolated: git-dir resolves to the worktree's gitdir).
-STATE_DIR="$(git rev-parse --absolute-git-dir)/improve"
-mkdir -p "$STATE_DIR"
+STATE_DIR="$(state_root improve)"
 
 # Durable, cross-session ledger — in the zeus SOURCE, not the worktree.
 # `pwd -P` resolves the symlinked install (~/.claude/skills/zeus -> source) to the

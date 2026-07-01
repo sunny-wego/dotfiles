@@ -24,29 +24,10 @@ read_body() {
   fi
 }
 
-extract_section() {
-  local source="$1"
-
-  read_body "$source" | awk '
-    BEGIN { in_section = 0 }
-    /^##[[:space:]]+Original Intent[[:space:]]*$/ {
-      in_section = 1
-      print
-      next
-    }
-    /^##[[:space:]]+/ {
-      if (in_section) {
-        exit
-      }
-    }
-    /^<!--[[:space:]]*create-pr:managed:start[[:space:]]*-->$/ {
-      if (in_section) {
-        exit
-      }
-    }
-    in_section { print }
-  '
-}
+# The "## Original Intent" section grammar (extract + Purpose/Scope/Non-goals parse)
+# is owned by lib/original-intent.sh (sourced via lib.sh: oi_parse), shared with
+# create-pr's emitter so writer and reader can't drift. This script layers the
+# address-pr-specific concerns (Closes #N + linked-issue enrichment) on top.
 
 extract_closes_number() {
   # Look for GitHub keyword variants in the PR body: closes / fixes / resolves
@@ -106,99 +87,28 @@ enrich_from_issue() {
 
 parse_source() {
   local source="$1"
-  local section purpose scope non_goals raw_line normalized value current
-  local closes_number issue_enrichment
+  local body grammar present closes_number issue_enrichment
 
-  section=$(extract_section "$source")
-  closes_number=$(extract_closes_number "$source")
+  body=$(read_body "$source")
+  grammar=$(printf '%s' "$body" | oi_parse)          # shared grammar: {present[, section,purpose,scope,non_goals]}
+  present=$(printf '%s' "$grammar" | jq -r '.present')
+  closes_number=$(printf '%s' "$body" | extract_closes_number -)
 
-  if [ -z "$section" ] && [ -z "$closes_number" ]; then
+  if [ "$present" != "true" ] && [ -z "$closes_number" ]; then
     jq -nc '{present: false}'
     return 0
   fi
 
-  if [ -z "$section" ]; then
-    # No Original Intent block but we have a Closes #N — still useful.
-    issue_enrichment=$(enrich_from_issue "$closes_number")
-    jq -nc --argjson issue "$issue_enrichment" \
-      '{present: false, issue: $issue}'
-    return 0
-  fi
-
-  purpose=""
-  scope=""
-  non_goals=""
-  current=""
-
-  while IFS= read -r raw_line; do
-    normalized=$(printf '%s' "$raw_line" | sed -E 's/^[[:space:]]*[-*]?[[:space:]]*//')
-    normalized=$(printf '%s' "$normalized" | sed -E 's/^\*\*([^*]+)\*\*[[:space:]]*:[[:space:]]*/\1: /')
-
-    case "$normalized" in
-      '## Original Intent')
-        current=""
-        ;;
-      Purpose:*)
-        value=$(printf '%s' "$normalized" | sed -E 's/^Purpose:[[:space:]]*//')
-        purpose="$value"
-        current="purpose"
-        ;;
-      Scope:*)
-        value=$(printf '%s' "$normalized" | sed -E 's/^Scope:[[:space:]]*//')
-        scope="$value"
-        current="scope"
-        ;;
-      Non-goals:*|Non-goal:*)
-        value=$(printf '%s' "$normalized" | sed -E 's/^Non-goals?:[[:space:]]*//')
-        non_goals="$value"
-        current="non_goals"
-        ;;
-      '')
-        current=""
-        ;;
-      *)
-        if [ -n "$current" ]; then
-          case "$current" in
-            purpose)
-              purpose=$(printf '%s %s' "$purpose" "$normalized" | xargs)
-              ;;
-            scope)
-              scope=$(printf '%s %s' "$scope" "$normalized" | xargs)
-              ;;
-            non_goals)
-              non_goals=$(printf '%s %s' "$non_goals" "$normalized" | xargs)
-              ;;
-          esac
-        fi
-        ;;
-    esac
-  done <<EOF2
-$section
-EOF2
-
-  # Enrich with the linked issue once, only if Closes #N was found. The
-  # extra `gh api` call is bounded to a single request; consumers see an
-  # `issue` field with exclusions + decisions for richer scope-sensitive
-  # triage. Independence: no Closes #N → no extra call → identical output.
+  # Enrich with the linked issue once, only if Closes #N was found. The extra
+  # `gh api` call is bounded to a single request; consumers see an `issue` field
+  # with exclusions + decisions for richer scope-sensitive triage. Independence:
+  # no Closes #N → no extra call → identical output.
   issue_enrichment='null'
-  if [ -n "$closes_number" ]; then
-    issue_enrichment=$(enrich_from_issue "$closes_number")
-  fi
+  [ -n "$closes_number" ] && issue_enrichment=$(enrich_from_issue "$closes_number")
 
-  jq -nc \
-    --arg section "$section" \
-    --arg purpose "$purpose" \
-    --arg scope "$scope" \
-    --arg non_goals "$non_goals" \
-    --argjson issue "$issue_enrichment" \
-    '{
-      present: true,
-      section: $section,
-      purpose: $purpose,
-      scope: $scope
-    }
-    + (if $non_goals != "" then {non_goals: $non_goals} else {} end)
-    + (if $issue != null then {issue: $issue} else {} end)'
+  # Layer the address-pr-specific `issue` onto the shared grammar object.
+  printf '%s' "$grammar" | jq -c --argjson issue "$issue_enrichment" \
+    '. + (if $issue != null then {issue: $issue} else {} end)'
 }
 
 cmd="${1:-}"

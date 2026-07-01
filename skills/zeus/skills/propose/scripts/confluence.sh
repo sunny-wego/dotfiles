@@ -11,7 +11,7 @@
 # Verb/flag surface mirrors post-issue.sh 1:1:
 #   Create:
 #     confluence.sh --title "feat(x): …" --body-file body.(md|storage) --repo owner/name \
-#       [--status current|draft] [--state f] [--yes]
+#       [--status current|draft] [--state f]
 #   Update (amend in place — re-rendered body, drift+ownership gated):
 #     confluence.sh --update <pageId> --title "…" --body-file body --repo owner/name \
 #       [--expected-version N] [--state f] [--force-amend]
@@ -36,16 +36,16 @@
 # Confluence REST takes `storage` (XHTML), not markdown. Conversion is a pluggable
 # seam (md_to_storage below): set CONFLUENCE_CONVERTER to a command that reads
 # markdown on stdin and writes storage XHTML on stdout (e.g. a `mark --compile-only`
-# wrapper or pandoc+filter). A *.storage / *.xml body-file, or --representation
-# storage, is passed through untouched. The watermark is already baked into the
-# markdown upstream by render-confluence.sh, so it survives conversion — this script
-# does NOT re-stamp it (you can't append markdown to XHTML).
+# wrapper or pandoc+filter). A *.storage / *.xml body-file is passed through
+# untouched (detected by extension). The watermark is already baked into the
+# markdown upstream by `render.sh --format confluence`, so it survives conversion —
+# this script does NOT re-stamp it (you can't append markdown to XHTML).
 #
 # Prints the page URL on stdout. Exit 0 ok / 1 runtime / 2 usage — house contract.
 set -euo pipefail
 
 title=""; body_file=""; repo=""; update_id=""; comment_id=""; state_file=""
-force_amend=""; status=""; representation=""; expected_version=""
+force_amend=""; status=""; expected_version=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --title)            title="$2";            shift 2 ;;
@@ -55,10 +55,8 @@ while [ "$#" -gt 0 ]; do
     --comment)          comment_id="$2";        shift 2 ;;
     --state)            state_file="$2";        shift 2 ;;
     --status)           status="$2";            shift 2 ;;
-    --representation)   representation="$2";    shift 2 ;;
     --expected-version) expected_version="$2";  shift 2 ;;
     --force-amend)      force_amend="true";     shift ;;
-    --yes)              shift ;;
     *) echo "confluence.sh: unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -114,12 +112,12 @@ api() { # api <METHOD> <path> [<stdin-json>]
 }
 
 # Markdown → storage XHTML conversion seam (the one thing gh gives free). A body
-# already in storage (by extension or --representation storage) passes through.
+# already in storage (by *.storage/*.xml/*.xhtml extension) passes through.
 # Converter resolution: explicit CONFLUENCE_CONVERTER wins; else the bundled
 # md2storage.sh adapter when `mark` is on PATH (the zero-config default — install
 # mark and it just works); else a loud error rather than a wrong-format post.
 md_to_storage() { # reads $1 (file) → storage XHTML on stdout
-  if [ "$representation" = "storage" ] || case "$1" in *.storage|*.xml|*.xhtml) true;; *) false;; esac; then
+  if case "$1" in *.storage|*.xml|*.xhtml) true;; *) false;; esac; then
     cat "$1"; return 0
   fi
   if [ -n "${CONFLUENCE_CONVERTER:-}" ]; then
@@ -131,7 +129,7 @@ md_to_storage() { # reads $1 (file) → storage XHTML on stdout
   echo "confluence.sh: body is markdown but no converter is available. Either install" >&2
   echo "  mark (brew install mark) so the bundled md2storage.sh adapter is used, or set" >&2
   echo "  CONFLUENCE_CONVERTER to a 'markdown-on-stdin → storage-on-stdout' command, or" >&2
-  echo "  pass storage XHTML directly (--representation storage / a *.storage file)." >&2
+  echo "  pass storage XHTML directly (a *.storage / *.xml / *.xhtml file)." >&2
   return 1
 }
 
@@ -268,7 +266,7 @@ if [ -n "$state_file" ] && [ -f "$state_file" ] && [ -n "${page_id:-}" ]; then
 fi
 
 # NOTE — the create-only telemetry footer is stamped UPSTREAM, on the markdown, by
-# `render-confluence.sh --telemetry` (passed only on create), alongside the watermark
+# `render.sh --format confluence --telemetry` (passed only on create), alongside the watermark
 # and before the md→storage conversion — not here, because by the time the body
 # reaches this script it is storage XHTML and can't take a markdown append. So footer
 # parity with the GitHub path is achieved in the render step; this backend just posts

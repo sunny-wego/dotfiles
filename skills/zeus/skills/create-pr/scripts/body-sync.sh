@@ -8,8 +8,6 @@ usage() {
   cat >&2 <<'USAGE'
 Usage:
   body-sync.sh has-managed-block <body-file|->
-  body-sync.sh extract-original-intent <body-file|->
-  body-sync.sh extract-managed <body-file|->
   body-sync.sh replace-managed <body-file> <managed-file>
 USAGE
   exit 1
@@ -25,30 +23,6 @@ read_body() {
   fi
 }
 
-extract_original_intent() {
-  local source="$1"
-
-  read_body "$source" | awk '
-    BEGIN { in_section = 0 }
-    /^##[[:space:]]+Original Intent[[:space:]]*$/ {
-      in_section = 1
-      print
-      next
-    }
-    /^##[[:space:]]+/ {
-      if (in_section) {
-        exit
-      }
-    }
-    /^<!--[[:space:]]*create-pr:managed:start[[:space:]]*-->$/ {
-      if (in_section) {
-        exit
-      }
-    }
-    in_section { print }
-  '
-}
-
 has_managed_block() {
   local source="$1"
   local body
@@ -59,18 +33,6 @@ has_managed_block() {
   fi
 
   return 1
-}
-
-extract_managed() {
-  local source="$1"
-
-  has_managed_block "$source" || exit 2
-
-  read_body "$source" | awk -v start="$MANAGED_START" -v end="$MANAGED_END" '
-    $0 == start { in_section = 1; next }
-    $0 == end { exit }
-    in_section { print }
-  '
 }
 
 replace_managed() {
@@ -105,14 +67,6 @@ case "$cmd" in
   has-managed-block)
     [ "$#" -eq 1 ] || usage
     has_managed_block "$1"
-    ;;
-  extract-original-intent)
-    [ "$#" -eq 1 ] || usage
-    extract_original_intent "$1"
-    ;;
-  extract-managed)
-    [ "$#" -eq 1 ] || usage
-    extract_managed "$1"
     ;;
   replace-managed)
     [ "$#" -eq 2 ] || usage

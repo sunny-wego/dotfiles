@@ -19,8 +19,8 @@
 #   cleanup_run_state       clear telemetry + temp files before a fresh run
 #   cleanup_monitor_artifacts clear monitor cursor/payload files
 #
-# Cross-cutting helpers (with_lock, acquire_lock, resolve_pr, resolve_target) come
-# from the family's single copies in zeus/lib/, sourced below — not duplicated here.
+# Cross-cutting helpers (with_lock, resolve_pr, resolve_target) come from the
+# family's single copies in zeus/lib/, sourced below — not duplicated here.
 
 set -euo pipefail
 
@@ -37,8 +37,13 @@ source "$ZEUS_LIB_DIR/pr-ident.sh"
 source "$ZEUS_LIB_DIR/lock.sh"
 # shellcheck source=../../../lib/config.sh
 source "$ZEUS_LIB_DIR/config.sh"
+# shellcheck source=../../../lib/state.sh
+source "$ZEUS_LIB_DIR/state.sh"
+# Original Intent grammar — shared with create-pr's emitter.
+# shellcheck source=../../../lib/original-intent.sh
+source "$ZEUS_LIB_DIR/original-intent.sh"
 
-STATE_DIR="$(git rev-parse --absolute-git-dir)/address-pr"
+STATE_DIR="$(state_root address-pr)"
 STATUS_FILE="$STATE_DIR/status.json"
 STATE_FILE="$STATE_DIR/state.json"
 ORIGINAL_INTENT_FILE="$STATE_DIR/original-intent.json"
@@ -52,8 +57,6 @@ CONFLICT_FILES_FILE="$STATE_DIR/conflict-files.json"
 RELEVANCE_INPUT_FILE="$STATE_DIR/relevance-input.json"
 LOCK_DIR="$STATE_DIR/lock"
 
-mkdir -p "$STATE_DIR"
-
 cleanup_monitor_artifacts() {
   rm -f     "$MONITOR_FILE"     "$MONITOR_FILTERED_FILE"
 }
@@ -66,4 +69,17 @@ cleanup_run_state() {
   cleanup_run_artifacts
   cleanup_monitor_artifacts
   rm -f "$STATE_FILE"
+}
+
+# read_from [unconsumed args…] — resolve a `--from <file>|-` payload source (bare
+# positional tolerated; stdin is the default) and echo its contents. Pass the parser's
+# leftovers as `read_from ${REST[@]+"${REST[@]}"}`. Shared by the batch-reply scripts.
+read_from() {
+  local src="-"
+  while [ $# -gt 0 ]; do case "$1" in
+    --from)   src="${2:?--from needs a value}"; shift 2 ;;
+    --from=*) src="${1#*=}"; shift ;;
+    *)        src="$1"; shift ;;
+  esac; done
+  if [ "$src" = "-" ]; then cat; else cat "$src"; fi
 }

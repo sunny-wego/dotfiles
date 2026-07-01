@@ -243,7 +243,9 @@ directly and never routed through the identifier parser.
 | `slack-thread.sh` | `parse <permalink>` · `extract-pr` (stdin) · `save --channel C --thread-ts T [--msg-ts M] [--pr-url URL] [--requester UID]` · `get` — pure parse/persist glue for the Slack entry point; the agent makes the `slack_read_thread` / `slack_send_message` calls. |
 
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
-by both `extract-diff.sh` paths), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+by both `extract-diff.sh` paths), `select-mode.py` (`<diff> <loc-thr> <file-thr> <override>`
+→ the mode JSON; invoked by `select-mode.sh` after it resolves thresholds/override),
+`lib.sh` (sourced; `resolve_pr`/`resolve_target`).
 
 > The other skills (`propose`, `investigate`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
@@ -259,6 +261,9 @@ zeus/
 ├── .claude-plugin/        plugin manifest
 ├── lib/                   the family's single source for shared code, two kinds:
 │   ├── (sourced fragments) pr-ident.sh  lock.sh  run.sh  repo.sh  config.sh
+│   │      state.sh (per-worktree state: state_root/atomic_write/json_mutate/json_field)
+│   │      original-intent.sh (the PR Original-Intent grammar: emit + parse)
+│   │      gh-issue.sh (gh_issue_number/ensure_label — shared by propose + investigate)
 │   │      ↳ sourced by each skill's scripts/lib.sh — define functions, no top-level code
 │   ├── (vendored scripts)  journey.sh  journey-marker.sh  preflight.sh
 │   │      watermark.sh  telemetry.sh  preview.sh   ↳ symlinked into skills' scripts/
@@ -275,7 +280,7 @@ zeus/
 ```
 
 - **One copy of every shared helper, in `zeus/lib/`.** `resolve_pr`/`resolve_target`
-  (pr-ident.sh), `with_lock`/`acquire_lock` (lock.sh), `run` (run.sh), and the repo/
+  (pr-ident.sh), `with_lock` (lock.sh), `run` (run.sh), and the repo/
   base-branch helpers (repo.sh) are defined ONCE and **sourced** by each skill's
   `lib.sh` — never pasted (the old per-skill copies drifted; `check-arg-conventions.sh`
   rule [4] now forbids re-defining them). The vendored *scripts* (journey.sh, …) are

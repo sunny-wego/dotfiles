@@ -12,7 +12,7 @@ source "$HERE/lib.sh"
 require gh; require jq
 
 sha="${1:?usage: verify-shipped.sh <sha-or-ref> [base]}"
-base="${2:-$(base_branch)}"
+base="${2:-$(repo_default_branch)}"
 slug="$(repo_slug)"
 
 # compare/BASE...SHA: status "behind"/"identical" => SHA is reachable from BASE

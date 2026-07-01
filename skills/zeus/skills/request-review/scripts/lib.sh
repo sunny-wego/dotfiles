@@ -18,9 +18,10 @@ ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 source "$ZEUS_LIB_DIR/pr-ident.sh"
 # shellcheck source=../../../lib/lock.sh
 source "$ZEUS_LIB_DIR/lock.sh"
+# shellcheck source=../../../lib/state.sh
+source "$ZEUS_LIB_DIR/state.sh"
 
 # Per-worktree state (isolated: git-dir resolves to the worktree's gitdir).
-STATE_DIR="$(git rev-parse --absolute-git-dir)/request-review"
+STATE_DIR="$(state_root request-review)"
 # shellcheck disable=SC2034  # consumed by review-thread.sh, which sources this lib
 REVIEW_THREAD_FILE="$STATE_DIR/review-thread.json"
-mkdir -p "$STATE_DIR"
