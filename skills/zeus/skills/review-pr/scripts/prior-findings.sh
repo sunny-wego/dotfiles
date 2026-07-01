@@ -13,6 +13,13 @@
 # An empty array means "first review of this PR" (or every prior thread is already
 # resolved) — the caller skips the address stage.
 #
+# Side effect (delta base for a re-review): if $REVIEWED_HEAD_FILE is ABSENT and we
+# have a prior review on this PR, reconstruct the last-reviewed head from the GH
+# reviews API (our most recent review's commit_id) and write it there, so peer
+# re-review still scopes the new diff to the delta even in a fresh/wiped worktree.
+# A present $REVIEWED_HEAD_FILE (written by post-review.sh) is authoritative and is
+# never overwritten.
+#
 # Usage: prior-findings.sh        # reads owner/repo/number from $PR_FILE
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,3 +84,17 @@ json.dump(out, open(sys.argv[2], "w"), indent=1)
 print(json.dumps(out, indent=1))
 PY
 rm -f "$STATE_DIR/_threads.json"
+
+# Reconstruct the delta base only when the local marker is missing (wiped/fresh
+# worktree). The local $REVIEWED_HEAD_FILE (post-review.sh) is authoritative.
+if [ ! -f "$REVIEWED_HEAD_FILE" ]; then
+  me=$(gh api user -q .login 2>/dev/null || echo "")
+  prior_head=$(gh api "repos/$owner/$repo/pulls/$number/reviews" --paginate --jq '.[]' 2>/dev/null \
+    | jq -rs --arg me "$me" \
+        '[ .[] | select((.user.login==$me) and ((.commit_id // "") != "")) ]
+         | sort_by(.submitted_at) | last | .commit_id // empty' 2>/dev/null || echo "")
+  if [ -n "$prior_head" ] && [ "$prior_head" != "null" ]; then
+    printf '%s\n' "$prior_head" > "$REVIEWED_HEAD_FILE"
+    echo "{\"reconstructed_reviewed_head\":\"$prior_head\"}" >&2
+  fi
+fi

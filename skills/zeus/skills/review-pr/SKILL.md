@@ -23,7 +23,7 @@ license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier. The Slack entry point additionally needs the Slack MCP.
 metadata:
   author: sunnywong
-  version: "0.4"
+  version: "0.5"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(python3:*) Read Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__plugin_slack_slack__slack_read_thread mcp__plugin_slack_slack__slack_send_message
 
 ---
@@ -74,8 +74,18 @@ The default — **no flag, no arg** — auto-detects `source` and `role` via
 | `… --dry-run` | **Peer only.** Render the review but post **nothing** (preview). Peer **auto-submits by default** (this skill only runs on an explicit review request, so the post is what was asked for); use `--dry-run` when you want to eyeball it first. |
 | `… --request-changes` | **Peer only.** Submit with event `REQUEST_CHANGES` instead of the default `COMMENT`. **Never automatic** — explicit opt-in only; the default leaves the author to decide what to fix. |
 
-`select-mode.sh` independently picks single-context vs parallel fan-out from the diff
-size (parallel when reviewable LOC ≥ 400 or files ≥ 8) for either role.
+`select-mode.sh` sets the deterministic **floor** — single-context vs parallel fan-out
+from diff size (parallel when reviewable LOC ≥ 400 or files ≥ 8) plus the candidate
+`applicable_handlers` — for either role. A cheap **scout** (step 3.75) then *refines*
+within that floor: it narrows the live lenses, picks a per-lens model tier, and localizes
+hot spots, so spend tracks risk. The floor is a safety net the scout cannot lower.
+
+**Config** (zeus config, repo > user > shipped; keys under `review.`):
+`enable_scout` (true), `scout_model` (`claude-haiku-4-5-20251001`), `scout_escalate_model`
+(`claude-sonnet-5`, for migrations/auth/secrets diffs), `tiers` (mechanical →
+`claude-sonnet-5`, reasoning → `claude-opus-4-8`), `synthesis_model` (`claude-opus-4-8`,
+= synthesis + central verify), `tests_first` (true), `max_test_seconds` (120),
+`test_exclude_regex` (skips integration/e2e), `loc_threshold` (400), `file_threshold` (8).
 
 ## Flow
 
@@ -120,11 +130,20 @@ branch, so there's no PR to resolve and no checkout. Extract the working diff an
 the run mode:
 ```bash
 bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --local [--base <ref>] [--include-dirty]
+# Re-review delta scoping (step 0b) also applies locally: a second self-review after a
+# commit diagnoses only what changed since the last one. $REVIEWED_HEAD_FILE is written
+# by post-review at the end of every review (self included); absent → full working diff.
+since=$(cat "$REVIEWED_HEAD_FILE" 2>/dev/null || true)
+if [ -n "$since" ] && [ "$since" != "$(jq -r .head_sha "$PR_FILE")" ]; then
+  bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --local [--base <ref>] --since "$since"
+fi
 bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]
+bash ${CLAUDE_SKILL_DIR}/scripts/run-changed-tests.sh              # → $TESTS_FILE (step 3.5; best-effort)
 ```
 If `detect-target.sh` returned a `.note` (e.g. an open PR exists but the branch has
 unpushed/uncommitted changes), surface it so the user knows local was chosen on
-purpose. Skip `identify-pr.sh` / `ensure-checkout.sh` entirely.
+purpose. Skip `identify-pr.sh` / `ensure-checkout.sh` entirely. (Local self-review has
+no PR, so no `prior-findings.sh` — role is always self; findings are handed back.)
 
 **`.source == "remote"` (review an open PR):**
 ```bash
@@ -134,19 +153,31 @@ bash ${CLAUDE_SKILL_DIR}/scripts/ensure-checkout.sh --pr <n> --repo <owner/repo>
   tool with `.path` before reading any code, so you review the PR head — not
   whatever branch the launch checkout is on.
 - If `.mode == "foreign-clone"`: read and run from `.path` directly (absolute paths).
-- Then extract the diff + anchorable lines:
+- Then extract the diff + anchorable lines, recover prior findings, scope the delta
+  (re-review), and run the changed-area tests:
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --pr <n> --repo <owner/repo>
-bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]   # → {mode, applicable_handlers, reviewable_loc, ...}
-bash ${CLAUDE_SKILL_DIR}/scripts/prior-findings.sh                  # → $PRIOR_FILE: our own UNRESOLVED comments from earlier rounds
+bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --pr <n> --repo <owner/repo>   # full diff + anchors; writes $PR_FILE
+bash ${CLAUDE_SKILL_DIR}/scripts/prior-findings.sh   # → $PRIOR_FILE; also reconstructs $REVIEWED_HEAD_FILE if a prior review exists
+# Re-review delta scoping (step 0b): if we have a last-reviewed head that DIFFERS from
+# the current head, produce $DELTA_DIFF_FILE so NEW-findings diagnosis reads only the
+# new commits (prior findings are still re-verified in step 5b; anchors/posting use the
+# full diff). A first review (no $REVIEWED_HEAD_FILE) simply skips --since → full diff.
+since=$(cat "$REVIEWED_HEAD_FILE" 2>/dev/null || true)
+if [ -n "$since" ] && [ "$since" != "$(jq -r .head_sha "$PR_FILE")" ]; then
+  bash ${CLAUDE_SKILL_DIR}/scripts/extract-diff.sh --pr <n> --repo <owner/repo> --since "$since"   # → $DELTA_DIFF_FILE
+fi
+bash ${CLAUDE_SKILL_DIR}/scripts/select-mode.sh [--deep|--single]   # reads the delta when present → {mode, applicable_handlers, ...}
+bash ${CLAUDE_SKILL_DIR}/scripts/run-changed-tests.sh              # → $TESTS_FILE (step 3.5; best-effort)
 ```
-Either way `extract-diff.sh` writes the diff + anchorable lines (the single source of
-truth for where inline comments may land), and `select-mode.sh` deterministically
-reads `.mode` (`single`|`parallel`) and `.applicable_handlers`. Log the line it
-prints so misfires are tunable. `prior-findings.sh` recovers this skill's own
-unresolved comments from earlier rounds (matched by the `zeus:review-pr id=`
-marker) — a **non-empty `$PRIOR_FILE` means this is a re-review**: you'll address
-those comments in step 5b, and step 6 won't re-post anything already on the PR.
+`extract-diff.sh` writes the diff + anchorable lines (the single source of truth for
+where inline comments may land) and, on a re-review, `$DELTA_DIFF_FILE`; `select-mode.sh`
+reads the delta when present so `.mode`/`.applicable_handlers` reflect the NEW work.
+Log the line it prints so misfires are tunable. `prior-findings.sh` recovers this
+skill's own unresolved comments from earlier rounds (matched by the `zeus:review-pr
+id=` marker) — a **non-empty `$PRIOR_FILE` means this is a re-review**: you'll address
+those comments in step 5b, and step 6 won't re-post anything already on the PR. It also
+reconstructs `$REVIEWED_HEAD_FILE` from the prior review's commit when the local marker
+is missing (a wiped worktree), so the delta base survives.
 
 ### 2. Read the contract once
 Read `references/review-contract.md` before the first handler — it owns the
@@ -171,30 +202,68 @@ none of the heavy ones.
 | 6 | Security | auth, secrets, crypto, signature verify, untrusted input, bot/loop/abuse guards | `handlers/security.md` |
 | 7 | Tests / verifiability | every code change (is the change guarded?) | `handlers/tests.md` |
 
-### 4. Diagnose (branch on `.mode`)
-- **`mode == "single"`:** work each applicable handler in turn in this context.
-  Each appends its findings to `$FINDINGS_FILE` (schema-shaped, under `with_lock`).
-- **`mode == "parallel"`:** spawn one **Agent** per applicable handler in a single
-  message, each given the diff, its handler file, `review-contract.md`, and the
-  finding schema; each returns its findings array. The agents are **read-only
+### 3.5 Fold in the changed-area test results
+`run-changed-tests.sh` (step 1) already ran the repo's own tests for the changed files
+— the unit slice; integration/e2e are excluded (they need infra) — and wrote
+`$TESTS_FILE` (`{status, all_passed, groups[...]}`). This is the cheapest, highest-signal
+oracle; read it *before* diagnosing:
+- A **passing** test exercising a changed path is a ready-made refute — a hypothesis
+  whose mechanism it covers is likely already guarded (cite it in step 5). A **failing**
+  test is a confirmed-bug signal — lead with it.
+- `status: skipped` / `no_changed_tests` just means no cheap oracle here — proceed; it
+  is never a blocker.
+Pass `$TESTS_FILE` into the diagnosis prompts and the central verify (step 5).
+
+### 3.75 Scout the risk map (cheap triage → how much to spend)
+Spawn **one** Agent as a scout to set depth + model tier, so spend is proportional to
+risk. Give it the diff (`$DELTA_DIFF_FILE` on a re-review, else `$DIFF_FILE`), the PR
+title/body, `select-mode`'s JSON, and `$TESTS_FILE`.
+- **Model:** `review.scout_model` (default `claude-haiku-4-5-20251001`); **escalate to
+  `review.scout_escalate_model` (default `claude-sonnet-5`)** on a high-blast-radius diff
+  — i.e. `select-mode`'s `.applicable_handlers` includes `data-migrations` or `security`.
+- **Returns:** `{difficulty: low|medium|high, live_lenses: [...], hotspots:
+  [{file, why}], tier_per_lens: {lens: model}, recommend: single|targeted-fanout}`.
+- **Guardrails (recall-safe):** the scout may only **refine within `select-mode`'s
+  deterministic floor** — narrow `live_lenses`, assign tiers, localize hotspots. It may
+  **not** downgrade a floor-`parallel` (`.mode == "parallel"`) into `single`, nor drop a
+  `.applicable_handlers` lens without a stated reason (a kept-but-doubted lens stays at
+  ≥ Sonnet 5). A mis-scored scout thus costs a wrong tier or an extra lens — never a
+  missed bug.
+- Skip the scout when `review.enable_scout=false` (→ fall back to the deterministic
+  `.mode` branch) or on a trivial docs/config-only diff.
+
+### 4. Diagnose (dispatch on the scout's `recommend`, bounded by the floor)
+Diagnosis reads the **delta** on a re-review (`$DELTA_DIFF_FILE` — only the new commits);
+prior findings are re-verified separately in step 5b.
+- **`recommend == "single"`** (low difficulty / small delta, and the floor is not
+  `parallel`): work each lens in `live_lenses` in turn **in this (Opus) context**, no
+  fan-out. Append findings to `$FINDINGS_FILE` (schema-shaped, under `with_lock`).
+- **`recommend == "targeted-fanout"`** (or floor `.mode == "parallel"`): spawn one
+  **Agent per `live_lens`** in a single message, each with **`model =
+  tier_per_lens[lens]`** (mechanical lenses — data-migrations, api-contract, tests —
+  default `claude-sonnet-5`; reasoning lenses — concurrency, resilience, correctness —
+  `claude-opus-4-8`), a prompt focused on the scout's `hotspots`, plus its handler file,
+  `review-contract.md`, the finding schema, and `$TESTS_FILE`. Agents are **read-only
   diagnosis** — they never run the verify tier (step 5 does, centrally). Then:
   - **Barrier — merge + dedup** all findings by `(path, line)` + claim similarity.
-  - **Synthesis pass (parallel only):** one agent reads the *full* merged set and
-    looks for what isolated lenses miss — **cross-dimension findings** (e.g. a
-    race × a failure path × dedup that together lose an event), severity upgrades,
-    and fragments of one issue filed by two handlers (merge them). This recovers
-    the cross-dimension reasoning a single context gets for free. Append/adjust
-    findings accordingly.
+  - **Synthesis pass** (**Opus**, `review.synthesis_model` default `claude-opus-4-8`,
+    in this main context — *not* the scout or the per-lens explorers): read the *full*
+    merged set for what isolated lenses miss — **cross-dimension findings** (a race × a
+    failure path × dedup that together lose an event), severity upgrades, and fragments
+    of one issue filed by two handlers (merge them). Append/adjust findings.
 
-### 5. Verify (centrally, after diagnosis)
-For findings a cheap, safe check can settle (per the contract's Tier-1 + fence):
-**detect the repo's stack and use its native tooling** (see the stack table in
-`review-contract.md` — never assume Python), run the cheapest check that
-reproduces the claim, and capture both the **ordered commands** and the **literal
-output** into `evidence`, then set `status: confirmed`; otherwise leave
-`hypothesis` with a `verify` step. Refuted → drop. Verification is **central and
-serial** even under `--deep` (the parallel agents only diagnose) — never touch
-shared/long-lived infra; on any denial, stay `hypothesis`.
+### 5. Verify (centrally, after diagnosis — Opus, this context)
+Runs in the **main context on Opus** (`review.synthesis_model`), never the scout or the
+per-lens explorers — this is the decisive, deliberately-not-cheap step. First **consult
+`$TESTS_FILE`**: a green test already exercising a finding's mechanism refutes or
+downgrades it for free (cite the test as evidence); a red one confirms. For what the
+suite doesn't settle, per the contract's Tier-1 + fence: **detect the repo's stack and
+use its native tooling** (see the stack table in `review-contract.md` — never assume
+Python), run the cheapest check that reproduces the claim, and capture both the
+**ordered commands** and the **literal output** into `evidence`, then set `status:
+confirmed`; otherwise leave `hypothesis` with a `verify` step. Refuted → drop.
+Verification is **central and serial** even under fan-out (the parallel agents only
+diagnose) — never touch shared/long-lived infra; on any denial, stay `hypothesis`.
 
 ### 5b. Address prior review comments (peer re-review only)
 Skip when `$PRIOR_FILE` is empty (first review of this PR) or `role=self`. Otherwise
@@ -287,8 +356,10 @@ that's the author's request-review concern, the inverse role).
 ### 7. Cleanup
 Remove the per-run state and any throwaway verify resources (`cleanup_run_state`).
 Leave the worktree (reused on a re-review of the same PR) unless asked to remove it.
-`$SLACK_FILE` is intentionally preserved (not in `cleanup_run_state`) so a
-same-session re-review replies in the original thread; it dies with the worktree.
+`$SLACK_FILE` and `$REVIEWED_HEAD_FILE` are intentionally preserved (not in
+`cleanup_run_state`) so a same-session re-review replies in the original thread and
+scopes its diff to the delta since the last review; both die with the worktree.
+(`post-review.sh` writes `$REVIEWED_HEAD_FILE` at the end of a completed review.)
 
 ## Scope discipline
 - **Diagnose only — no edits/commits/pushes, in either mode.** Local mode reviews the

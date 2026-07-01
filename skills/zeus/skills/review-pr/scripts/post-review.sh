@@ -204,3 +204,13 @@ if [ "$mode" = "submit" ]; then
       --input "$REVIEW_FILE" && echo "post-review: review posted." >&2
   fi
 fi
+
+# Record the head we just reviewed as the delta base for the NEXT re-review (0b).
+# Written for a completed review — self (my work, handed back) and peer submit —
+# but NOT a peer dry-run (a preview, not a review: a later real pass of the SAME
+# head must still see the full diff, not an empty delta). Persists across runs
+# ($REVIEWED_HEAD_FILE is excluded from cleanup_run_state).
+if [ "$mode" = "self" ] || [ "$mode" = "submit" ]; then
+  head_sha=$(jq -r '.head_sha // empty' "$PR_FILE" 2>/dev/null || echo "")
+  [ -n "$head_sha" ] && printf '%s\n' "$head_sha" > "$REVIEWED_HEAD_FILE"
+fi

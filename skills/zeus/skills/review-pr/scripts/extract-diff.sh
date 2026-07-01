@@ -18,14 +18,23 @@
 #                       so it is parsed HERE and never routed through the identifier
 #                       parser (a ref like release/v1 would misparse as a repo).
 #     --include-dirty   include uncommitted/staged changes (default: committed only)
+#
+#   --since <sha>       RE-REVIEW delta scoping (works with either mode above). In
+#                       addition to the full diff+anchors (kept intact — needed for
+#                       anchor validity and prior-finding re-verification), write
+#                       $DELTA_DIFF_FILE = `git diff <sha> HEAD`, the change since the
+#                       last-reviewed head. New-findings diagnosis reads the delta;
+#                       posting/anchoring still use the full diff. A <sha> not present
+#                       locally is best-effort fetched; if still missing the delta is
+#                       skipped (full diff is always written) — never fatal.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
-# --- split out the local-mode flags BEFORE resolve_target (refs must not reach the
-#     identifier parser); everything else is forwarded to it unchanged. ---
-local_mode=false base="" include_dirty=false
+# --- split out the local-mode + delta flags BEFORE resolve_target (refs/shas must not
+#     reach the identifier parser); everything else is forwarded to it unchanged. ---
+local_mode=false base="" include_dirty=false since=""
 fwd=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,9 +42,29 @@ while [ $# -gt 0 ]; do
     --base)          base="${2:?--base needs a ref}"; shift 2 ;;
     --base=*)        base="${1#*=}"; shift ;;
     --include-dirty) include_dirty=true; shift ;;
+    --since)         since="${2:?--since needs a sha}"; shift 2 ;;
+    --since=*)       since="${1#*=}"; shift ;;
     *)               fwd+=("$1"); shift ;;
   esac
 done
+
+# On a re-review, write $DELTA_DIFF_FILE = the change since the last-reviewed head.
+# Called from both the local and remote terminal paths (HEAD is the reviewed head in
+# both: the worktree is checked out at the PR head, and local HEAD is the branch tip).
+write_delta() {
+  [ -n "$since" ] || { rm -f "$DELTA_DIFF_FILE" 2>/dev/null || true; return 0; }
+  if ! git cat-file -e "${since}^{commit}" 2>/dev/null; then
+    git fetch --quiet origin "$since" 2>/dev/null || true   # best-effort; PR head may predate fetch
+  fi
+  if git cat-file -e "${since}^{commit}" 2>/dev/null; then
+    git diff "$since" HEAD > "$DELTA_DIFF_FILE" 2>/dev/null || : > "$DELTA_DIFF_FILE"
+    local n; n=$(awk '/^[+-]/ && !/^(\+\+\+|---)/ {c++} END{print c+0}' "$DELTA_DIFF_FILE")
+    echo "{\"delta_since\":\"$since\",\"delta_diff_lines\":$n}" >&2
+  else
+    rm -f "$DELTA_DIFF_FILE" 2>/dev/null || true
+    echo "{\"warn\":\"extract-diff: --since $since not found locally; delta skipped (full diff written)\"}" >&2
+  fi
+}
 
 # ============================ LOCAL (pre-PR) path ============================
 if [ "$local_mode" = true ] || [ -n "$base" ]; then
@@ -66,6 +95,7 @@ if [ "$local_mode" = true ] || [ -n "$base" ]; then
   fi
 
   python3 "$SCRIPT_DIR/diff-anchors.py" "$DIFF_FILE" > "$ANCHORS_FILE"
+  write_delta
   jq -nc --argjson a "$(cat "$ANCHORS_FILE")" \
     '{files: ($a|keys|length), anchorable_lines: ([$a[]|length]|add // 0), local: true}' >&2
   echo "$ANCHORS_FILE"
@@ -90,6 +120,7 @@ gh pr diff "$PR" --repo "$REPO_SLUG" > "$DIFF_FILE" 2>/dev/null \
   || { echo "{\"error\":\"gh pr diff $PR failed for $REPO_SLUG\"}" >&2; exit 1; }
 
 python3 "$SCRIPT_DIR/diff-anchors.py" "$DIFF_FILE" > "$ANCHORS_FILE"
+write_delta
 
 jq -nc --argjson a "$(cat "$ANCHORS_FILE")" \
   '{files: ($a|keys|length), anchorable_lines: ([$a[]|length]|add // 0)}' >&2

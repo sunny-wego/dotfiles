@@ -11,9 +11,12 @@
 #   $STATE_DIR      per-checkout dir under .git/ (isolated across worktrees)
 #   $PR_FILE        resolved PR metadata (owner/repo/number/head_sha/base/url)
 #   $DIFF_FILE      unified diff of the PR (gh pr diff)
+#   $DELTA_DIFF_FILE  on a re-review, the diff since the last-reviewed head only
 #   $ANCHORS_FILE   {path: [valid RIGHT-side line numbers]} for inline comments
 #   $FINDINGS_FILE  accumulated findings (validated against findings-schema.md)
+#   $TESTS_FILE     result of the changed-area test slice (run-changed-tests.sh)
 #   $REVIEW_FILE    rendered GH review payload (pre-post)
+#   $REVIEWED_HEAD_FILE  SHA of the head last reviewed (persists → next re-review's delta base)
 #   cleanup_run_state   clear all per-run artifacts before a fresh review
 #   with_lock           mkdir-based advisory lock (read-modify-write safety)
 #   resolve_pr/resolve_target  identifier parsing (URL/number/slug → globals)
@@ -43,18 +46,22 @@ source "$ZEUS_LIB_DIR/state.sh"
 STATE_DIR="$(state_root review-pr)"
 PR_FILE="$STATE_DIR/pr.json"
 DIFF_FILE="$STATE_DIR/diff.patch"
+DELTA_DIFF_FILE="$STATE_DIR/delta.patch"   # re-review: diff since $REVIEWED_HEAD_FILE (else absent)
 ANCHORS_FILE="$STATE_DIR/anchors.json"
 FINDINGS_FILE="$STATE_DIR/findings.json"
+TESTS_FILE="$STATE_DIR/tests.json"   # changed-area test slice result (run-changed-tests.sh)
 REVIEW_FILE="$STATE_DIR/review.json"
 PRIOR_FILE="$STATE_DIR/prior.json"   # our own unresolved findings from earlier rounds (re-review)
 SLACK_FILE="$STATE_DIR/slack-thread.json"  # Slack reply coordinate {channel, thread_ts, ...} (Slack-triggered entry point)
+REVIEWED_HEAD_FILE="$STATE_DIR/reviewed-head"  # SHA of the head we last reviewed (delta base for next re-review)
 LOCK_DIR="$STATE_DIR/lock"
 
-# Wipes per-RUN scratch only. $SLACK_FILE is deliberately NOT listed: like
-# request-review's review-thread.json it must PERSIST across runs so a same-session
-# re-review (a later "/zeus:review-pr" with no arg) replies in the original thread.
-# It is per-PR by construction (STATE_DIR lives inside the per-PR worktree) and dies
-# with that worktree.
+# Wipes per-RUN scratch only. $SLACK_FILE and $REVIEWED_HEAD_FILE are deliberately
+# NOT listed: like request-review's review-thread.json they must PERSIST across runs
+# so a same-session re-review can reply in the original thread ($SLACK_FILE) and scope
+# the new diff to the delta since the last review ($REVIEWED_HEAD_FILE). Both are
+# per-PR by construction (STATE_DIR lives inside the per-PR worktree) and die with it.
 cleanup_run_state() {
-  rm -f "$PR_FILE" "$DIFF_FILE" "$ANCHORS_FILE" "$FINDINGS_FILE" "$REVIEW_FILE" "$PRIOR_FILE"
+  rm -f "$PR_FILE" "$DIFF_FILE" "$DELTA_DIFF_FILE" "$ANCHORS_FILE" "$FINDINGS_FILE" \
+        "$TESTS_FILE" "$REVIEW_FILE" "$PRIOR_FILE"
 }
