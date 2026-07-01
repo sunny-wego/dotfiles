@@ -360,15 +360,24 @@ ownership.sh <N> [--repo R]
 # 1. fetch THEIR live body + the head SHA to pin drift against (NO rehydrate, NO state file)
 gh issue view <N> [--repo R] --json body,title -q .body > "$THEIR_BODY"
 HEAD_SHA=$(bash ${CLAUDE_SKILL_DIR}/scripts/issue-context.sh | jq -r .head_sha)
-# 2. run the cross-check read-only against "$THEIR_BODY" (rfc-mode.md → Peer review):
-#      Stage 1 reader test · Stage 2 grounding (pin-refs + refutation fan-out) · Stage 3 steelman (optional)
+# 1.5 STAGE 0 — SCOUT (Haiku 4.5; Sonnet 5 for a contested decision doc): one cheap pass over
+#      "$THEIR_BODY" → {doc_type, stages, claim_inventory, tier_per_check, hotspots}. Sizes the
+#      Stage-2 fan-out and picks model tiers. Recall-guarded: never skips Stage 2 grounding.
+# 2. run the cross-check read-only against "$THEIR_BODY" (rfc-mode.md → Stage 0 + Peer review):
+#      Stage 1 reader test · Stage 2 grounding — fan-out SIZED by claim_inventory, TIERED per
+#      tier_per_check (citation-drift/spot-check → Haiku/Sonnet, lean-claim refute → Opus) ·
+#      Stage 3 steelman (Opus, iff scout armed it)
 #      → citation-drift check: every `path:line` / blob-SHA cite in their body vs current HEAD_SHA
-# 3. render findings to a file with trust labels (Confirmed / Hypothesis / Nit) per the template
+#      → merge + verdict synthesis in the MAIN context on Opus (only this promotes to Confirmed)
+# 3. render findings to a file: factual layer trust-labeled (Confirmed w/ evidence / Hypothesis
+#      w/ verify / drop), judgment layer (reader-test, steelman) posed as questions — per template
 # 4. post — body untouched
 post-issue.sh --comment <N> --body-file "$FINDINGS" [--repo R]
 ```
 
-Gating note: peer review is **explicitly invoked**, so it does **not** consult `requires-review.sh` (that reads a *state* file, which a peer target doesn't have). Always run at least Stage 2 grounding; Stage 1 and Stage 3 by judgment on the doc's size and contentiousness. Event is **comment-only** — findings pose questions about intent so the author decides what to change; there is no "request changes" analogue (that verdict is the author's, exactly as in `review-pr`).
+Gating note: peer review is **explicitly invoked**, so it does **not** consult `requires-review.sh` (that reads a *state* file, which a peer target doesn't have) — the **scout (Stage 0)** plays the floor's role here, deciding depth + tiers, but it may never skip Stage 2 grounding. Event is **comment-only** — findings pose questions about intent so the author decides what to change; there is no "request changes" analogue (that verdict is the author's, exactly as in `review-pr`).
+
+**Config** (shared `review.*` namespace, same as `review-pr`): `scout_model` (`claude-haiku-4-5-20251001`), `scout_escalate_model` (`claude-sonnet-5`), `tiers` (mechanical → `claude-sonnet-5`, judgment → `claude-opus-4-8`), `synthesis_model` (`claude-opus-4-8` — the merge/verdict pass).
 
 **Confluence parity:** the same flow posts a footer comment via `createConfluenceFooterComment(pageId, body)` — `ownership.sh --author <pageAuthorId> --viewer <myAccountId>` gates it (see SKILL.md ownership note and `references/rfc-mode.md`).
 
@@ -380,7 +389,7 @@ Load these references when you need the detail; the headings above are enough fo
 - `references/section-patterns.md` — extraction rules per section (what to look for in source, how to render).
 - `references/diagram-recipes.md` — Mermaid `flowchart TD` and ASCII state-diagram templates; "when to use which".
 - `references/before-after-recipes.md` — diff fence vs twin `BEFORE`/`AFTER` fences vs side-by-side table; "when to use which".
-- `references/rfc-mode.md` — the review + amend + peer-review playbook (the depth behind steps 4b, "Updating", and "Reviewing someone else's proposal"): the authoring loop, full Stage 1/2/3 procedures + the reader-test stamp command, the amend operational sequence with its target-confirmation and drift-gate safeguards, amend vs supersede, the disposition-comment template, the Amendment Log, invariants-in-content, and the **peer-review finding contract** (trust labels, citation-drift, comment template).
+- `references/rfc-mode.md` — the review + amend + peer-review playbook (the depth behind steps 4b, "Updating", and "Reviewing someone else's proposal"): the authoring loop, the **Stage 0 scout** (cheap triage that refines `requires-review.sh`'s floor, sizes the Stage-2 fan-out, and tiers the models), full Stage 1/2/3 procedures + the reader-test stamp command, the amend operational sequence with its target-confirmation and drift-gate safeguards, amend vs supersede, the disposition-comment template, the Amendment Log, invariants-in-content, and the **peer-review finding contract** — the two-layer rule (factual layer trust-labeled with evidence-before-Confirmed; judgment layer posed as questions), citation-drift, comment template.
 - `references/quality-criteria.md` — the 7 quality criteria, scored by the Stage-1 reader from the outside.
 - `references/code-guidelines.md` — when a code snippet earns its place in an issue ("if removing it changes nothing, delete it").
 - `references/house-style.md` — the conventions this skill writes by, and *why* (progressive disclosure, mention-once, before/after, the RFC-2119 layer split).

@@ -8,11 +8,30 @@ Derived gating exists because the old self-declared label was set by the same au
 
 1. **Context** — the existing resolve-source / interview step. Push for concrete, measurable problem statements; surface constraints and invariants early.
 2. **Section-by-section refinement** — the decision-matrix pipeline you already use: for each open choice, brainstorm 3–5 options, let the user curate (keep/remove/combine), then write it into the **state** (never hand-edit the rendered body — edit state and re-render, so consistency holds by construction).
-3. **Stage 1 — Reviewer Simulation** — before posting and after **every** amend and **every** fix round (no exemptions). See below.
-4. **Stage 2 — Targeted Grounding** — the document agrees with the world, not just itself. See below.
-5. **Stage 3 — Steelman the Objector** — conditional, contested decisions only. See below.
+3. **Stage 0 — Scout** — a cheap triage that decides how much of the below to run and at which model tier, and sizes the Stage-2 fan-out; it *refines* `requires-review.sh`'s derived gating, never lowers it. See below.
+4. **Stage 1 — Reviewer Simulation** — before posting and after **every** amend and **every** fix round (no exemptions). See below.
+5. **Stage 2 — Targeted Grounding** — the document agrees with the world, not just itself. See below.
+6. **Stage 3 — Steelman the Objector** — conditional, contested decisions only. See below.
 
 The layering principle: **scripts prove structure** (`check.sh`: sections, Q-refs, anchors, ranges, mention-once — don't spend reader tokens there), **one cold reader proves the document agrees with itself**, **one grounded verifier proves it agrees with the world**, and the human owns authorization and the decision. Reader-found gaps that recur as *classes* graduate into `audit-draft.sh`; the reader is reserved for what only a reader can do.
+
+## Stage 0 — Scout (triage)
+
+`requires-review.sh` is the deterministic **floor** — it derives *whether* the stages run from content. The scout *refines within* that floor so spend tracks the document, not a fixed pipeline: run it once (both self-gate and peer review) before Stage 1, on **Haiku 4.5** (`review.scout_model`; escalate to **Sonnet 5**, `review.scout_escalate_model`, for a contested or high-stakes decision doc). Give it the rendered body (self) or the fetched live body (peer) plus the doc's fenced blocks. It emits:
+
+```jsonc
+{ "doc_type": "ticket | proposal | decision-doc",
+  "stages": { "reader_test": true, "grounding": true, "steelman": false },
+  "claim_inventory": [ { "claim": "...", "cite": "x.py:42", "looks_stale": true } ],
+  "tier_per_check": { "citation-drift": "haiku", "spot-check": "sonnet", "lean-claim-refute": "opus", "steelman": "opus" },
+  "hotspots": [ "§4 vs §2 consistency", "the 10k-req/day premise" ] }
+```
+
+- **Recall-guarded, exactly like the code reviewer's scout.** It may narrow which stages run and localize effort, but it **cannot drop a stage `requires-review.sh` armed**, and it **cannot skip Stage 2 grounding when the doc carries grounded claims**. Its mistakes cost a wrong tier or an extra check — never a missed defect. It **localizes and routes; it never confirms** (only Stage 2's grounding pass promotes a finding to Confirmed).
+- **`claim_inventory` sizes the Stage-2 fan-out** — how many grounding subagents spawn and where they point — and pre-flags suspicious cites for the citation-drift check. This replaces the old ad-hoc "scoped to ROI" guess with an explicit list.
+- **The finding contract has two layers** — carry this through every stage:
+  - **Factual layer** (Stage 2 grounding, citation-drift, consistency, completeness): trust-labeled. **Confirmed ⇒ reproduced + recorded evidence** (commands + literal output against a pinned HEAD); **Hypothesis ⇒ a concrete `verify:` step**; **refuted ⇒ dropped**. Can't ground it safely/cheaply (no DB branch for the DDL) → it stays Hypothesis. **Evidence before Confirmed, always.**
+  - **Judgment layer** (Stage 1 reader-test, Stage 3 steelman, clarity, soundness/prediction): posed as **observations and questions the author adjudicates** — never a Confirmed badge on an opinion.
 
 ## Stage 1 — Reviewer Simulation (the reader test)
 
@@ -45,7 +64,7 @@ jq --arg h "$HASH" '.reader_test = true | .reader_test_hash = $h' "$STATE_FILE" 
 
 ## Stage 2 — Targeted Grounding
 
-The cold reader takes every empirical claim on faith — faith is where fluent hallucinations live. A refutation-framed pass with repo/data access, scoped to ROI and **fanned out**: spawn one subagent per lean-supporting claim, one for the spot-check batch, and one artifact-executor, all in a single turn — the checks are independent reads of different parts of the world, so the merged verdict set is identical to a serial pass at a fraction of the wall-clock. Sequencing rule: on a **first** render, run Stage 1 before Stage 2 (a BLOCKED verdict forces state edits that would waste grounding work); on a **re-render after fixes**, Stage 1 and the touched-claim Stage 2 re-checks may launch together — both gates pass independently, so ordering can't change the outcome, only the latency.
+The cold reader takes every empirical claim on faith — faith is where fluent hallucinations live. A refutation-framed pass with repo/data access, sized by the scout's `claim_inventory` and **fanned out**: spawn one subagent per lean-supporting claim, one for the spot-check batch, and one artifact-executor, all in a single turn — the checks are independent reads of different parts of the world, so the merged verdict set is identical to a serial pass at a fraction of the wall-clock. **Tier the subagents** (`tier_per_check`): citation-drift and spot-check-bait are mechanical grep-and-read against the pinned blob → **Haiku/Sonnet 5**; lean-supporting-claim refutation and the artifact-executor are judgment → **Opus**. The **merge + verdict synthesis stays Opus in the main context** (`review.synthesis_model`) — cheap models generate candidates, Opus decides. Only this pass promotes a finding to Confirmed. Sequencing rule: on a **first** render, run Stage 1 before Stage 2 (a BLOCKED verdict forces state edits that would waste grounding work); on a **re-render after fixes**, Stage 1 and the touched-claim Stage 2 re-checks may launch together — both gates pass independently, so ordering can't change the outcome, only the latency.
 
 - **Infer the grounding plan per run; never write a repo config for it.** The doc's fenced blocks declare what's *needed* (SQL DDL → a disposable database branch; code → the repo's runners; none → code-claims only). The repo's existing artifacts declare what's *available* (ORM configs, MCP servers, AGENTS.md / skill files naming prod projects, package scripts). Surface the plan in the pre-post confirmation — that's the authorization moment; capabilities are inferable, **permission never is**. Ambiguity → ask.
 - **Check exactly two claim sets**: lean-supporting claims (the facts that flip a default lean if false — a false premise here means the team aligns on a decision that won't survive implementation) and spot-check bait (numbers, "today X does Y at file:line" — the two-minute falsifiables where reviewer trust dies first). Prompt the verifier to *refute* from the pinned source, not confirm.
@@ -56,7 +75,7 @@ Evidence (dated queries, branch id, claims checked/refuted) lands in `code_groun
 
 ## Stage 3 — Steelman the Objector (conditional)
 
-For contested or high-stakes decisions only. One agent per *anticipated objector* (objectors are fewer and more concrete than rejected alternatives), with repo access, writes the strongest comment that person would post — a concrete losing scenario, not rhetoric. Spawn them in a single turn: objections are independent by construction; A's steelman never depends on B's. Amend to pre-answer each, or post it yourself as a named open question. Arriving with the opposition's best argument already addressed is the cheapest buy-in accelerator there is.
+For contested or high-stakes decisions only (the scout gates this — `stages.steelman`). One agent per *anticipated objector* (objectors are fewer and more concrete than rejected alternatives), with repo access, on **Opus** (a steelman is judgment, not a mechanical check), writes the strongest comment that person would post — a concrete losing scenario, not rhetoric. Spawn them in a single turn: objections are independent by construction; A's steelman never depends on B's. A steelman is a **judgment-layer** output — post it as a named open question, never stamp it Confirmed. Amend to pre-answer each, or post it yourself as a named open question. Arriving with the opposition's best argument already addressed is the cheapest buy-in accelerator there is.
 
 ## Peer review (someone else's doc)
 
@@ -64,11 +83,12 @@ The self-gate above (Stages 1–3) proves *your* draft before you post it. **Pee
 
 **What changes vs the self-gate:**
 
-- **Target is their live body, not your state.** Fetch it (`gh issue view <N> --json body`); there is no state file, no `rehydrate`, no reader-test *stamp* (the stamp gates *your* post; a peer review posts a comment, which `post-issue.sh --comment` never stamps or pins). Run Stage 1 (reader test) and Stage 2 (grounding) exactly as written, reading the fetched body. `requires-review.sh` is **not** consulted (it reads state) — peer review is explicitly invoked, so always run Stage 2; Stages 1/3 by judgment.
-- **Findings carry a trust label, not a READY/BLOCKED verdict.** A self-gate verdict is a gate on your own post; a peer finding is an observation the author will adjudicate. Label every one:
+- **Target is their live body, not your state.** Fetch it (`gh issue view <N> --json body`); there is no state file, no `rehydrate`, no reader-test *stamp* (the stamp gates *your* post; a peer review posts a comment, which `post-issue.sh --comment` never stamps or pins). Run **Stage 0 (scout)** against the fetched body first — it sizes the grounding fan-out and tiers the checks — then Stage 1 (reader test) and Stage 2 (grounding) exactly as written. `requires-review.sh` is **not** consulted (it reads state) — peer review is explicitly invoked, so always run Stage 2; the scout decides Stages 1/3.
+- **Findings carry a trust label, not a READY/BLOCKED verdict**, on the **factual layer** (Stage 0's two-layer contract). A self-gate verdict is a gate on your own post; a peer finding is an observation the author will adjudicate. Label every factual finding:
   - **Confirmed** — reproduced against the repo/data, carries the ordered commands + literal evidence (a Stage-2 refutation that *failed to refute* the doc's claim, or that *confirmed* a defect the doc rests on).
   - **Hypothesis** — a concern you could not cheaply/safely settle; carries a concrete `verify:` step the author (or a follow-up) can run. Never dress a hypothesis as confirmed.
   - **Nit** — style/clarity; non-blocking.
+  Judgment-layer material (reader-test observations, a steelman's objection) is posed as a **question**, not stamped with a trust label — the author decides.
 - **Add a citation-drift check** (peer-specific — the self-gate's `drift-check.sh` compares *your* state to *your* body; it can't see a stale cite in someone else's doc). For every `path:line` or `blob/<sha>` citation in their body, resolve it against a **pinned** `HEAD` and flag any that no longer point where the prose claims (moved line ranges, renamed symbols, a SHA far behind `HEAD`). This is the "systematically stale line numbers" class — cheap, high-signal, and the author usually can't see it themselves.
 - **Pin the SHA and read immutable blobs — the checkout can move under you.** Capture `HEAD_SHA` once (`issue-context.sh`) and ground every claim with `git show <SHA>:path` / `sed` on that blob, **not** the mutable working tree. A shared checkout fast-forwards when parallel jobs `git pull`, which silently shifts every line number mid-review — a *stale-tree* drift that masquerades as *doc* drift and will make you "correct" citations that were right and mark real bugs unsubstantiated. If line numbers seem off by a consistent offset, suspect the tree, not the doc: `git rev-parse HEAD` + `git status` before concluding, and re-fetch/re-pin. Sub-verifiers must be handed the pinned SHA, never told to "read the file."
 
