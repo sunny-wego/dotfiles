@@ -58,4 +58,10 @@ resolve_target() {
     REPO_SLUG="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
     [ -n "$REPO_SLUG" ] && { OWNER="${REPO_SLUG%%/*}"; REPO_NAME="${REPO_SLUG#*/}"; }
   fi
+  # Return 0 explicitly: the trailing `[ -n "$REPO_SLUG" ]` test above is falsy when no
+  # repo resolves, and as the function's last command it would otherwise make
+  # resolve_target return 1 — aborting `set -e` callers before their own usage check
+  # (exit 2) runs, so a usage error surfaces as a bare exit 1 with no message.
+  # resolve_pr ends with an explicit `return 0` for the same reason.
+  return 0
 }

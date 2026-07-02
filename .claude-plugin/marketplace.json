@@ -10,7 +10,7 @@
       "name": "zeus",
       "source": "./skills/zeus",
       "description": "Issue→code→PR→review workflow as one skill family: propose/investigate issues, review-pr, create-pr, address-pr, request-review, and improve — composed by name through JSON contracts and a shared per-worktree journey.json.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "sunnywong",
         "email": "sunny@wego.com"
