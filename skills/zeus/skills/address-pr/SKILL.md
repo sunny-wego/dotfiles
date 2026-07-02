@@ -65,15 +65,17 @@ handler, then read only the handler files you actually need.
 mode** only · `wait` = nothing actionable yet, probe again · `report` = settled, leave the loop.
 
 **Parallel diagnosis, serial application.** When the probe shows multiple actionable items (several
-failed checks and/or unresolved review threads), spawn **read-only diagnosis subagents for all of them in
+failed checks and/or unresolved review threads), spawn a **`zeus:diagnostician` for each of them in
 a single turn** — one per failed check (fetch logs, identify the root cause, propose the fix) and one per
 review thread or per-author batch (analyze the comment against the code, draft the reply/fix plan) —
-diagnosis is read-only and dominates wall-clock, so fanning it out is a pure latency win. Then **apply**
-the fixes strictly in the
+diagnosis is read-only and dominates wall-clock, so fanning it out is a pure latency win. Each
+diagnostician **returns** its root-cause + proposed fix; it does not touch the worktree or state. Then
+**apply** the fixes strictly in the
 priority order above and publish only through `commit-and-evaluate.sh`, exactly as on a serial pass — the
-ordering and the push-before-replies choreography are semantic and stay serial. Hard constraint: diagnosis
-subagents MUST NOT mutate the worktree and MUST NOT append outcomes — only the handler application step
-edits files and calls `state.sh append`, preserving the one-outcome-per-handler invariant.
+ordering and the push-before-replies choreography are semantic and stay serial. Hard constraint: the
+diagnosis fan-out is read-only by construction (`zeus:diagnostician` has no Bash/Edit/Write) and returns
+findings only — the one-outcome-per-handler invariant is preserved because **only the handler application
+step** edits files and calls `state.sh append`, never a diagnostician.
 
 ## Invariants (hold on every path)
 

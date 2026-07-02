@@ -24,8 +24,8 @@ gates each append's form, and coherence is a property of the *whole* record, bes
 
 ## Procedure
 
-Spawn a **fresh subagent** (Task tool) and give it *only* the rendered report body — no
-conversation context, no access to the investigation. Ask it to answer, from the doc alone:
+Spawn a **`zeus:cold-reader`** (Task tool) and give it *only* the rendered report body — the agent has
+no repo, conversation, or tool access by construction. Ask it to answer, from the doc alone:
 
 1. **What failed, and what's the headline root cause?** (Can a cold reader even extract the story?)
 2. **Claim ↔ evidence coherence** — for each evidence item `E<n>`: does the *Reading* actually follow

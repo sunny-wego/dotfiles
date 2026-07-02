@@ -140,6 +140,9 @@ parser is defined once in `lib/pr-ident.sh` and sourced by the PR-workflow libs;
 `resolve_pr`/`resolve_target`. **There are no exemptions** for `--pr`-taking scripts.
 (Issue-centric skills that take only `--repo`, and the resolvers themselves —
 `identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are out of scope by construction.)
+[6] publish backends conform to `publish-contract.md`; [7] every `zeus:<name>`
+sub-agent reference resolves to an `agents/<name>.md` or a skill, and the archetype
+invariants hold (`cold-reader` ships `tools: ""`, `diagnostician` stays read-only).
 Run it when you add or edit a script.
 
 ## CLI reference — `address-pr`
@@ -273,6 +276,17 @@ zeus/
 │   │      ↳ symlinked into skills' scripts/
 │   ├── config.defaults.json          shipped config defaults (the only config in the repo)
 │   └── check-arg-conventions.sh      the CLI-convention lint (run from anywhere)
+├── agents/                the family's shared sub-agent definitions (one per archetype,
+│   │                      referenced by name — same "define once" rule as lib/):
+│   ├── cold-reader.md     text-only critic/persona (NO tools) — judges a rendered doc
+│   │                      from the body alone. Used by propose Stage-1 + steelman,
+│   │                      investigate coherence reader.
+│   ├── diagnostician.md   read-only analyzer (Read/Grep/Glob/LSP; NO Bash/Edit/Write) —
+│   │                      returns findings, never writes. Used by review-pr per-lens
+│   │                      fan-out, address-pr check/thread diagnosis, propose grounding +
+│   │                      implementer persona.
+│   └── scout.md           cheap triage router (haiku default) — sizes a fan-out + picks
+│                          model tiers. Used by review-pr + propose Stage-0.
 ├── hooks/hooks.json
 └── skills/<skill>/
     ├── SKILL.md           the behavioral contract (read this for flow)
@@ -296,6 +310,22 @@ zeus/
   `$ZEUS_CONFIG_DIR/<concern>/`. The repo holds only `*.default.json` templates.
 - **Per-worktree state** lives under `.git/<skill>/` (e.g. `.git/address-pr/`),
   isolated across worktrees, never committed.
+- **One definition per sub-agent archetype, in `zeus/agents/`.** The skills fan work
+  out to sub-agents (Task/Agent tool) for three recurring jobs — a text-only doc
+  **critic** (`cold-reader`), a read-only repo **diagnostician**, and a cheap triage
+  **scout**. Each is defined once as a plugin agent and invoked **by name** —
+  `zeus:cold-reader`, `zeus:diagnostician`, `zeus:scout` — the same "define once,
+  reference by name" rule as `lib/`, never re-specified inline per call site. Two
+  properties are **structural, not prose**: `cold-reader` ships `tools: ""` (no repo
+  or tool access — it reasons over the body it's handed), and `diagnostician` ships a
+  read-only toolset (Read/Grep/Glob/LSP, **no Bash/Edit/Write**) so "diagnose only,
+  never mutate" can't be violated — it **returns** findings and the orchestrator is the
+  sole writer. Models are a per-invocation override (haiku→sonnet→opus per the
+  `review.*` tiers), so the dynamic tiering keeps working over one static definition.
+  A skill grants the capability by listing `Task Agent` in its `allowed-tools`
+  (`review-pr`, `address-pr`, `propose`, `investigate`, `improve` do; the terminal
+  `create-pr`/`request-review` don't). Adding a new fan-out uses an existing
+  archetype, or a new file in `agents/` — never an ad-hoc inline agent spec.
 
 ## House conventions
 

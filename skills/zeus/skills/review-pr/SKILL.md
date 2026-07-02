@@ -215,7 +215,7 @@ oracle; read it *before* diagnosing:
 Pass `$TESTS_FILE` into the diagnosis prompts and the central verify (step 5).
 
 ### 3.75 Scout the risk map (cheap triage → how much to spend)
-Spawn **one** Agent as a scout to set depth + model tier, so spend is proportional to
+Spawn **one** `zeus:scout` subagent to set depth + model tier, so spend is proportional to
 risk. Give it the diff (`$DELTA_DIFF_FILE` on a re-review, else `$DIFF_FILE`), the PR
 title/body, `select-mode`'s JSON, and `$TESTS_FILE`.
 - **Model:** `review.scout_model` (default `claude-haiku-4-5-20251001`); **escalate to
@@ -244,15 +244,19 @@ Diagnosis reads the **delta** on a re-review (`$DELTA_DIFF_FILE` — only the ne
 prior findings are re-verified separately in step 5b.
 - **`recommend == "single"`** (low difficulty / small delta, and the floor is not
   `parallel`): work each lens in `live_lenses` in turn **in this (Opus) context**, no
-  fan-out. Append findings to `$FINDINGS_FILE` (schema-shaped, under `with_lock`).
+  fan-out. Append findings to `$FINDINGS_FILE` (schema-shaped) as you go — a single
+  writer, so no lock is needed.
 - **`recommend == "targeted-fanout"`** (or floor `.mode == "parallel"`): spawn one
-  **Agent per `live_lens`** in a single message, each with **`model =
+  **`zeus:diagnostician` per `live_lens`** in a single message, each with **`model =
   tier_per_lens[lens]`** (mechanical lenses — data-migrations, api-contract, tests —
   default `claude-sonnet-5`; reasoning lenses — concurrency, resilience, correctness —
   `claude-opus-4-8`), a prompt focused on the scout's `hotspots`, plus its handler file,
-  `review-contract.md`, the finding schema, and `$TESTS_FILE`. Agents are **read-only
-  diagnosis** — they never run the verify tier (step 5 does, centrally). Then:
-  - **Barrier — merge + dedup** all findings by `(path, line)` + claim similarity.
+  `review-contract.md`, the finding schema, and `$TESTS_FILE`. `zeus:diagnostician` is
+  **read-only by construction** (no Bash/Edit/Write) — it **returns** its lens's findings
+  as schema-shaped JSON and never runs the verify tier (step 5 does, centrally). Then:
+  - **Barrier — collect + merge + dedup:** gather every diagnostician's returned
+    findings, write them to `$FINDINGS_FILE` (the orchestrator is the sole writer),
+    then merge + dedup by `(path, line)` + claim similarity.
   - **Synthesis pass** (**Opus**, `review.synthesis_model` default `claude-opus-4-8`,
     in this main context — *not* the scout or the per-lens explorers): read the *full*
     merged set for what isolated lenses miss — **cross-dimension findings** (a race × a

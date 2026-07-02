@@ -7,20 +7,20 @@ for (the handler's own body) or how findings render (`comment-format.md`).
 ## What a handler does (and does not) do
 
 - **Diagnose only. Never mutate.** A review handler reads the diff + checkout and
-  emits findings. It does not edit files, commit, push, or comment. The
-  orchestrator owns posting.
-- **Append findings** to `$FINDINGS_FILE`, each matching `findings-schema.md`.
-  Use the shared lock for the read-modify-write so fan-out handlers don't clobber
-  each other:
-  ```bash
-  source "${CLAUDE_SKILL_DIR}/scripts/lib.sh"
-  with_lock "$STATE_DIR/findings.lock"
-  # ... append your finding objects to $FINDINGS_FILE ...
-  ```
-- **Side-effect-free by construction.** Because a handler only reads and appends,
-  the same handler runs identically whether invoked in the single-context pass or
-  as one of N parallel subagents (`--deep`). This is the property that makes
-  fan-out a dispatch choice, not a rewrite — do not break it.
+  **emits findings** (each matching `findings-schema.md`). It does not edit files,
+  commit, push, comment, or write state — the orchestrator owns every write and
+  every post.
+- **The runner writes, the handler doesn't.** The handler *produces* findings; the
+  orchestrator *records* them. In the single-context pass the orchestrator runs the
+  lens inline and appends to `$FINDINGS_FILE` itself; under fan-out (`--deep`) it
+  delegates the lens to a read-only `zeus:diagnostician` that **returns** its findings
+  as JSON, then appends them at the barrier. Either way the orchestrator is the **sole
+  writer** of `$FINDINGS_FILE`, so there is no cross-agent contention and no lock.
+- **Side-effect-free by construction.** A handler only reads and returns findings, so
+  its diagnosis logic is identical whether the orchestrator runs it inline or hands it
+  to one of N parallel `zeus:diagnostician` subagents. This is the property that makes
+  fan-out a dispatch choice, not a rewrite — do not break it. (The diagnostician's
+  read-only toolset — no Bash/Edit/Write — enforces "never mutate" mechanically.)
 
 ## Severity rubric
 
@@ -96,14 +96,15 @@ whole review.
 ## Verification under fan-out (`--deep`)
 
 Default and safest: **verification is central and serial.** In parallel mode the
-subagents do **diagnosis only** — they read the diff and append findings, they
-never run the stack. The order is: parallel diagnosis → merge/dedup barrier →
-**synthesis pass** (cross-dimension findings, severity upgrades, fragment merges)
-→ then Tier-1 verification, once, in the orchestrator. Verification never runs
-inside the parallel agents. This is deliberate: it avoids N agents each spinning up
-a database / dev server / build, and avoids them fighting over shared resources.
-So during fan-out the parallel agents are read-only and cannot collide on
-anything but the findings file (which `with_lock` already serializes).
+`zeus:diagnostician` subagents do **diagnosis only** — they read the diff and *return*
+findings, they never run the stack. The order is: parallel diagnosis → collect +
+merge/dedup barrier → **synthesis pass** (cross-dimension findings, severity upgrades,
+fragment merges) → then Tier-1 verification, once, in the orchestrator. Verification
+never runs inside the parallel agents. This is deliberate: it avoids N agents each
+spinning up a database / dev server / build, and avoids them fighting over shared
+resources. So during fan-out the parallel agents are read-only (no Bash/Edit/Write)
+and produce no side effects at all — they return findings to the orchestrator, which
+is the sole writer of the findings file, so there is nothing for them to collide on.
 
 If you ever do parallelize Tier-1 (don't, unless a slow suite forces it), every
 concurrent check MUST be fully isolated — the reviewer must not reproduce the very
