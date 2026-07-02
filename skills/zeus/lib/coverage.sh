@@ -70,6 +70,10 @@ sel_note  = (d.get("selected_note") or "").strip()
 tests     = d.get("tests")
 tests     = tests.strip() if isinstance(tests, str) else None
 hotspots  = [h for h in (d.get("hotspots") or []) if str(h).strip()]
+# Optional extra diagnostic lines (each pre-labeled by the caller, e.g.
+# "Files: …", "Verification: …"). Rendered verbatim, one per line, so the shared
+# renderer stays domain-agnostic — the skill decides what's worth saying.
+notes     = [str(n).strip() for n in (d.get("notes") or []) if str(n).strip()]
 
 ran     = sum(1 for u in units if u.get("ran"))
 skipped = sum(1 for u in units if not u.get("ran"))
@@ -85,7 +89,9 @@ def tests_flag(t):
     if not t: return ""
     low = t.lower()
     if "fail" in low:                                   return " · tests failing"
-    if low in ("no changed tests", "skipped", "none", "n/a"): return ""
+    # Prefix match so an enriched phrasing ("skipped (deps not installed)") still
+    # reads as no-signal, not a false "tests passed".
+    if low.startswith(("skip", "no changed", "none", "n/a")): return ""
     return " · tests passed"
 
 # Singular noun when exactly one ran ("1 lens run", not "1 lenses run").
@@ -110,6 +116,10 @@ if floor:    foot.append(f"Floor: {floor}.")
 if sel_note: foot.append(f"{sel_note}.")
 if tests:    foot.append(f"Tests: {tests}.")
 if foot: out.append(" ".join(foot))
+# Extra diagnostic lines, each on its own line (GitHub renders a single newline as
+# a break in comment bodies — same as the Hotspots line below).
+for n in notes:
+    out.append(n)
 if hotspots: out.append(f"Hotspots: {', '.join(str(h).strip() for h in hotspots)}")
 
 out += ["</details>", f"<!-- zeus:{skill} coverage -->"]
