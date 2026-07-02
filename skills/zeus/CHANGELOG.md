@@ -18,6 +18,15 @@ All notable changes to the Zeus plugin are documented here. The format is based 
 - Recommended `plugin.json` manifest metadata: `displayName`, `author.email`,
   `homepage`, `repository`, `license`.
 - `LICENSE` (MIT), matching the `license` declared in every skill's frontmatter.
+- `README.md` (user-facing) and this `CHANGELOG.md`, rounding out the standard
+  plugin layout.
+- CI: a path-scoped GitHub Actions workflow (`.github/workflows/zeus-plugin.yml`)
+  that runs `check-arg-conventions.sh` and `claude plugin validate --strict`.
+
+### Removed
+- Plugin-root `CLAUDE.md` (was just `@AGENTS.md`) — a plugin's root `CLAUDE.md` is
+  not loaded as context, and it was the only `claude plugin validate --strict`
+  warning. `AGENTS.md` remains as the maintainer reference.
 
 ### Changed
 - The read-only diagnosis contract is now **structural, not prose**: `zeus:diagnostician`

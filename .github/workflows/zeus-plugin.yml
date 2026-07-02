@@ -1,0 +1,38 @@
+name: Validate Zeus plugin
+
+# Guards the Zeus plugin's conventions and manifest/frontmatter schema.
+# Path-scoped: inert for any change that doesn't touch skills/zeus/**.
+on:
+  push:
+    paths:
+      - "skills/zeus/**"
+      - ".github/workflows/zeus-plugin.yml"
+  pull_request:
+    paths:
+      - "skills/zeus/**"
+      - ".github/workflows/zeus-plugin.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The house convention lint — pure bash, zero deps. Checks the shared CLI
+      # argument convention and (rule [7]) that every zeus:<name> sub-agent
+      # reference resolves and the read-only invariants hold.
+      - name: check-arg-conventions
+        run: bash skills/zeus/lib/check-arg-conventions.sh
+
+      # The official plugin validator — manifest + skill/agent/command/hook
+      # frontmatter schema. `validate` is an offline, local-file operation, so it
+      # needs no Anthropic auth. --strict treats unrecognized-field warnings as errors.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: claude plugin validate --strict
+        env:
+          CI: "true"
+        run: claude plugin validate skills/zeus --strict
