@@ -24,7 +24,7 @@
 #         - .has_managed  (bool — if false, action must be noop)
 #       Use this output to decide whether to regenerate the managed block.
 #
-#   refresh.sh apply <body_file> <managed_block_file> [--pr-number <N>]
+#   refresh.sh apply <body_file> <managed_block_file> [--pr <N>]
 #       Splice <managed_block_file> into <body_file> via body-sync.sh, then
 #       diff against the original PR body. If identical, prints
 #       {action: "noop"} and exits 0. Otherwise edits the PR via
@@ -86,13 +86,10 @@ case "$cmd" in
     body_file="${1:?body_file required}"
     managed_file="${2:?managed_block_file required}"
     shift 2
-    pr_number=""
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        --pr-number) pr_number="$2"; shift 2 ;;
-        *) echo "refresh.sh apply: unknown flag: $1" >&2; exit 1 ;;
-      esac
-    done
+    # Canonical PR identifier via the shared parser (was a bespoke --pr-number flag).
+    resolve_pr "$@"
+    pr_number="$PR"
+    [ "${#REST[@]}" -eq 0 ] || usage_exit "refresh.sh apply: unexpected arg(s): ${REST[*]}"
 
     if ! bash "$SCRIPT_DIR/body-sync.sh" has-managed-block "$body_file"; then
       jq -nc '{action: "noop", reason: "body has no managed block"}'

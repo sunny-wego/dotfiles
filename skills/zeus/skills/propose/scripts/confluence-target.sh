@@ -47,7 +47,11 @@
 
 set -euo pipefail
 
-CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/propose"
+# One config home for the family — lib/config.sh sets ZEUS_CONFIG_DIR (env override >
+# default ~/.config/zeus). Sourcing only sets vars, so it's safe outside a repo.
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../lib/config.sh"
+CONFIG_DIR="$ZEUS_CONFIG_DIR/propose"
 STORE="$CONFIG_DIR/confluence.json"
 
 repos() {

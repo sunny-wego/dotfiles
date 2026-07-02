@@ -318,7 +318,7 @@ if [ "${1:-}" = "complete-process" ]; then
   complete_process "$@"
 else
   resolve_target "$@"
-  [ -n "$PR" ] && [ -n "$REPO_SLUG" ] || {
-    echo "Usage: monitor-step.sh --pr <n> [--repo <owner/repo>]" >&2; exit 1; }
+  [ -n "$PR" ] && [ -n "$REPO_SLUG" ] || \
+    usage_exit "Usage: monitor-step.sh --pr <n> [--repo <owner/repo>]"
   probe "$OWNER" "$REPO_NAME" "$PR"
 fi

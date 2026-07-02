@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Bird's-eye for the active investigation.
 #
+# Usage: status.sh [--write]
 #   status.sh            → print the bird's-eye to the terminal (read-only).
 #   status.sh --write    → ALSO re-render the managed PROGRESS block in the
 #                          investigation issue body, in place.

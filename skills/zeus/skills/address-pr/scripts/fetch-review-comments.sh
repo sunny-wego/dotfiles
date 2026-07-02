@@ -40,8 +40,8 @@ source "$SCRIPT_DIR/lib.sh"
 # `<owner> <repo>` form is intentionally not accepted.
 resolve_target "$@"
 pr="$PR"; owner="$OWNER"; repo="$REPO_NAME"
-[ -n "$pr" ] && [ -n "$owner" ] && [ -n "$repo" ] || {
-  echo "usage: fetch-review-comments.sh --pr <n> [--repo <owner/repo>]   (identifiers also positional)" >&2; exit 1; }
+[ -n "$pr" ] && [ -n "$owner" ] && [ -n "$repo" ] || \
+  usage_exit "usage: fetch-review-comments.sh --pr <n> [--repo <owner/repo>]   (identifiers also positional)"
 
 # Per-bucket temp files under $STATE_DIR (per-worktree, isolated).
 # Switched from shell-variable capture + `jq --argjson` to file-based

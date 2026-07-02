@@ -23,7 +23,7 @@ case "$cmd" in
     state_get "${1:-.}"
     ;;
   set)
-    [ $# -ge 2 ] || die "set needs <key> <value>"
+    [ $# -ge 2 ] || usage_exit "set needs <key> <value>"
     # Single-field atomic write — no lock: distinct fields are distinct files.
     atomic_write "$d/$1" "$2"
     log "state.$1 = $2"
@@ -32,6 +32,6 @@ case "$cmd" in
     rm -rf "$d" && log "investigation state cleared (auto-link hook now dormant)"
     ;;
   *)
-    die "unknown command: $cmd (get|set|clear)"
+    unknown_verb "$cmd" "get set clear"
     ;;
 esac

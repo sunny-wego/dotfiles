@@ -71,7 +71,10 @@ scripts by path:
   `.review` watermark (only on a SHA a review actually ran against), so a re-invocation
   on the unchanged tree skips re-review. (A future upstream implementer that records its
   reviewed SHA hands off the same way — create-pr skips 1c when `.review` == HEAD.)
-- **One notifier** (`request-review`, per-SHA dedup) — no skill posts Slack itself.
+- **One outbound notifier** (`request-review`, per-SHA dedup) — no skill *broadcasts* a
+  reviewer ping itself. Slack is owned **per direction** (see House conventions): `request-review`
+  owns the outbound broadcast; `review-pr` owns the single threaded reply to a review it was
+  summoned for via a Slack link. No other skill touches Slack.
 - **One reviewer engine** — `self` (hand back) and `peer` (post comments) are adapters over the same handlers.
 - **State is re-derived, not stored** — `address-pr` is a level-triggered reconciler; GitHub is the only truth.
 
@@ -133,17 +136,20 @@ left to luck. Run the lint:
 bash zeus/lib/check-arg-conventions.sh   # exit 0 = clean, 1 = violations
 ```
 
-It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc; [3] the
-parser is defined once in `lib/pr-ident.sh` and sourced by the PR-workflow libs;
-[4] no skill `lib.sh` re-defines a shared helper (`resolve_pr`/`with_lock`/`run`/…);
-[5] no script hand-rolls a `--pr)` case — every PR-identifier script routes through
-`resolve_pr`/`resolve_target`. **There are no exemptions** for `--pr`-taking scripts.
-(Issue-centric skills that take only `--repo`, and the resolvers themselves —
-`identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are out of scope by construction.)
-[6] publish backends conform to `publish-contract.md`; [7] every `zeus:<name>`
-sub-agent reference resolves to an `agents/<name>.md` or a skill, and the archetype
-invariants hold (`cold-reader` ships `tools: ""`, `diagnostician` stays read-only).
-Run it when you add or edit a script.
+It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc (**all
+skills**); [3] the parser is defined once in `lib/pr-ident.sh` and sourced by the
+PR-workflow libs; [4] no skill `lib.sh` re-defines a shared helper
+(`resolve_pr`/`with_lock`/`run`/…); [5] no script hand-rolls a `--pr)` case — every
+PR-identifier script routes through `resolve_pr`/`resolve_target`. **There are no
+exemptions** for `--pr`-taking scripts. (Issue-centric skills that take only `--repo`,
+and the resolvers themselves — `identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are
+out of scope by construction.) [6] publish backends conform to `publish-contract.md`;
+[7] every `zeus:<name>` sub-agent reference resolves to an `agents/<name>.md` or a
+skill, and the archetype invariants hold (`cold-reader` ships `tools: ""`,
+`diagnostician` stays read-only); [8] no skill invokes **another** skill's script by
+bare basename (`$(x.sh …)` / `| x.sh` / `bash x.sh` where `x.sh` lives only in a
+different skill's `scripts/`) — skills call skills **by name**, and a legit intra-skill
+call always carries a path. Run it when you add or edit a script.
 
 ## CLI reference — `address-pr`
 
@@ -246,11 +252,12 @@ directly and never routed through the identifier parser.
 | `slack-thread.sh` | `parse <permalink>` · `extract-pr` (stdin) · `save --channel C --thread-ts T [--msg-ts M] [--pr-url URL] [--requester UID]` · `get` — pure parse/persist glue for the Slack entry point; the agent makes the `slack_read_thread` / `slack_send_message` calls. |
 
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
-by both `extract-diff.sh` paths), `select-mode.py` (`<diff> <loc-thr> <file-thr> <override>`
-→ the mode JSON; invoked by `select-mode.sh` after it resolves thresholds/override),
-`render-coverage.sh` (*no args*; reconciles `$SELECT_FILE`+`$SCOUT_FILE`+`$TESTS_FILE`
-→ `$COVERAGE_FILE` via `coverage.sh`), `coverage.sh` (shared renderer, symlinked from
-`lib/`; normalized JSON → `<details>` block), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+by both `extract-diff.sh` paths), `run-changed-tests.sh` (*no args*; runs the repo's own
+tests for the changed files — the unit slice, integration/e2e excluded — → `$TESTS_FILE`;
+best-effort, never blocks), `render-coverage.sh` (*no args*; reconciles
+`$SELECT_FILE`+`$SCOUT_FILE`+`$TESTS_FILE` → `$COVERAGE_FILE` via `coverage.sh`),
+`coverage.sh` (shared renderer, symlinked from `lib/`; normalized JSON → `<details>`
+block), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
 
 > The other skills (`propose`, `investigate`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the
@@ -336,7 +343,16 @@ zeus/
   go to **stderr**; errors are `{"error":"…"}` on stderr; exit `0` ok / `1` runtime /
   `2` usage. Identifiers route through `resolve_pr`/`resolve_target`; sub-commands are
   positional; bulk payloads come via stdin or `--from <file|->`; refs/branches never
-  go through the identifier parser.
+  go through the identifier parser. Usage errors exit **2** — use the `usage_exit` /
+  `need` / `unknown_verb` helpers from `lib/dispatch.sh` (the `${N:?msg}` idiom is fine
+  for a required *positional*, but bash pins its failure to exit 1, so a script that
+  must distinguish usage from runtime parses explicitly and calls the helpers).
+  A few scripts deliberately run `set -uo pipefail` (dropping `-e`) — or `set +e` after
+  sourcing `lib.sh` — when they loop and capture per-item failures into their JSON
+  output rather than aborting; that is intentional, not drift. A handful of scripts are
+  **human-facing by design** (`report.sh`, `verify-shipped.sh`, `conclude.sh`): their
+  stdout is a report/verdict/hint for a person, so it is not held to the JSON-on-stdout
+  rule (the exit code carries the machine signal where one is needed).
 - **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
   via `config.sh`, never hard-coded; user/repo config is never committed.
 - **Optional external integrations have one owner, reached by name.**
@@ -356,6 +372,14 @@ zeus/
   be probed from a script, so the owning skill confirms it live and falls back to the
   GitHub-only path when it's absent (never a hard failure). A *new* integration
   (e.g. Jira) follows the same shape — pick an owner, don't add a posting lib.
+  **MCP tool-id naming:** the family declares plugin-provided MCP servers in `allowed-tools`
+  as `mcp__plugin_<server>_<server>__*` (Slack → `mcp__plugin_slack_slack__*`, Vercel →
+  `mcp__plugin_vercel_vercel__*`, Atlassian → `mcp__plugin_atlassian_atlassian__*`), while a
+  user-level server from the dotfiles MCP manifest is the bare `mcp__<server>__*` (SonarQube →
+  `mcp__sonarqube__*`). These ids must match whatever your install actually binds — a mismatch
+  silently means "tool never authorized," which no script can detect. When adding or moving an
+  MCP-backed skill, confirm the live tool id (it may differ from both forms above, e.g. a
+  capitalized connector name) before relying on it.
 - **Stay agnostic:** no language/stack/CI assumptions — detect at runtime and degrade
   gracefully; resolve the base branch via `repo.sh` (never hard-code `main`/`master`).
 - When you add or change a script's CLI, update its `Usage:` header, the call-sites in

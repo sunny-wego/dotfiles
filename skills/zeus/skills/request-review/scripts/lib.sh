@@ -16,6 +16,8 @@ fi
 ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 # shellcheck source=../../../lib/pr-ident.sh
 source "$ZEUS_LIB_DIR/pr-ident.sh"
+# shellcheck source=../../../lib/dispatch.sh
+source "$ZEUS_LIB_DIR/dispatch.sh"   # usage_exit / need / unknown_verb (exit 2 on usage)
 # shellcheck source=../../../lib/lock.sh
 source "$ZEUS_LIB_DIR/lock.sh"
 # shellcheck source=../../../lib/state.sh

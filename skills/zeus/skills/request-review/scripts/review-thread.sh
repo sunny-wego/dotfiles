@@ -44,7 +44,7 @@ case "$cmd" in
       case "$1" in
         --thread-ts) thread_ts="${2:-}"; shift 2 ;;
         --channel)   channel="${2:-}"; shift 2 ;;
-        *) echo "review-thread.sh set: unknown arg $1" >&2; exit 1 ;;
+        *) usage_exit "review-thread.sh set: unknown arg $1" ;;
       esac
     done
     at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -82,7 +82,6 @@ case "$cmd" in
     ;;
 
   *)
-    echo "review-thread.sh: unknown command: $cmd" >&2
-    exit 1
+    unknown_verb "$cmd" "set get sha clear"
     ;;
 esac

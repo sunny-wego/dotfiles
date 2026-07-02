@@ -5,16 +5,18 @@ description: >-
   them in-thread when the PR changes. Use after a PR is
   settled / ready for review, or to re-request review after pushing changes. Triggers
   on: "ask for review", "ping reviewers", "request review in slack", "request a
-  re-review", "tell the reviewers it's ready", "notify reviewers". This only
+  re-review" (in the sense of *re-notifying* reviewers — re-running the code review
+  itself is /zeus:review-pr), "tell the reviewers it's ready", "notify reviewers". This only
   *notifies* an already-open PR's reviewers — it does not create or modify the PR
   (authoring/opening is /zeus:create-pr) or fix its checks (/zeus:address-pr).
   Pairs with /zeus:address-pr (which produces the readiness verdict) and
   /zeus:create-pr, but runs standalone.
+argument-hint: "[ping | re-review | status]"
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. Slack MCP for sending.
 metadata:
   author: sunnywong
-  version: "1.0"
+  version: "1.1"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) AskUserQuestion mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 
@@ -78,7 +80,12 @@ construct; `ready-slack-message.sh` resolves the owners itself. Just resolve the
 channel from the policy and format the envelope:
 ```bash
 export SLACK_REVIEW_CHANNEL=$(bash ${CLAUDE_SKILL_DIR}/scripts/auto-ping.sh "$OWNER/$REPO" | jq -r '.channel // empty')
-ENVELOPE=$(ready-for-review.sh --pr "$PR" --repo "$OWNER/$REPO" \
+# The readiness verdict is an INPUT (see "The verdict contract" / "Invocation contract"):
+# a sibling skill hands it in by name, or a human supplies it via a file. request-review
+# computes nothing about CI/merge/review state itself. To obtain a verdict standalone, ask
+# the arbiter BY NAME — invoke /zeus:address-pr ready and pipe its JSON in — never call its
+# scripts (e.g. ready-for-review.sh) by path.
+ENVELOPE=$(printf '%s' "$VERDICT_JSON" \
   | bash ${CLAUDE_SKILL_DIR}/scripts/ready-slack-message.sh --from-stdin --repo "$OWNER/$REPO")
 ```
 Read `ENVELOPE.should_send` (`false` ⇒ `skip_reason` `not_ready` / `already_pinged_at_<sha>`; `true` ⇒
@@ -98,7 +105,9 @@ bash ${CLAUDE_SKILL_DIR}/scripts/review-thread.sh set "$PR" "$(echo "$ENVELOPE" 
 
 ## Re-review
 ```bash
-RR=$(ready-for-review.sh --pr "$PR" --repo "$OWNER/$REPO" \
+# Same as above: the verdict is an input — piped in by the sibling caller, or fetched
+# standalone via /zeus:address-pr ready (by name). Never invoke ready-for-review.sh by path.
+RR=$(printf '%s' "$VERDICT_JSON" \
   | bash ${CLAUDE_SKILL_DIR}/scripts/re-review-message.sh --pr "$PR" --repo "$OWNER/$REPO" --from-stdin)
 ```
 `should_send: true` only when: the repo's `auto-ping.json` has `re_review: true`, a prior ping thread

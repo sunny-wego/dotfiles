@@ -11,7 +11,7 @@ Usage:
   original-intent.sh parse <body-file|->
   original-intent.sh read
 USAGE
-  exit 1
+  exit 2
 }
 
 read_body() {

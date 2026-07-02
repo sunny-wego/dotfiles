@@ -35,18 +35,11 @@
 #                                       # (the /zeus:propose dispatch resume target)
 #   state.sh current                   # print the pinned active proposal ref, or ""
 
-set -euo pipefail
-
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
-  echo "state.sh: not inside a git worktree" >&2; exit 1; }
-
-gitdir="$(git rev-parse --absolute-git-dir)"
-dir="$gitdir/propose"
-# One-time migration: the skill was renamed create-issue → propose. If a pre-rename
-# store exists and the new one doesn't, move it so persisted proposals keep resolving.
-if [ ! -d "$dir" ] && [ -d "$gitdir/create-issue" ]; then
-  mv "$gitdir/create-issue" "$dir" 2>/dev/null || true
-fi
+# Shared per-worktree state primitives + the create-issue→propose migration + STATE_DIR
+# all live in the skill's lib.sh (which sources lib/state.sh) — no hand-rolled gitdir
+# derivation or tmp+rename here.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+dir="$STATE_DIR"
 cmd="${1:?Usage: state.sh <path|save|load|list|pin|current> [<ref>] [state-file]}"
 
 # ref_to_file — map a proposal ref to its store filename. A bare number (or `draft`)
@@ -103,22 +96,19 @@ case "$cmd" in
     src="${3:?state-file required}"
     [ -f "$src" ] || { echo "state.sh: state file not found: $src" >&2; exit 1; }
     mkdir -p "$dir"
-    # Atomic publish: write a sibling tmp, then rename over the target. A reader
-    # (or a concurrent writer) sees the whole old or whole new file, never a
-    # partial copy — so this single-writer-per-key store needs no lock. The tmp
-    # is keyed by PID so two concurrent saves don't trample each other's tmp.
-    tmp="$file.tmp.$$"
-    cp "$src" "$tmp" && mv "$tmp" "$file"
+    # Atomic publish via the shared write-tmp-then-rename primitive: a reader (or a
+    # concurrent writer) sees the whole old or whole new file, never a partial copy —
+    # so this single-writer-per-key store needs no lock.
+    atomic_write "$file" "$(cat "$src")"
     echo "$file"
     ;;
   load) [ -f "$file" ] && cat "$file" || echo "" ;;
   pin)
     # record <ref> as this worktree's active proposal (the dispatch resume target)
     mkdir -p "$dir"
-    # Atomic write-then-rename (see `save`): two concurrent pins resolve to one
-    # complete value (last writer wins), never a torn pointer — no lock needed.
-    tmp="$dir/current.tmp.$$"
-    printf '%s\n' "$key" > "$tmp" && mv "$tmp" "$dir/current"
+    # Atomic write-then-rename (shared primitive; see `save`): two concurrent pins
+    # resolve to one complete value (last writer wins), never a torn pointer.
+    atomic_write "$dir/current" "$key"
     echo "$dir/current"
     ;;
   *) echo "state.sh: unknown command: $cmd" >&2; exit 1 ;;

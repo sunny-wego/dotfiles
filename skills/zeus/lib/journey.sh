@@ -169,6 +169,6 @@ case "$cmd" in
 
   *)
     echo "journey.sh: unknown command: $cmd" >&2
-    exit 1
+    exit 2
     ;;
 esac

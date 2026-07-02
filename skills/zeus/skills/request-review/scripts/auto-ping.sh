@@ -38,7 +38,11 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULTS="$SCRIPT_DIR/../auto-ping.json"
-CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/request-review"
+# One config home for the family — lib/config.sh sets ZEUS_CONFIG_DIR (env override >
+# default ~/.config/zeus). Sourcing only sets vars, so it's safe outside a repo.
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../../../lib/config.sh"
+CONFIG_DIR="$ZEUS_CONFIG_DIR/request-review"
 OVERRIDE="$CONFIG_DIR/auto-ping.json"
 
 merged_repos() {

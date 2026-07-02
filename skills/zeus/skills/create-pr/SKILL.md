@@ -297,7 +297,7 @@ If the user asks to refresh/update the PR body after later pushes, or invokes `/
    bash ${CLAUDE_SKILL_DIR}/scripts/refresh.sh apply \
      "$(echo "$PREP" | jq -r .body_file)" \
      /tmp/refresh-managed-new.md \
-     --pr-number "$(echo "$PREP" | jq -r .pr_number)"
+     --pr "$(echo "$PREP" | jq -r .pr_number)"
    ```
    Returns `{action: "noop", reason: "managed block unchanged"}` when the regeneration produced an identical block, or `{action: "edited", pr_number, body_file}` when `gh pr edit` was called.
 
