@@ -6,10 +6,12 @@ on:
   push:
     paths:
       - "skills/zeus/**"
+      - ".claude-plugin/marketplace.json"
       - ".github/workflows/zeus-plugin.yml"
   pull_request:
     paths:
       - "skills/zeus/**"
+      - ".claude-plugin/marketplace.json"
       - ".github/workflows/zeus-plugin.yml"
 
 jobs:
@@ -34,7 +36,11 @@ jobs:
           node-version: "22"
       - name: install claude CLI
         run: npm install -g @anthropic-ai/claude-code
-      - name: claude plugin validate
+      - name: claude plugin validate (plugin)
         env:
           CI: "true"
         run: claude plugin validate skills/zeus
+      - name: claude plugin validate (marketplace)
+        env:
+          CI: "true"
+        run: claude plugin validate .

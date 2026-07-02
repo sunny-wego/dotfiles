@@ -1,0 +1,25 @@
+{
+  "name": "sunny-wego",
+  "description": "Personal Claude Code plugin marketplace shipped from sunny-wego/dotfiles.",
+  "owner": {
+    "name": "sunnywong",
+    "email": "sunny@wego.com"
+  },
+  "plugins": [
+    {
+      "name": "zeus",
+      "source": "./skills/zeus",
+      "description": "Issue→code→PR→review workflow as one skill family: propose/investigate issues, review-pr, create-pr, address-pr, request-review, and improve — composed by name through JSON contracts and a shared per-worktree journey.json.",
+      "version": "0.2.0",
+      "author": {
+        "name": "sunnywong",
+        "email": "sunny@wego.com"
+      },
+      "homepage": "https://github.com/sunny-wego/dotfiles/tree/main/skills/zeus",
+      "repository": "https://github.com/sunny-wego/dotfiles",
+      "license": "MIT",
+      "category": "workflow",
+      "keywords": ["github", "issues", "pull-requests", "rfc", "code-review", "workflow", "investigation"]
+    }
+  ]
+}

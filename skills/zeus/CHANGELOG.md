@@ -22,7 +22,12 @@ All notable changes to the Zeus plugin are documented here. The format is based 
   plugin layout.
 - CI: a path-scoped GitHub Actions workflow (`.github/workflows/zeus-plugin.yml`)
   that runs `check-arg-conventions.sh` and `claude plugin validate` (non-strict —
-  fails on errors, tolerates the accepted plugin-root `CLAUDE.md` warning).
+  fails on errors, tolerates the accepted plugin-root `CLAUDE.md` warning) for both
+  the plugin and the marketplace manifest.
+- Marketplace distribution: the dotfiles repo doubles as a marketplace via
+  `.claude-plugin/marketplace.json` (lists `zeus` at `./skills/zeus`), so the plugin
+  installs with `claude plugin marketplace add sunny-wego/dotfiles` +
+  `claude plugin install zeus@sunny-wego`.
 
 ### Changed
 - The read-only diagnosis contract is now **structural, not prose**: `zeus:diagnostician`

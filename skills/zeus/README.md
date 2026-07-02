@@ -49,13 +49,20 @@ invoked by name):
 Zeus lives at `skills/zeus/` in these dotfiles. The repo's `install.sh` symlinks it
 into `~/.agents/skills/zeus`, so the source of truth stays in git.
 
-As a standalone Claude Code plugin it is a self-contained plugin directory
-(`.claude-plugin/plugin.json` + `skills/` + `agents/` + `hooks/`). To use it that way,
-add it through a plugin marketplace or symlink it into your plugins directory. Validate
-any changes with:
+As a standalone Claude Code plugin, this repo doubles as a plugin **marketplace**
+(`.claude-plugin/marketplace.json` at the repo root lists `zeus` at `./skills/zeus`).
+Install it with:
 
 ```sh
-claude plugin validate ./
+claude plugin marketplace add sunny-wego/dotfiles
+claude plugin install zeus@sunny-wego
+```
+
+Validate any changes to the plugin or the marketplace with:
+
+```sh
+claude plugin validate ./skills/zeus   # the plugin
+claude plugin validate .               # the marketplace (also re-checks the plugin)
 ```
 
 (One expected warning: the plugin-root `CLAUDE.md` — kept on purpose to feed
