@@ -11,11 +11,12 @@ description: >-
   (authoring/opening is /zeus:create-pr) or fix its checks (/zeus:address-pr).
   Pairs with /zeus:address-pr (which produces the readiness verdict) and
   /zeus:create-pr, but runs standalone.
+argument-hint: "[ping | re-review | status]"
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq. Slack MCP for sending.
 metadata:
   author: sunnywong
-  version: "1.0"
+  version: "1.1"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) AskUserQuestion mcp__plugin_slack_slack__slack_send_message mcp__plugin_slack_slack__slack_send_message_draft mcp__plugin_slack_slack__slack_search_users
 ---
 

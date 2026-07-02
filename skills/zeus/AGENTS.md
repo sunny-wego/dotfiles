@@ -360,6 +360,14 @@ zeus/
   be probed from a script, so the owning skill confirms it live and falls back to the
   GitHub-only path when it's absent (never a hard failure). A *new* integration
   (e.g. Jira) follows the same shape — pick an owner, don't add a posting lib.
+  **MCP tool-id naming:** the family declares plugin-provided MCP servers in `allowed-tools`
+  as `mcp__plugin_<server>_<server>__*` (Slack → `mcp__plugin_slack_slack__*`, Vercel →
+  `mcp__plugin_vercel_vercel__*`, Atlassian → `mcp__plugin_atlassian_atlassian__*`), while a
+  user-level server from the dotfiles MCP manifest is the bare `mcp__<server>__*` (SonarQube →
+  `mcp__sonarqube__*`). These ids must match whatever your install actually binds — a mismatch
+  silently means "tool never authorized," which no script can detect. When adding or moving an
+  MCP-backed skill, confirm the live tool id (it may differ from both forms above, e.g. a
+  capitalized connector name) before relying on it.
 - **Stay agnostic:** no language/stack/CI assumptions — detect at runtime and degrade
   gracefully; resolve the base branch via `repo.sh` (never hard-code `main`/`master`).
 - When you add or change a script's CLI, update its `Usage:` header, the call-sites in

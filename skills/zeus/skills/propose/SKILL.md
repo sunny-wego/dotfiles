@@ -14,11 +14,11 @@ description: >-
   "amend/update/supersede the issue/RFC", "fold this into #N".
 argument-hint: "[#N | new | review #N | \"topic\"]"
 license: MIT
-compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
+compatibility: Requires git and gh (GitHub CLI) installed and authenticated. Atlassian MCP optional — only the Confluence destination uses it (page fetch, ownership, footer comments); GitHub publishing needs none.
 metadata:
   author: sunnywong
-  version: "0.7"
-allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Write Edit AskUserQuestion Task Agent
+  version: "0.8"
+allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Bash(jq:*) Read Write Edit AskUserQuestion Task Agent mcp__plugin_atlassian_atlassian__*
 ---
 
 # Propose

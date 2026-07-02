@@ -18,5 +18,8 @@
       "present": "mark present — Confluence markdown→storage conversion available via the bundled md2storage.sh adapter",
       "missing": "no mark — Confluence publishing needs a markdown→storage converter (install mark, or set CONFLUENCE_CONVERTER to one); GitHub publishing is unaffected"
     }
+  ],
+  "notes": [
+    "The Confluence comment/ownership/page-fetch path uses the Atlassian MCP (getAccessibleAtlassianResources, getConfluencePage, updateConfluencePage, createConfluenceFooterComment); only the harness can check MCP availability, so the skill confirms it live (getAccessibleAtlassianResources) before relying on it and falls back to GitHub-only when absent. allowed-tools declares mcp__plugin_atlassian_atlassian__* by the family's plugin-MCP convention — confirm this matches the Atlassian server id your install actually binds (see the MCP-naming note in AGENTS.md). The bulk of Confluence publishing goes through confluence.sh (curl-over-REST, no MCP)."
   ]
 }

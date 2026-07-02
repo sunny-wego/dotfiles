@@ -7,11 +7,12 @@ description: >-
   reviewer has left actionable feedback that needs addressing. Triggers on: "fix
   pr", "address feedback", "fix failing checks", "resolve merge conflicts",
   "fix CI", "address review comments".
+argument-hint: "[reviews | sonarqube | ci-check | vercel | merge-conflicts | monitor | ready | re-review]"
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated. SonarQube MCP and Vercel MCP optional.
 metadata:
   author: sunnywong
-  version: "4.7"
+  version: "4.8"
 allowed-tools: Bash(gh:*) Bash(git:*) Bash(bash:*) Read Edit Grep LSP AskUserQuestion ScheduleWakeup EnterWorktree Skill Task Agent mcp__sonarqube__* mcp__plugin_vercel_vercel__*
 ---
 

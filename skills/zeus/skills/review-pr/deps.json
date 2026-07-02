@@ -3,6 +3,7 @@
   "skill": "review-pr",
   "notes": [
     "Verification (Tier 1) is best-effort: a finding is promoted to 'confirmed' only when a cheap, throwaway, read-only-to-shared-state check succeeds. Missing language runtimes / test runners / a local Postgres simply leave findings as 'hypothesis' — never an error.",
-    "Reviewing a foreign repo needs `gh repo clone` access to that repo; without it, ensure-checkout.sh fails loudly and review-pr falls back to diff-only diagnosis (no verify tier)."
+    "Reviewing a foreign repo needs `gh repo clone` access to that repo; without it, ensure-checkout.sh fails loudly and review-pr falls back to diff-only diagnosis (no verify tier).",
+    "The Slack entry point (a Slack message link → review that PR → reply in-thread) needs the Slack MCP (slack_read_thread / slack_send_message); only the harness can check MCP availability. Every other invocation path is unaffected — a normal review posts nothing to Slack."
   ]
 }
