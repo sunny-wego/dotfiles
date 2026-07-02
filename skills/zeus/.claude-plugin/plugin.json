@@ -1,9 +1,14 @@
 {
   "name": "zeus",
-  "version": "0.1.1",
+  "displayName": "Zeus",
+  "version": "0.2.0",
   "description": "Issue→code→PR→review workflow as one family. Aligns on work as GitHub issues (propose decision docs/RFCs, investigate evidence-driven inquiries), then surfaces the branch as a reviewer-friendly PR (create-pr) — which reviews the diff and verifies the linked issue's contract before opening — drives it to mergeable (address-pr), and hands off to a reviewer (request-review). review-pr is the shared read-only review engine, auto-detecting a local pre-PR diff or an open PR; improve retrospects on the family. Skills share durable facts via a per-worktree journey.json and invoke each other by name through JSON contracts.",
   "author": {
-    "name": "sunnywong"
+    "name": "sunnywong",
+    "email": "sunny@wego.com"
   },
+  "homepage": "https://github.com/sunny-wego/dotfiles/tree/main/skills/zeus",
+  "repository": "https://github.com/sunny-wego/dotfiles",
+  "license": "MIT",
   "keywords": ["github", "issues", "pull-requests", "rfc", "code-review", "workflow", "investigation"]
 }
