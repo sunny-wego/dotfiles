@@ -132,7 +132,7 @@ def render_body(f):
     parts += ["", f"**Question:** {f['question']}"]
     if f.get("fix_aside"):
         parts += ["", f"_(Fix aside: {f['fix_aside']})_"]
-    parts += ["", "<sub>via `zeus:review-pr`</sub>", f"<!-- zeus:review-pr id={f['id']} -->"]
+    parts += ["", "_via `zeus:review-pr`_", f"<!-- zeus:review-pr id={f['id']} -->"]
     return "\n".join(parts)
 
 # ---- partition: valid inline anchor vs summary ----
@@ -167,7 +167,7 @@ if summary:
 # via footer, so every review carries "what ran / what didn't / why" once.
 if coverage_md:
     header += ["", coverage_md]
-header += ["", "<sub>via `zeus:review-pr`</sub>"]
+header += ["", "_via `zeus:review-pr`_"]
 body = "\n".join(header).rstrip() + "\n"
 
 comments = []

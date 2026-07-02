@@ -43,8 +43,6 @@ posted="[]"
 errors="[]"
 any_error=0
 
-SIGNOFF=$'\n\n_via `zeus:address-pr`_'
-
 count=$(echo "$bodies" | jq 'length')
 # C-style loop, NOT `seq 0 $((count-1))`: on BSD/macOS `seq 0 -1` counts down to
 # "0 -1" (two values), so an empty payload would post two null-body comments.
@@ -76,10 +74,10 @@ for ((i = 0; i < count; i++)); do
     fi
   fi
 
-  case "$body" in
-    *"_via \`zeus:address-pr\`_"*) ;;
-    *) body="${body}${SIGNOFF}" ;;
-  esac
+  # Sign with the zeus origin tag via the shared helper — AFTER the @mention prepend
+  # above so the tag lands at the foot (idempotent; best-effort — a missing/failed
+  # helper leaves the body unsigned rather than blocking the reply).
+  body="$(printf '%s' "$body" | bash "$SCRIPT_DIR/watermark.sh" address-pr - 2>/dev/null || printf '%s' "$body")"
 
   # --raw-field (not --field): never interpret the value, so a body that legitimately
   # starts with "@mention" isn't mistaken for an "@file" reference by gh.

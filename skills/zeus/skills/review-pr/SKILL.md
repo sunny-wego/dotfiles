@@ -368,6 +368,12 @@ line, naming only the high-level outcome + PR link:
   A clean pass: *"<@U123> Reviewed <pr> — no blocking issues. ✅"*
 - **Re-review:** *"<@U123> Re-reviewed <pr> — N resolved, M still open, K new. See the PR."*
 
+**Sign it** with the zeus origin tag, the same as every other message the family
+originates: append `_via `zeus:review-pr`_` as the final line (pipe your composed
+text through `bash ${CLAUDE_SKILL_DIR}/scripts/watermark.sh review-pr -` to add it
+idempotently). This is the one Slack message review-pr composes inline rather than
+through a `*-message.sh` script, so the tag is added here, not for free.
+
 Always reply, even on a clean pass — closing the loop is the point. A bare count is
 fine (it's informational); the per-finding detail stays on the PR. If
 `coords.requester` is somehow empty, still post (the threaded reply notifies
