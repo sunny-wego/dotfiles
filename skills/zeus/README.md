@@ -55,8 +55,11 @@ add it through a plugin marketplace or symlink it into your plugins directory. V
 any changes with:
 
 ```sh
-claude plugin validate ./ --strict
+claude plugin validate ./
 ```
+
+(One expected warning: the plugin-root `CLAUDE.md` — kept on purpose to feed
+`@AGENTS.md` to the dotfiles' own tooling — isn't loaded as plugin context.)
 
 ## Configuration
 
@@ -73,7 +76,7 @@ once, reference by name" structure. Run the house lints before pushing:
 
 ```sh
 bash lib/check-arg-conventions.sh   # CLI + sub-agent conventions
-claude plugin validate ./ --strict  # manifest + frontmatter schema
+claude plugin validate ./           # manifest + frontmatter schema
 ```
 
 ## License
