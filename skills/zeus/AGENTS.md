@@ -71,7 +71,10 @@ scripts by path:
   `.review` watermark (only on a SHA a review actually ran against), so a re-invocation
   on the unchanged tree skips re-review. (A future upstream implementer that records its
   reviewed SHA hands off the same way — create-pr skips 1c when `.review` == HEAD.)
-- **One notifier** (`request-review`, per-SHA dedup) — no skill posts Slack itself.
+- **One outbound notifier** (`request-review`, per-SHA dedup) — no skill *broadcasts* a
+  reviewer ping itself. Slack is owned **per direction** (see House conventions): `request-review`
+  owns the outbound broadcast; `review-pr` owns the single threaded reply to a review it was
+  summoned for via a Slack link. No other skill touches Slack.
 - **One reviewer engine** — `self` (hand back) and `peer` (post comments) are adapters over the same handlers.
 - **State is re-derived, not stored** — `address-pr` is a level-triggered reconciler; GitHub is the only truth.
 
@@ -246,11 +249,12 @@ directly and never routed through the identifier parser.
 | `slack-thread.sh` | `parse <permalink>` · `extract-pr` (stdin) · `save --channel C --thread-ts T [--msg-ts M] [--pr-url URL] [--requester UID]` · `get` — pure parse/persist glue for the Slack entry point; the agent makes the `slack_read_thread` / `slack_send_message` calls. |
 
 **Helpers** (no-identifier): `diff-anchors.py` (`<diff-file>` → `{path:[lines]}`; shared
-by both `extract-diff.sh` paths), `select-mode.py` (`<diff> <loc-thr> <file-thr> <override>`
-→ the mode JSON; invoked by `select-mode.sh` after it resolves thresholds/override),
-`render-coverage.sh` (*no args*; reconciles `$SELECT_FILE`+`$SCOUT_FILE`+`$TESTS_FILE`
-→ `$COVERAGE_FILE` via `coverage.sh`), `coverage.sh` (shared renderer, symlinked from
-`lib/`; normalized JSON → `<details>` block), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
+by both `extract-diff.sh` paths), `run-changed-tests.sh` (*no args*; runs the repo's own
+tests for the changed files — the unit slice, integration/e2e excluded — → `$TESTS_FILE`;
+best-effort, never blocks), `render-coverage.sh` (*no args*; reconciles
+`$SELECT_FILE`+`$SCOUT_FILE`+`$TESTS_FILE` → `$COVERAGE_FILE` via `coverage.sh`),
+`coverage.sh` (shared renderer, symlinked from `lib/`; normalized JSON → `<details>`
+block), `lib.sh` (sourced; `resolve_pr`/`resolve_target`).
 
 > The other skills (`propose`, `investigate`, `create-pr`,
 > `improve`) carry their own scripts under `skills/<skill>/scripts/`. They follow the

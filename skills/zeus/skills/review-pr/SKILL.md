@@ -17,8 +17,9 @@ description: >-
   re-review). Use when asked to review a pull request, critique a PR, or review your
   local changes before opening a PR. Triggers on: "review pr", "review this pr",
   "code review this pr", "critique this pr", "review my changes/diff before PR", a
-  PR URL, a Slack message link to review, or
-  "/zeus:review-pr [url|number|slack-link|--local]".
+  PR URL, a Slack message link to review, "re-review this PR" (in the sense of *running
+  the code review again* on the new commits — re-*notifying* reviewers is
+  /zeus:request-review), or "/zeus:review-pr [url|number|slack-link|--local]".
 license: MIT
 compatibility: Requires git, gh (GitHub CLI) authenticated, jq, python3. Language runtimes / a local Postgres are optional — they only enable the verify tier. The Slack entry point additionally needs the Slack MCP.
 metadata:

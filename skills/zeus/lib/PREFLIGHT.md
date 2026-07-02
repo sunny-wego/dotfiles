@@ -1,10 +1,11 @@
 # Preflight bootstrap (shared)
 
-Every zeus skill runs `scripts/preflight.sh` before doing work, so a missing
-dependency is reported with a fix instead of failing mid-task. The mechanism is
-identical across skills; each SKILL.md carries only the one-line invocation and
-points here for the detail (this file is the single source — don't re-explain the
-flow inline).
+Every *mutating* zeus skill runs `scripts/preflight.sh` before doing work, so a missing
+dependency is reported with a fix instead of failing mid-task. (`review-pr` is read-only
+and ships no preflight — it never mutates, so there is nothing to gate.) The mechanism is
+identical across the skills that carry it; each such SKILL.md carries only the one-line
+invocation and points here for the detail (this file is the single source — don't
+re-explain the flow inline).
 
 ## Run it
 ```bash
