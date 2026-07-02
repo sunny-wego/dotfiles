@@ -141,7 +141,9 @@ not this PR's finding — DROP (or mention once in the summary, never inline).
 
 ## Reporting
 
-Every handler, on finishing, leaves its findings in `$FINDINGS_FILE`. The run
-report tallies per `handler` and per `status`; the renderer turns the array into
-one review. A handler that finds nothing appends nothing — that's a clean pass,
+The orchestrator records each handler's findings into `$FINDINGS_FILE` — writing
+them itself in the single-context pass, or collecting what a fan-out
+`zeus:diagnostician` returns and writing those at the barrier. The run report
+tallies per `handler` and per `status`; the renderer turns the array into one
+review. A handler that finds nothing contributes nothing — that's a clean pass,
 not an omission.
