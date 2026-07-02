@@ -7,10 +7,11 @@ Shared contract for every handler in `handlers/*.md`. Read this once.
 - **Diagnose and fix only.** Do not commit, push, or watch checks. The orchestrator owns the loop.
 - Apply fixes via the Edit tool. For fork PRs or cross-file fixes, cite the correct path in any review reply.
 - After fixing, append a single outcome line to the state file (see "Reporting outcomes" below).
-- A handler's *diagnosis* may already have been gathered by a parallel read-only subagent before the
-  handler runs (SKILL.md → Parallel diagnosis, serial application). That changes nothing about this
-  contract: the handler still owns **all** file mutations and its **single** outcome append — diagnosis
-  agents never touch the worktree or the state file.
+- A handler's *diagnosis* may already have been gathered by a parallel `zeus:diagnostician` subagent
+  before the handler runs (SKILL.md → Parallel diagnosis, serial application). That changes nothing about
+  this contract: the handler still owns **all** file mutations and its **single** outcome append —
+  diagnosticians are read-only by construction (no Bash/Edit/Write) and never touch the worktree or the
+  state file; they only return the root cause + proposed fix.
 
 ## Evaluation verbs
 

@@ -92,6 +92,47 @@ for b in "${PUBLISH_BACKENDS[@]}"; do
   grep -q 'ownership.sh'    "$b" || note "$name: does not call ownership.sh (ownership gate)"
 done
 
+# 7. Sub-agents are defined ONCE in agents/ and referenced BY NAME. Every
+#    `zeus:<name>` token in the skills must resolve to an agent (agents/<name>.md)
+#    or a skill (skills/<name>/ — a legit by-name hand-off), so a typo'd or dangling
+#    agent reference can't ship. Plus the two invariants the archetypes exist to
+#    ENFORCE structurally: cold-reader has no tools (text-only), diagnostician is
+#    read-only (no Bash/Edit/Write) — if either drifts, the "never mutate" / "no repo
+#    access" guarantees the SKILLs lean on become prose again.
+echo "[7] sub-agent references resolve + read-only invariants hold"
+AGENTS_DIR="$ROOT/agents"
+agent_names=""
+if [ -d "$AGENTS_DIR" ]; then
+  for f in "$AGENTS_DIR"/*.md; do
+    [ -f "$f" ] || continue
+    n="$(sed -n 's/^name:[[:space:]]*//p' "$f" | head -1)"
+    [ -n "$n" ] || n="$(basename "$f" .md)"
+    agent_names="$agent_names $n"
+  done
+fi
+skill_names=""
+for d in "$ROOT"/skills/*/; do
+  [ -d "$d" ] && skill_names="$skill_names $(basename "$d")"
+done
+while IFS= read -r ref; do
+  name="${ref#zeus:}"
+  case " $agent_names $skill_names " in
+    *" $name "*) : ;;
+    *) note "dangling zeus:$name reference (no agents/$name.md or skills/$name/)" ;;
+  esac
+done < <(grep -rhoE 'zeus:[a-z][a-z-]+' "$ROOT"/skills "$AGENTS_DIR" 2>/dev/null | sort -u)
+CR="$AGENTS_DIR/cold-reader.md"
+if [ -f "$CR" ]; then
+  grep -qE '^tools:[[:space:]]*""[[:space:]]*$' "$CR" \
+    || note "cold-reader.md must ship tools: \"\" (text-only, no repo/tool access)"
+fi
+DG="$AGENTS_DIR/diagnostician.md"
+if [ -f "$DG" ]; then
+  case "$(sed -n 's/^tools:[[:space:]]*//p' "$DG" | head -1)" in
+    *Bash*|*Edit*|*Write*) note "diagnostician.md must stay read-only (no Bash/Edit/Write in tools:)" ;;
+  esac
+fi
+
 if [ "$violations" -eq 0 ]; then
   echo "OK — no arg-convention violations"
   exit 0

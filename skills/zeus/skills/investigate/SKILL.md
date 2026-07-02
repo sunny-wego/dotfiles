@@ -201,7 +201,7 @@ Deciding the investigation is over is human judgment (see "The managed status bl
 one moment the report stops growing and becomes the durable record, so it earns a single
 **coherence-reader** pass before you call it done.
 
-1. **Run the coherence reader** (`references/coherence-reader.md`): spawn a fresh subagent with *only*
+1. **Run the coherence reader** (`references/coherence-reader.md`): spawn a `zeus:cold-reader` with *only*
    the rendered report — no conversation context — and have it check that each evidence item's
    *reading* follows from its captured result, that no two evidence items (or an item and the Summary /
    root cause) contradict, and that the `Summary` / `Root cause` / `Done` claims don't overstate what
