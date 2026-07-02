@@ -37,9 +37,11 @@
 # seam (md_to_storage below): set CONFLUENCE_CONVERTER to a command that reads
 # markdown on stdin and writes storage XHTML on stdout (e.g. a `mark --compile-only`
 # wrapper or pandoc+filter). A *.storage / *.xml body-file is passed through
-# untouched (detected by extension). The watermark is already baked into the
-# markdown upstream by `render.sh --format confluence`, so it survives conversion —
-# this script does NOT re-stamp it (you can't append markdown to XHTML).
+# untouched (detected by extension). For create/update the watermark is already baked
+# into the markdown upstream by `render.sh --format confluence`, so it survives
+# conversion — this script does NOT re-stamp those (you can't append markdown to XHTML).
+# The one exception is --comment mode: a footer comment is composed fresh and never
+# goes through render.sh, so this script stamps it here while it is still markdown.
 #
 # Prints the page URL on stdout. Exit 0 ok / 1 runtime / 2 usage — house contract.
 set -euo pipefail
@@ -165,6 +167,14 @@ fi
 
 # ── Comment mode: footer comment (the not-mine path) ─────────────────────────
 if [ -n "$comment_id" ]; then
+  # Sign the disposition comment with the zeus origin tag while it is still markdown
+  # (a footer comment skips render.sh, so it is stamped here, not upstream). Skip a
+  # body that is already storage XHTML — you can't append markdown to it. Idempotent +
+  # best-effort: a missing/failed helper leaves the body as-is.
+  case "$body_file" in
+    *.storage|*.xml|*.xhtml) ;;
+    *) bash "$script_dir/watermark.sh" propose --in-place "$body_file" 2>/dev/null || true ;;
+  esac
   payload=$(jq -nc --arg pid "$comment_id" --argjson v "$(body_value_json)" \
     '{pageId:$pid, body:{representation:"storage", value:$v}}')
   resp=$(api POST "/api/v2/footer-comments" "$payload") || exit 1

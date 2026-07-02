@@ -42,7 +42,7 @@ field is null (`fix_aside`).
 
 _(Fix aside: {fix_aside})_
 
-<sub>via `zeus:review-pr`</sub>
+_via `zeus:review-pr`_
 ```
 
 For a Hypothesis, the Evidence block is replaced by:
@@ -157,7 +157,7 @@ Every posted comment and the review body carry a visible attribution line, as th
 other zeus skills do, so readers know it came from the tool:
 
 ```
-<sub>via `zeus:review-pr`</sub>
+_via `zeus:review-pr`_
 ```
 
 It sits just above the hidden `<!-- zeus:review-pr id=… -->` marker in each inline

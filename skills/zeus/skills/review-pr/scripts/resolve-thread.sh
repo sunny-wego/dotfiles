@@ -33,6 +33,11 @@ done
   echo "resolve-thread: need --comment-id and --body-file <existing file>" >&2; exit 2; }
 owner=$(jq -r .owner "$PR_FILE"); repo=$(jq -r .repo "$PR_FILE"); number=$(jq -r .number "$PR_FILE")
 
+# Sign the re-verify reply with the zeus origin tag (idempotent; best-effort — a
+# missing/failed helper leaves the body as-is). Every human-facing message review-pr
+# originates carries `_via `zeus:review-pr`_`; this thread reply is one of them.
+bash "$SCRIPT_DIR/watermark.sh" review-pr --in-place "$body_file" 2>/dev/null || true
+
 # 1. Reply in-thread with the verdict.
 gh api "repos/$owner/$repo/pulls/$number/comments/$comment_id/replies" \
   -f body="$(cat "$body_file")" --jq '{replied: .html_url}'
