@@ -1,8 +1,0 @@
-{
-  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (engine vendored across the family). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
-  "skill": "improve",
-  "notes": [
-    "Validation of a candidate fix MAY use the SonarQube MCP (analyze_code_snippet); only the harness can check MCP availability. Harvest, the ledger, grading, and landing all work without it.",
-    "The Harvest step MAY invoke the external /reflect skill for a structured conversation pass (see SKILL.md step 2a); it is optional — if /reflect is not installed, improve falls back to reflecting over the transcript itself. Not a hard dependency."
-  ]
-}

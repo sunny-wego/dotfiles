@@ -36,6 +36,3 @@ build/
 
 # MCP Sync State
 mcp/.sync-state.json
-
-# Zeus learnings ledger (runtime state; may contain internal repo data)
-skills/zeus/learnings/

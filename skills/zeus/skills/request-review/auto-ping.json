@@ -1,4 +1,0 @@
-{
-  "_comment": "Shipped DEFAULTS for the per-repo code-owner-ping policy — deliberately empty so installing the skill changes nothing until a repo opts in. Do not put your policy here: it would be overwritten on skill updates. Enable a repo with `scripts/auto-ping.sh enable <owner/repo> --channel <C…> [--mode send|draft|ask] [--re-review]`, which writes to the user-owned override at ${XDG_CONFIG_HOME:-~/.config}/request-review/auto-ping.json (override wins per repo). The skill has exactly two states per repo: ping the PR's CODEOWNERS (enabled) or ping no-one (disabled) — there is no single primary reviewer. Fields — enabled: bool; mode: send | draft | ask; channel: a Slack channel ID (C…), not a #name (the send MCP wants an ID); re_review: when true, re-ping the code owners in-thread when the head advances past the last reviewed SHA. Owners are resolved per changed path at ping time (resolve-reviewers.sh) and mapped to Slack via the handle map.",
-  "repos": {}
-}

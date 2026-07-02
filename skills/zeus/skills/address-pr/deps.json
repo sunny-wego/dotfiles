@@ -1,7 +1,0 @@
-{
-  "_comment": "Per-skill dependency manifest read by scripts/preflight.sh (the engine is vendored identically across the family; this file is where address-pr differs). Base checks — git work tree, gh installed+authenticated, jq — are always run by the engine.",
-  "skill": "address-pr",
-  "notes": [
-    "MCP availability (SonarQube / Vercel / Slack) cannot be script-checked — only the harness sees the tool list. All are optional; handlers degrade without them."
-  ]
-}
