@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Render the final address-pr report from state.json + a fresh pr-status snapshot.
+#
+# Usage: report.sh   (no args; emits a human-readable summary on stdout by design)
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

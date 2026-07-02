@@ -111,5 +111,5 @@ case "$cmd" in
   splice) splice "${1:?usage: journey-marker.sh splice <body-file>}" ;;
   read)   read_pr "${1:?usage: journey-marker.sh read <pr> [repo]}" "${2:-}" ;;
   write)  write_pr "${1:?usage: journey-marker.sh write <pr> [repo]}" "${2:-}" ;;
-  *) echo "journey-marker.sh: unknown command: $cmd" >&2; exit 1 ;;
+  *) echo "journey-marker.sh: unknown command: $cmd" >&2; exit 2 ;;
 esac

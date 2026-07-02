@@ -136,17 +136,20 @@ left to luck. Run the lint:
 bash zeus/lib/check-arg-conventions.sh   # exit 0 = clean, 1 = violations
 ```
 
-It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc; [3] the
-parser is defined once in `lib/pr-ident.sh` and sourced by the PR-workflow libs;
-[4] no skill `lib.sh` re-defines a shared helper (`resolve_pr`/`with_lock`/`run`/…);
-[5] no script hand-rolls a `--pr)` case — every PR-identifier script routes through
-`resolve_pr`/`resolve_target`. **There are no exemptions** for `--pr`-taking scripts.
-(Issue-centric skills that take only `--repo`, and the resolvers themselves —
-`identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are out of scope by construction.)
-[6] publish backends conform to `publish-contract.md`; [7] every `zeus:<name>`
-sub-agent reference resolves to an `agents/<name>.md` or a skill, and the archetype
-invariants hold (`cold-reader` ships `tools: ""`, `diagnostician` stays read-only).
-Run it when you add or edit a script.
+It checks: [1]/[2] no split `<owner> <repo>` in a script CLI call or a doc (**all
+skills**); [3] the parser is defined once in `lib/pr-ident.sh` and sourced by the
+PR-workflow libs; [4] no skill `lib.sh` re-defines a shared helper
+(`resolve_pr`/`with_lock`/`run`/…); [5] no script hand-rolls a `--pr)` case — every
+PR-identifier script routes through `resolve_pr`/`resolve_target`. **There are no
+exemptions** for `--pr`-taking scripts. (Issue-centric skills that take only `--repo`,
+and the resolvers themselves — `identify-pr.sh`/`detect-target.sh`/`pr-ident.sh` — are
+out of scope by construction.) [6] publish backends conform to `publish-contract.md`;
+[7] every `zeus:<name>` sub-agent reference resolves to an `agents/<name>.md` or a
+skill, and the archetype invariants hold (`cold-reader` ships `tools: ""`,
+`diagnostician` stays read-only); [8] no skill invokes **another** skill's script by
+bare basename (`$(x.sh …)` / `| x.sh` / `bash x.sh` where `x.sh` lives only in a
+different skill's `scripts/`) — skills call skills **by name**, and a legit intra-skill
+call always carries a path. Run it when you add or edit a script.
 
 ## CLI reference — `address-pr`
 
@@ -340,7 +343,16 @@ zeus/
   go to **stderr**; errors are `{"error":"…"}` on stderr; exit `0` ok / `1` runtime /
   `2` usage. Identifiers route through `resolve_pr`/`resolve_target`; sub-commands are
   positional; bulk payloads come via stdin or `--from <file|->`; refs/branches never
-  go through the identifier parser.
+  go through the identifier parser. Usage errors exit **2** — use the `usage_exit` /
+  `need` / `unknown_verb` helpers from `lib/dispatch.sh` (the `${N:?msg}` idiom is fine
+  for a required *positional*, but bash pins its failure to exit 1, so a script that
+  must distinguish usage from runtime parses explicitly and calls the helpers).
+  A few scripts deliberately run `set -uo pipefail` (dropping `-e`) — or `set +e` after
+  sourcing `lib.sh` — when they loop and capture per-item failures into their JSON
+  output rather than aborting; that is intentional, not drift. A handful of scripts are
+  **human-facing by design** (`report.sh`, `verify-shipped.sh`, `conclude.sh`): their
+  stdout is a report/verdict/hint for a person, so it is not held to the JSON-on-stdout
+  rule (the exit code carries the machine signal where one is needed).
 - **Shared helpers are sourced from `lib/`, never copied** into a skill. Config is read
   via `config.sh`, never hard-coded; user/repo config is never committed.
 - **Optional external integrations have one owner, reached by name.**

@@ -163,7 +163,9 @@ case "$cmd" in
     ;;
 
   *)
-    echo "handles.sh: unknown command: $cmd" >&2
-    exit 1
+    # (handles.sh is standalone — sources only config.sh, not the skill lib.sh — so the
+    # unknown-verb error is inline; exit 2 = usage per the house contract.)
+    echo "handles.sh: unknown verb: $cmd (path|init|get|set|remove|list|missing-from-codeowners|bootstrap-template)" >&2
+    exit 2
     ;;
 esac

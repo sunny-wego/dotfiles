@@ -16,9 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 resolve_pr "$@"
-pr="${PR:?Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>}"
-expected="$SHA"
-[ -n "$expected" ] || { echo "Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>" >&2; exit 1; }
+pr="$PR"; expected="$SHA"
+need "$pr" "Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>"
+need "$expected" "Usage: wait-for-sha.sh --pr <n> --sha <expected_sha>"
 
 MAX_RETRIES=6
 INTERVAL=10

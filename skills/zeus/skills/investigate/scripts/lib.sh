@@ -23,6 +23,9 @@ source "$ZEUS_LIB_DIR/state.sh"
 # gh_issue_number / ensure_label — shared with propose.
 # shellcheck source=../../../lib/gh-issue.sh
 source "$ZEUS_LIB_DIR/gh-issue.sh"
+# usage_exit / need / unknown_verb — exit 2 on usage (die stays exit 1 for runtime).
+# shellcheck source=../../../lib/dispatch.sh
+source "$ZEUS_LIB_DIR/dispatch.sh"
 
 die() { echo "investigate: $*" >&2; exit 1; }
 log() { echo "investigate: $*" >&2; }

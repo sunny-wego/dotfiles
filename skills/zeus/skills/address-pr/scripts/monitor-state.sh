@@ -133,7 +133,6 @@ case "$cmd" in
     ;;
 
   *)
-    echo "Unknown command: $cmd" >&2
-    exit 1
+    unknown_verb "$cmd"
     ;;
 esac

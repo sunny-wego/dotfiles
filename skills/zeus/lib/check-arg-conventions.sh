@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# check-arg-conventions.sh — lint the zeus PR-workflow skills (address-pr,
-# request-review) against the shared CLI identifier convention so it can't
-# silently drift back (positional tolerance means a stale call still WORKS,
-# so consistency needs an explicit checker, not luck):
+# check-arg-conventions.sh — lint the zeus skills against the shared CLI conventions
+# so they can't silently drift back (positional tolerance means a stale call still
+# WORKS, so consistency needs an explicit checker, not luck). Rules [1]/[2]/[8] span
+# ALL skills; [3] targets the PR-workflow pair (address-pr, request-review) where the
+# parser is sourced:
 #
 #   1. repo is ALWAYS one `owner/repo` slug — NEVER a split `<owner> <repo>`,
 #      neither in a script's CLI call nor in a doc example.
@@ -15,28 +16,32 @@
 # are no exemptions. (fetch-review-comments.sh used to carry a bespoke any-order
 # parser; it now uses resolve_target like everything else.)
 #
-# Exit 0 = clean, 1 = violations (each printed). Run from anywhere.
+# Usage: check-arg-conventions.sh   (no args; run from anywhere)
+# Exit 0 = clean, 1 = violations (each printed).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # zeus/
-SKILLS=("$ROOT/skills/address-pr" "$ROOT/skills/request-review")
+SKILLS=("$ROOT/skills/address-pr" "$ROOT/skills/request-review")   # the PR-workflow pair (rule [3])
+ALL_SKILLS=()                                                      # every skill (rules [1]/[2]/[8])
+for _d in "$ROOT"/skills/*/; do [ -d "$_d" ] && ALL_SKILLS+=("${_d%/}"); done
 violations=0
 note() { printf '  ✘ %s\n' "$1"; violations=$((violations + 1)); }
 
 echo "zeus arg-convention check"
 
 # 1a. Split-form in a script's CLI call: `<x>.sh "$owner" "$repo"` (any case).
+# Checked across ALL skills — the split form must not exist anywhere, not just the pair.
 echo "[1] no split <owner> <repo> in script CLI calls"
-for d in "${SKILLS[@]}"; do
+for d in "${ALL_SKILLS[@]}"; do
   [ -d "$d/scripts" ] || continue
   while IFS= read -r hit; do
     note "$hit"
   done < <(grep -rEn '\.sh"? +"\$(owner|OWNER)" +"\$(repo|REPO)"' "$d/scripts" 2>/dev/null || true)
 done
 
-# 1b. Split-form placeholder in docs: `<owner> <repo>`.
+# 1b. Split-form placeholder in docs: `<owner> <repo>` — checked across ALL skills.
 echo "[2] no split <owner> <repo> in docs"
-for d in "${SKILLS[@]}"; do
+for d in "${ALL_SKILLS[@]}"; do
   while IFS= read -r hit; do
     note "$hit"
   done < <(grep -rEn '<owner> <repo>' "$d" --include='*.md' 2>/dev/null || true)
@@ -132,6 +137,31 @@ if [ -f "$DG" ]; then
     *Bash*|*Edit*|*Write*) note "diagnostician.md must stay read-only (no Bash/Edit/Write in tools:)" ;;
   esac
 fi
+
+# 8. Skills call skills BY NAME, never another skill's script by path/basename. A
+#    legit intra-skill call always carries a path (${CLAUDE_SKILL_DIR}/scripts/…,
+#    $SCRIPT_DIR/…), so a BARE-basename invocation ($(x.sh …), | x.sh, bash x.sh) of a
+#    script that lives in ANOTHER skill's scripts/ (and not this skill's own, nor lib/)
+#    is the house-rule violation that let request-review call address-pr's
+#    ready-for-review.sh slip through. Own-skill shorthand ($(render.sh …) in propose's
+#    docs) and shared lib/ scripts are fine.
+echo "[8] no cross-skill script call by bare basename (invoke the owner skill by name)"
+for d in "${ALL_SKILLS[@]}"; do
+  sk="$(basename "$d")"; own="$d/scripts"
+  while IFS=: read -r file lineno text; do
+    [ -n "$file" ] || continue
+    for bn in $(printf '%s' "$text" \
+                  | grep -oE '(\$\(|\|[[:space:]]*|bash[[:space:]]+)[A-Za-z0-9_.-]+\.sh' \
+                  | grep -oE '[A-Za-z0-9_.-]+\.sh' | sort -u); do
+      [ -e "$own/$bn" ] && continue          # this skill's own script → fine
+      [ -e "$ROOT/lib/$bn" ] && continue      # shared vendored/lib script → fine
+      if ls "$ROOT"/skills/*/scripts/"$bn" >/dev/null 2>&1; then
+        note "$file:$lineno calls $bn by bare name — it's owned by another skill; invoke that skill by name, not its script"
+      fi
+    done
+  done < <(grep -rEn '(\$\(|\|[[:space:]]*|bash[[:space:]]+)[A-Za-z0-9_.-]+\.sh' \
+             "$d" --include='*.sh' --include='*.md' 2>/dev/null || true)
+done
 
 if [ "$violations" -eq 0 ]; then
   echo "OK — no arg-convention violations"

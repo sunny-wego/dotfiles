@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/lib.sh"
 
 resolve_target "$@"
 pr="$PR"; repo="$REPO_SLUG"
-[ -n "$pr" ] || { echo "Usage: find-failed-vercel-checks.sh --pr <n> [--repo <owner/repo>]" >&2; exit 1; }
+need "$pr" "Usage: find-failed-vercel-checks.sh --pr <n> [--repo <owner/repo>]"
 
 # shellcheck disable=SC2054  # gh --json field list, one arg
 args=(pr checks "$pr" --json name,state,link,completedAt)

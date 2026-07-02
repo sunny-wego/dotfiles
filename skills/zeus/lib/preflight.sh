@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # preflight.sh — verify this skill's dependencies and (with --fix) offer to install them.
 #
+# Usage: preflight.sh [--fix]
+#
 # VENDORED IDENTICALLY across the skill family (create-pr, propose,
 # address-pr, request-review, investigate) — same doctrine as journey.sh:
 # no skill depends on another being installed, and a fix in one copy is a

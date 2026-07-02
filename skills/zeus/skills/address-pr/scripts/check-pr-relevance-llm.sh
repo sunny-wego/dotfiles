@@ -21,7 +21,7 @@ Usage:
   check-pr-relevance-llm.sh build-prompt <pr_number> [conflict_files_json|path]
   check-pr-relevance-llm.sh gate <decision_json|path|-> [threshold]
 USAGE
-  exit 1
+  exit 2
 }
 
 snapshot_path() {

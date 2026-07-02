@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # select-mode.sh — decide single-context vs parallel fan-out, deterministically.
 # The skill never makes this call by judgment; this script does, from the diff.
+# Usage: select-mode.sh [--deep|--single]   (reads the extracted diff; emits mode JSON)
 #
 # Rule: parallel when reviewable_loc >= LOC_THRESHOLD OR reviewable_files >=
 # FILE_THRESHOLD; else single. `reviewable` excludes lockfiles, generated/vendored

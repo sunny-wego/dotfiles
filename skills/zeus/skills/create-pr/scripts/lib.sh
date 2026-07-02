@@ -11,6 +11,10 @@ fi
 ZEUS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../lib" && pwd)"
 # shellcheck source=../../../lib/repo.sh
 source "$ZEUS_LIB_DIR/repo.sh"
+# shellcheck source=../../../lib/pr-ident.sh
+source "$ZEUS_LIB_DIR/pr-ident.sh"   # resolve_pr — canonical PR-identifier parser
+# shellcheck source=../../../lib/dispatch.sh
+source "$ZEUS_LIB_DIR/dispatch.sh"   # usage_exit / need / unknown_verb (exit 2 on usage)
 # shellcheck source=../../../lib/original-intent.sh
 source "$ZEUS_LIB_DIR/original-intent.sh"
 

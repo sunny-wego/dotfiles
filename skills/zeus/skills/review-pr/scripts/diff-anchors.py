@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # diff-anchors.py — given a unified diff on argv[1], print
 #   { "<path>": [<RIGHT-side line numbers>], ... }
+# Usage: diff-anchors.py <diff-file>
 # RIGHT-side anchorable lines = added ('+') and context (' ') lines, numbered in
 # the NEW file. These are the lines a `side:RIGHT` inline comment may target; the
 # GitHub reviews API rejects an entire review if any inline comment points outside

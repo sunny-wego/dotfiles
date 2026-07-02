@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # issue-context.sh — gather repo, branch, and HEAD SHA context for propose.
+# Usage: issue-context.sh   (no args)
 # Output: single JSON object on stdout.
 
 set -euo pipefail
