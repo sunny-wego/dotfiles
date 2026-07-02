@@ -2,6 +2,11 @@
 # Shared helpers for the investigate skill. Source this; don't execute it.
 set -euo pipefail
 
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "investigate lib: not inside a git worktree" >&2
+  exit 1
+fi
+
 DRY_RUN="${DRY_RUN:-0}"
 
 # Shared family helpers (one copy in zeus/lib/, sourced — never pasted). run() and
@@ -80,8 +85,9 @@ _migrate_state() {
 
 state_dir()  {
   local gd; gd="$(git rev-parse --absolute-git-dir)"
-  local d="$gd/investigate"
-  [ ! -d "$d" ] && [ -d "$gd/manage-incident" ] && mv "$gd/manage-incident" "$d" 2>/dev/null || true
+  # Migrate a pre-rename manage-incident dir BEFORE state_root creates the new one.
+  [ ! -d "$gd/investigate" ] && [ -d "$gd/manage-incident" ] && mv "$gd/manage-incident" "$gd/investigate" 2>/dev/null || true
+  local d; d="$(state_root investigate)"   # shared per-worktree dir (lib/state.sh) + mkdir
   _migrate_state "$d" || true
   echo "$d"
 }

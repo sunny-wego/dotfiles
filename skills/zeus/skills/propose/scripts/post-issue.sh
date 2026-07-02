@@ -47,9 +47,10 @@ fi
 [ -f "$body_file" ] || { echo "error: body file not found: $body_file" >&2; exit 1; }
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-# gh_issue_number — shared issue-number parse (lib/gh-issue.sh, shared with investigate).
-# shellcheck source=../../../lib/gh-issue.sh
-source "$script_dir/../../../lib/gh-issue.sh"
+# Shared helpers via the skill shim (sources lib/gh-issue.sh → gh_issue_number, plus
+# lib/state.sh + config) — one source point instead of an ad-hoc deep relative path.
+# shellcheck source=./lib.sh
+source "$script_dir/lib.sh"
 
 # Sign the issue/RFC body — or, in --comment mode, the disposition comment — with
 # the zeus origin tag (idempotent). One call covers all three modes since each

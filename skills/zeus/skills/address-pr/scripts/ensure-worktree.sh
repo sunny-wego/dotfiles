@@ -26,6 +26,13 @@
 
 set -euo pipefail
 
+# Shared worktree engine (side-effect-free: functions only, no state). Sourced
+# directly — NOT via the skill's lib.sh, which would create state under the launch
+# checkout before the agent has entered the worktree (this runs pre-isolation).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../../../lib/worktree.sh"
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo '{"error": "not inside a git work tree"}' >&2
   exit 1
@@ -58,14 +65,12 @@ pr=$(echo "$raw" | jq -r '.number')
 branch=$(echo "$raw" | jq -r '.headRefName')
 target_ref="refs/heads/$branch"
 
-# The main worktree is always the first entry of `git worktree list`. Anchoring
-# the conventional path there makes it identical regardless of which worktree we
-# are invoked from. Read with a line loop so paths containing spaces survive.
-main_root=""
-while IFS= read -r line; do
-  case "$line" in "worktree "*) main_root="${line#worktree }"; break ;; esac
-done < <(git worktree list --porcelain)
-wt_path="$main_root/.claude/worktrees/pr-$pr"
+# The conventional path is anchored at the main worktree root (shared engine), so it
+# is identical regardless of which worktree we are invoked from.
+wt_path="$(worktree_path_for pr "$pr")" || {
+  echo '{"error": "could not locate the main worktree root"}' >&2
+  exit 1
+}
 
 current_top=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 
@@ -76,55 +81,21 @@ emit() { # emit <path> <created> <reused>
     '{pr:$pr, branch:$branch, path:$path, created:$created, reused:$reused, already_inside:$ai}'
 }
 
-# Reuse 1: a registered worktree is already checked out on the PR head branch.
-existing=""; cur=""
-while IFS= read -r line; do
-  case "$line" in
-    "worktree "*) cur="${line#worktree }" ;;
-    "branch $target_ref") existing="$cur"; break ;;
-  esac
-done < <(git worktree list --porcelain)
+# Reuse 1 (address-pr-specific): a registered worktree is already checked out on the
+# PR head branch — reuse it wherever it lives, even off the conventional path.
+existing="$(worktree_on_branch "$target_ref" || true)"
 if [ -n "$existing" ]; then
   emit "$existing" false true
   exit 0
 fi
 
-# Reuse 2: the conventional path is already a registered worktree (maybe parked
-# on another branch) — re-point it at the PR branch and reuse.
-is_registered=false
-while IFS= read -r line; do
-  case "$line" in "worktree $wt_path") is_registered=true; break ;; esac
-done < <(git worktree list --porcelain)
-if [ "$is_registered" = true ]; then
-  if ! ( cd "$wt_path" && gh pr checkout "$pr" >/dev/null 2>&1 ); then
-    echo "{\"error\": \"existing worktree $wt_path could not be switched to PR $pr (dirty? branch in use elsewhere?)\"}" >&2
-    exit 1
-  fi
-  emit "$wt_path" false true
-  exit 0
-fi
-
-# A leftover directory at the conventional path that git doesn't track → prune,
-# else refuse rather than silently working in an unmanaged dir.
-if [ -e "$wt_path" ]; then
-  git worktree prune >/dev/null 2>&1 || true
-  if [ -e "$wt_path" ]; then
-    echo "{\"error\": \"$wt_path exists but is not a registered worktree; remove it or run 'git worktree prune'\"}" >&2
-    exit 1
-  fi
-fi
-
-# Create: an empty detached worktree, then let gh lay down the (possibly fork)
-# branch with correct tracking. We only reach here when the branch is checked out
-# nowhere, so there is no two-worktrees-one-branch conflict.
-mkdir -p "$(dirname "$wt_path")"
-if ! git worktree add --detach "$wt_path" >/dev/null 2>&1; then
-  echo "{\"error\": \"git worktree add failed for $wt_path\"}" >&2
+# Reuse 2 / prune-leftover / create — the shared engine (reuse the conventional-path
+# worktree if registered, else prune a stray dir, else `git worktree add --detach`
+# and `gh pr checkout`). We reach here only when the branch is checked out nowhere,
+# so there is no two-worktrees-one-branch conflict.
+if ! worktree_ensure_local "$wt_path" "$pr"; then
+  jq -nc --arg e "$WORKTREE_ERR" '{error:$e}' >&2
   exit 1
 fi
-if ! ( cd "$wt_path" && gh pr checkout "$pr" >/dev/null 2>&1 ); then
-  git worktree remove --force "$wt_path" >/dev/null 2>&1 || true
-  echo "{\"error\": \"gh pr checkout $pr failed inside new worktree (branch already checked out elsewhere, or fork access?)\"}" >&2
-  exit 1
-fi
-emit "$wt_path" true false
+if [ "$WORKTREE_RESULT" = created ]; then emit "$wt_path" true false
+else emit "$wt_path" false true; fi

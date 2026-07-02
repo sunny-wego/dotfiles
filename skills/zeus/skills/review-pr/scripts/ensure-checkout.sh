@@ -20,6 +20,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../../../lib/pr-ident.sh"   # resolve_pr — side-effect-free; this runs pre-isolation
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../../../lib/worktree.sh"   # shared worktree engine (also side-effect-free)
 
 # --foreign is review-pr-specific (not an identifier), so strip it before resolve_pr.
 foreign=""
@@ -66,35 +68,14 @@ if [ "$foreign" = "true" ]; then
   emit "$scratch" foreign-clone true false; exit 0
 fi
 
-# ---- local repo: worktree of the current clone -----------------------------
+# ---- local repo: worktree of the current clone (shared engine: lib/worktree.sh) ----
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo '{"error": "not inside a git work tree, and PR is not marked foreign"}' >&2; exit 1
 fi
-main_root=""
-while IFS= read -r line; do
-  case "$line" in "worktree "*) main_root="${line#worktree }"; break ;; esac
-done < <(git worktree list --porcelain)
-wt_path="$main_root/.claude/worktrees/review-pr-$pr"
-
-# Reuse a registered worktree at the conventional path.
-is_registered=false
-while IFS= read -r line; do
-  case "$line" in "worktree $wt_path") is_registered=true; break ;; esac
-done < <(git worktree list --porcelain)
-if [ "$is_registered" = true ]; then
-  ( cd "$wt_path" && gh pr checkout "$pr" >/dev/null 2>&1 ) \
-    || { echo "{\"error\": \"could not switch $wt_path to PR $pr\"}" >&2; exit 1; }
-  emit "$wt_path" worktree false true; exit 0
+wt_path="$(worktree_path_for review-pr "$pr")" \
+  || { echo '{"error": "could not locate the main worktree root"}' >&2; exit 1; }
+if ! worktree_ensure_local "$wt_path" "$pr"; then
+  jq -nc --arg e "$WORKTREE_ERR" '{error:$e}' >&2; exit 1
 fi
-if [ -e "$wt_path" ]; then
-  git worktree prune >/dev/null 2>&1 || true
-  [ -e "$wt_path" ] && { echo "{\"error\": \"$wt_path exists but is untracked; remove it or run 'git worktree prune'\"}" >&2; exit 1; }
-fi
-mkdir -p "$(dirname "$wt_path")"
-git worktree add --detach "$wt_path" >/dev/null 2>&1 \
-  || { echo "{\"error\": \"git worktree add failed for $wt_path\"}" >&2; exit 1; }
-if ! ( cd "$wt_path" && gh pr checkout "$pr" >/dev/null 2>&1 ); then
-  git worktree remove --force "$wt_path" >/dev/null 2>&1 || true
-  echo "{\"error\": \"gh pr checkout $pr failed in new worktree (branch checked out elsewhere?)\"}" >&2; exit 1
-fi
-emit "$wt_path" worktree true false
+if [ "$WORKTREE_RESULT" = created ]; then emit "$wt_path" worktree true false
+else emit "$wt_path" worktree false true; fi

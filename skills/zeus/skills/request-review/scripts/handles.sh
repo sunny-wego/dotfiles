@@ -36,7 +36,11 @@ default_path() {
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && echo "$(pwd)/slack-handles.default.json"
 }
 
-CONFIG_DIR="${ZEUS_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/zeus}/request-review"
+# One config home for the family — lib/config.sh sets ZEUS_CONFIG_DIR (env override >
+# default ~/.config/zeus). Sourcing only sets vars, so it's safe outside a repo.
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../lib/config.sh"
+CONFIG_DIR="$ZEUS_CONFIG_DIR/request-review"
 override_path() { echo "$CONFIG_DIR/slack-handles.json"; }
 
 # Merged view: defaults overlaid by the user override (override wins).
