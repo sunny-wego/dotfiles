@@ -226,17 +226,19 @@ Canonical hard case: a **Next.js app using every feature** — staff log in with
 BROWSER  → Traefik → oauth2-proxy (company Google) → authz (role/route, default-deny) → app
 MACHINE  → Traefik → allowlisted /webhooks/stripe (path allowlist; app verifies sig) ─→ app
 ```
-A Viewer hitting `/admin` (a GET navigation) is blocked before the app sees it; **server-action POSTs are held to the app's strictest role** (individual actions can't be distinguished). Stripe's webhook reaches the app because its path is allowlisted; **the app verifies the Stripe signature** (the platform allowlists the path and can verify a few known providers as a bonus).
+A Viewer hitting `/admin` (a GET navigation) is blocked before the app sees it. **And because server-action writes would otherwise be Admin-only, at confirm time the creator was flagged and moved mutations to `/api/*` — so Editors can write and Viewers can't.** Stripe's webhook reaches the app because its path is allowlisted; **the app verifies the Stripe signature** (the platform allowlists the path and can verify a few known providers as a bonus).
 
 **Phase 5 — Scheduled work.** 09:00 Coolify Scheduled Task runs the report (overlap-guarded, timezone-declared, retries, **failure alerts the creator**), sends email via the relay, exits.
 
-**Phase 6 — Maintain.** Update = new ZIP → rebuild (Dockerfile reused unless detection changed) → **preview URL → promote** → health-checked swap. **Preview is isolated:** it boots against a **throwaway copy of the tenant DB** (a Postgres `TEMPLATE` copy — cheap at internal-tool sizes), with **cron disabled and the email relay in redirect/sandbox mode**, so a startup migration or side effect can't touch prod; promote runs migrations against the live DB. Rollback = redeploy a prior image. Manage secrets/logs/users/cron; offboard (export → tear down, reconciler GCs remnants).
+**Phase 6 — Maintain.** Update = new ZIP → rebuild (Dockerfile reused unless detection changed) → **preview URL → promote** → health-checked swap. **Preview is isolated:** it boots against a **throwaway copy of the tenant DB** (`pg_dump | pg_restore` or a snapshot — a `CREATE DATABASE … TEMPLATE` copy is refused while the live app holds connections; both are fast at internal-tool sizes), with **cron disabled and email in redirect/sandbox mode**, so a startup migration or side effect can't touch prod. **Promote runs migrations against live for the first time** — so preview validates the migration against a *copy*, and minor data-drift between preview and promote is an accepted residual at this scale. **One more residual, stated honestly:** preview still inherits the live **outbound allowlist + secrets**, so it *can* call real external APIs (real Stripe, real LLM spend) and writes to the live object bucket unless given a scratch bucket — acceptable at this scale, but scoped here rather than implied away. Rollback = redeploy a prior image. Manage secrets/logs/users/cron; offboard (export → tear down, reconciler GCs remnants).
 
 <details>
 <summary><b>RBAC precision — what it does and doesn't guarantee</b></summary>
 
 - **Guarantees route + method** (path/method → role, default-deny), enforced at the proxy with zero app code. A missed route is denied.
-- **Sub-route operations get a hybrid rule (not a blanket coarse gate).** Server actions, GraphQL (`POST /graphql`), websockets, and SSE **multiplex many operations on one route**. But **server-action invocations are deterministically identifiable** (a `POST` carrying the `Next-Action` header / action payload), so we enforce **hybrid**: normal `GET` navigation and `/api/*` keep **per-path/method role rules** — *so a Viewer is still blocked from `/admin`* — while **any request carrying the action marker is held to the app's *most-restrictive* role (or denied below a threshold)**, since we can't tell one action from another. **Opaque single-endpoint multiplexers with no such marker (GraphQL, websockets) fall back to a coarse whole-app gate.** Detection uses a deterministic framework signal, not LLM judgment; a miss yields the safer behavior, and the UI states the level plainly.
+- **Sub-route operations get a hybrid rule.** Server actions, GraphQL (`POST /graphql`), websockets, SSE **multiplex many operations on one route**. **Server-action invocations are deterministically identifiable** (`POST` + `Next-Action` header / action payload), so: normal `GET` navigation and `/api/*` keep **per-path/method role rules** (*a Viewer is still blocked from `/admin`*), while **any action-marked request is held to the highest-privilege role the app defines** — since we can't tell one action from another, all are held to the strictest bar. (To be precise: "strictest" = *highest-privilege role required*, i.e. **Admin-only**, not "any signed-in user.")
+- **Consequence — stated, not discovered.** That makes *every* server-action write Admin-only, so in a write-heavy app-router app **Editors can't edit**. At confirm time, detection **flags "server actions + multiple roles"** and offers the off-ramp: **(a)** move mutations to `/api/*` routes (per-path rules distinguish them) · **(b)** cooperate via identity headers for in-app checks · **(c)** accept Admin-only actions. The creator chooses with eyes open — it's never a surprise when Editors' buttons stop working.
+- **Opaque single-endpoint multiplexers** (GraphQL, websockets) have no marker → coarse whole-app gate. Detection is a deterministic framework signal; a miss yields the safer behavior.
 - **Row-level** and **operation-level** are the same class: fine granularity below the route needs app cooperation (identity headers) or Postgres RLS.
 </details>
 
@@ -390,11 +392,11 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | Kiosk master tokens | least-priv token; behind oauth2-proxy; isolate build workers; quotas | 🟦+🟨 |
 | Lateral movement | Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress | 🟦+🟩 |
 | Webhooks/machine clients blocked or over-exposed | manifest public-path allowlist + signed-webhook/machine-token | 🟨 |
-| Server actions defeat path RBAC | deterministic-signal → default coarse gate; LLM only proposes finer | 🟨 |
+| Server actions defeat path RBAC | hybrid: per-path GET//api + action-marker held to strictest role; coarse only for GraphQL/ws | 🟨 |
 | LLM detection silent false-negative | structural defaults (egress boundary, default-coarse) + eval harness w/ recall targets | 🟨 |
 | Header spoofing | strip inbound `X-Auth-*`; ports unpublished | 🟦 |
 | authz fail-open / path bypass | fail-closed; canonicalize; cache invalidation | 🟨 |
-| Metadata-PG SPOF | authz local cache w/ staleness; PG HA; replicate proxy/authz | 🟩 |
+| Metadata-PG SPOF | authz local cache + fast restore; replicate proxy/authz; PG HA at second server | 🟩 |
 | Over-permissive manifest | most-restrictive default; explicit opt-in; loud "public" | 🟨 |
 | Customer data → OpenRouter | provider filtering + ZDR; policy: not hosted here | 🟩+🟥 |
 | Coolify state loss | state backup + restore runbook + host-as-code | 🟩 |
@@ -415,7 +417,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | Tenant-scoped LLM cache hook | verify (two-tenant identical-prompt test) |
 | Metadata-PG HA + authz cache staleness bounds | design + test |
 | Auth smoke test (unauth ≠ 200) & webhook-path bypass test | add when built |
-| Server-action / single-endpoint detection | deterministic detector → default-coarse gate |
+| Server-action / single-endpoint detection | hybrid (per-path + action-marker→strictest role); coarse only for GraphQL/ws |
 | Detector eval harness + recall targets | build the labeled + red-team corpus; calibrate confidence |
 | Fine-grained row/operation-level RBAC | app-cooperative (identity headers) or RLS |
 | gVisor / build sandbox | excluded for simplicity → contained risks; reopen for adversarial/internet-facing |

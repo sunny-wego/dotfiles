@@ -259,7 +259,7 @@
     <h2>Per-app RBAC — route-precise, honest about the rest</h2>
     <div class="grid cols-3">
       <div class="card"><span class="k">Guaranteed</span><p>Route + method → role, default-deny, at the proxy with zero app code. A missed route is denied. A Viewer can't reach <code>/admin</code>.</p></div>
-      <div class="card"><span class="k">Hybrid for server actions</span><p>Server-action POSTs are deterministically marked (<code>Next-Action</code>) → held to the app's <b>strictest role</b>. GET nav &amp; <code>/api/*</code> keep per-path rules. GraphQL/ws → coarse gate.</p></div>
+      <div class="card"><span class="k">Hybrid for server actions</span><p>Server-action POSTs (marked <code>Next-Action</code>) are held to the <b>highest role = Admin-only</b>; GET nav &amp; <code>/api/*</code> keep per-path rules. Write-heavy apps are flagged at confirm to move mutations to <code>/api/*</code> so Editors can write. GraphQL/ws → coarse gate.</p></div>
       <div class="card"><span class="k">Row-level</span><p>Opt-in Postgres RLS (no filter code; deny-when-unset) — same class as operation-level: fine granularity needs the DB or app cooperation.</p></div>
     </div>
     <div class="principle measure" style="margin-top:1.3rem">
@@ -317,7 +317,7 @@
               <tr><td>Build-time RCE (LLM Dockerfile)</td><td>base-image allowlist + Trivy scan; full sandbox deferred</td><td><span class="sev crit">high</span></td></tr>
               <tr><td>Kiosk holds master tokens</td><td>least-priv token; behind oauth2-proxy; isolate build workers</td><td><span class="sev crit">high</span></td></tr>
               <tr><td>Lateral movement (relaxed egress)</td><td>Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress</td><td><span class="sev crit">high</span></td></tr>
-              <tr><td>Server actions defeat path RBAC</td><td>deterministic marker → strictest-role; per-path for the rest</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>Server actions defeat path RBAC</td><td>hybrid: per-path + action-marker held to Admin-only; flag write-heavy apps to move to /api</td><td><span class="sev warn">med</span></td></tr>
               <tr><td>LLM detection silent false-negative</td><td>structural defaults + eval harness w/ recall targets</td><td><span class="sev warn">med</span></td></tr>
               <tr><td>Metadata-PG SPOF</td><td>authz local cache w/ staleness; fast restore; replicate proxy/authz</td><td><span class="sev warn">med</span></td></tr>
               <tr><td>Cross-tenant DB / noisy neighbor</td><td>per-tenant creds + RLS; conn limits, timeouts, size quotas</td><td><span class="sev warn">med</span></td></tr>
