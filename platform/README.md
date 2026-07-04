@@ -204,7 +204,7 @@ State lives in the **metadata Postgres**; UI/API/workers are otherwise stateless
 ### Monitoring — the Kiosk monitors everything
 - **Creator-facing:** each app's Coolify logs, health, deploy history surfaced in the Kiosk (creators never open Coolify).
 - **Aggregates:** build status, LLM spend, app activity (→ lifecycle), health/uptime, audit.
-- **Operator-facing:** Coolify failure notifications + **Uptime-Kuma** (uptime) + **Grafana/Loki** (fleet metrics/logs) + **GlitchTip** (app errors) + **disk alerting**.
+- **Operator-facing:** Coolify failure notifications + **Uptime-Kuma** (uptime) + **Grafana/Loki** (fleet metrics/logs) + **GlitchTip** (app errors) + **disk alerting**. **Logs are secret-redacted before aggregation** — an app that accidentally logs a token must not persist it in Loki/GlitchTip.
 
 ---
 
@@ -324,7 +324,7 @@ Trivy at build time is not enough. **Periodic re-scan of deployed images → reb
 <details>
 <summary><b>Multi-container apps & build UX</b></summary>
 
-Default single image; genuine multi-service → **multiple linked Coolify apps in one project**; permit **compose** when only app-level auth is needed. **Build UX:** queue + worker pool; on heal-failure → **plain-English diagnosis + suggested fix + escalate + save-as-draft** (never a raw stack trace).
+Default single image; genuine multi-service → **multiple linked Coolify apps in one project**; permit **compose** when only app-level auth is needed. **Build UX:** queue + worker pool; on heal-failure → **plain-English diagnosis + suggested fix + escalate + save-as-draft** (never a raw stack trace). The heal loop is **capped** — a max iteration count *and* a **per-provision token budget** across all Kiosk LLM calls (detection, generation, heal, classification, probes) — so a stuck build can't burn unbounded inference (denial-of-wallet guard on the platform's *own* LLM spend, distinct from tenant budgets). Exceeding the cap escalates to the human queue.
 </details>
 
 ---
@@ -342,6 +342,8 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 6. **+ Polish:** cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation queue.
 
 **Success metrics:** apps migrated off off-platform hosting · **time-to-first-deploy** (ZIP→live) · **% builds healed without human** · self-serve completion rate (no escalation) · platform uptime · **mean restore time** (from the DR drill).
+
+**Ownership assumption (a decision for the sponsor, not a technical one):** this plan presumes a **staffed, on-call owner** — the brief's **Path C**. The Kiosk is load-bearing internal infrastructure with an escalation SLA, DR drills, and an upgrade cadence; a "free-time / Path B" owner can build the walking skeleton but cannot carry the Day-0 operational commitments above. Naming this is part of the buy-in.
 
 ---
 
