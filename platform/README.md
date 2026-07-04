@@ -428,4 +428,3 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 - **forward-auth** — proxy middleware that authN/authZ a request before it reaches the app.
 - **Virtual key** — per-tenant, budgeted LiteLLM key mapped to the OpenRouter master key.
 - **RLS** — Postgres Row-Level Security; row-level access enforced by the database.
-</content>
