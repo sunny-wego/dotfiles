@@ -1,0 +1,141 @@
+"""The provisioning saga — idempotent, re-runnable, single entry point.
+
+M1 saga (lean-v1 add-ons like per-tenant DB / cron / LLM key hang off the same
+seam later):
+
+    create → safe-unzip → detect → redact → build-verify-heal → deploy → record
+
+Each app's progress is tracked in an in-memory job (live log for the UI) and the
+durable status/catalog rows in Postgres. Re-running the same slug is safe: the
+deployer replaces the container and the audit trail simply appends.
+"""
+
+from __future__ import annotations
+
+import re
+import threading
+from dataclasses import dataclass, field
+
+from . import audit, db, deployer, slack
+from .builder import Builder
+from .config import config
+from .detect import collect_manifests, detect, tree
+from .llm import LLMSession
+from .redact import redact
+from .zipsafe import find_project_root, safe_extract
+
+
+@dataclass
+class Job:
+    slug: str
+    name: str
+    actor: str
+    status: str = "pending"          # pending|building|deploying|running|failed
+    url: str = ""
+    lines: list[str] = field(default_factory=list)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def log(self, msg: str) -> None:
+        with self.lock:
+            self.lines.append(msg)
+        print(f"[{self.slug}] {msg}", flush=True)
+
+
+_jobs: dict[str, Job] = {}
+_jobs_lock = threading.Lock()
+
+
+def get_job(slug: str) -> Job | None:
+    with _jobs_lock:
+        return _jobs.get(slug)
+
+
+def slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
+    return (s or "app")[:40]
+
+
+def start(name: str, actor: str, work_root: str, zip_path: str) -> Job:
+    slug = slugify(name)
+    job = Job(slug=slug, name=name, actor=actor)
+    with _jobs_lock:
+        _jobs[slug] = job
+    t = threading.Thread(target=_run, args=(job, work_root, zip_path), daemon=True)
+    t.start()
+    return job
+
+
+def _run(job: Job, work_root: str, zip_path: str) -> None:
+    slug = job.slug
+    try:
+        audit.record(job.actor, "app.create", app=slug, detail={"name": job.name})
+
+        # 1. Safe extract.
+        job.log("unzipping (safe extraction) …")
+        extract_dir = f"{work_root}/src"
+        safe_extract(zip_path, extract_dir, config.MAX_UNZIP_MB * 1024 * 1024)
+        root = find_project_root(extract_dir)
+
+        # 2. Detect.
+        d = detect(root)
+        job.log(f"detected: {d.summary()}")
+        db.upsert_app(slug, job.name, job.actor, d.__dict__ | {"notes": d.notes})
+        audit.record(job.actor, "detect", app=slug, detail={"summary": d.summary()})
+
+        # 3. Redact everything the LLM will see.
+        job.log("redacting secrets before any LLM call …")
+        manifests = collect_manifests(root, redact)
+        dir_tree = redact(tree(root))
+
+        # 4. Build-verify-heal.
+        job.status = "building"
+        db.set_app_status(slug, "building")
+        llm = LLMSession()
+        job.log(f"LLM mode = {llm.mode}; token budget = {llm.budget}")
+        builder = Builder(slug, root, d, llm, job.log)
+        outcome = builder.run(manifests=manifests, tree=dir_tree)
+
+        audit.record(job.actor, "build", app=slug, detail={
+            "ok": outcome.ok, "attempts": outcome.attempts,
+            "reason": outcome.reason, "tokens": llm.tokens_used,
+        })
+
+        if not outcome.ok:
+            job.status = "failed"
+            db.set_app_status(slug, "failed")
+            job.log(f"BUILD FAILED: {outcome.reason}")
+            slack.escalate(
+                job.actor, slug,
+                f"Build could not be healed: {outcome.reason}",
+                {"attempts": outcome.attempts},
+            )
+            return
+
+        job.log(f"build ok after {outcome.attempts} attempt(s)")
+
+        # 5. Deploy behind Google login (private by default).
+        job.status = "deploying"
+        db.set_app_status(slug, "deploying", image=outcome.image, port=outcome.port)
+        ok, url, msg = deployer.deploy(slug, outcome.image, outcome.port)
+        if not ok:
+            job.status = "failed"
+            db.set_app_status(slug, "failed")
+            job.log(f"DEPLOY FAILED: {msg}")
+            slack.escalate(job.actor, slug, f"Deploy failed: {msg}")
+            return
+
+        # 6. Record success.
+        job.status = "running"
+        job.url = url
+        db.set_app_status(slug, "running", url=url)
+        audit.record(job.actor, "deploy", app=slug, detail={"url": url, "image": outcome.image})
+        job.log(f"LIVE: {url}  ({msg})")
+
+    except Exception as e:  # noqa: BLE001 — saga must fail closed, not crash the worker
+        job.status = "failed"
+        try:
+            db.set_app_status(slug, "failed")
+        except Exception:  # noqa: BLE001
+            pass
+        job.log(f"ERROR: {e}")
+        slack.escalate(job.actor, slug, f"Unhandled provisioning error: {e}")

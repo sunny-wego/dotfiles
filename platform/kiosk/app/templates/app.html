@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ slug }}{% endblock %}
+{% block body %}
+<div class="panel">
+  <h1>{{ record.name if record else slug }}
+      <span class="badge {{ job_status }}" id="badge">{{ job_status }}</span></h1>
+  <p class="muted" id="urlline">
+    {% if record and record.url %}
+      Live: <a class="link" href="{{ record.url }}">{{ record.url }}</a> ·
+    {% endif %}
+    <a class="link" href="/apps/{{ slug }}/logs">app logs →</a>
+  </p>
+</div>
+
+<div class="panel">
+  <h2>Build &amp; provision log</h2>
+  <pre id="log">connecting…</pre>
+</div>
+
+<script>
+const slug = {{ slug | tojson }};
+async function poll() {
+  try {
+    const r = await fetch(`/apps/${slug}/status`);
+    const d = await r.json();
+    document.getElementById('log').textContent =
+      (d.lines && d.lines.length) ? d.lines.join('\n') : '(no output yet)';
+    const badge = document.getElementById('badge');
+    badge.textContent = d.status;
+    badge.className = 'badge ' + d.status;
+    if (d.url) {
+      document.getElementById('urlline').innerHTML =
+        `Live: <a class="link" href="${d.url}">${d.url}</a> · ` +
+        `<a class="link" href="/apps/${slug}/logs">app logs →</a>`;
+    }
+    if (d.status === 'running' || d.status === 'failed') return;
+  } catch (e) { /* keep polling */ }
+  setTimeout(poll, 1500);
+}
+poll();
+</script>
+{% endblock %}

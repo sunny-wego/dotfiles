@@ -1,0 +1,184 @@
+# Internal App Platform — M1 walking skeleton (plain-Docker variant).
+# One box, one command: `docker compose up -d` (see Makefile / M1.md).
+#
+#   traefik  ──▶ oauth2-proxy | authstub ──▶ tenant apps (built by the kiosk)
+#   kiosk    (UI + orchestrator + build worker + audit)
+#   litellm  ──▶ OpenRouter            postgres (kiosk metadata + audit)
+#   registry (deploy-from-image contract)
+#
+# Two auth profiles select who answers Traefik's forward-auth, both aliased
+# `forward-auth` on the proxy network so the middleware address never changes:
+#   AUTH_MODE=dev    -> `authstub`     (default; runnable with no Google)
+#   AUTH_MODE=google -> `oauth2-proxy` (company Google; see docs/AUTH.md)
+
+name: platform
+
+networks:
+  # Public-facing plane: Traefik + auth + tenant apps. Tenant containers are
+  # attached here by the kiosk at deploy time.
+  proxy:
+    name: platform_proxy
+  # Private plane: kiosk <-> postgres <-> litellm. Never exposed to tenants.
+  backplane:
+    name: platform_backplane
+    internal: true
+
+volumes:
+  pgdata:
+  registry-data:
+  kiosk-work:      # scratch for unzip/build (kiosk-managed)
+
+services:
+  # ── Ingress: TLS termination + host routing ───────────────────────────────
+  traefik:
+    image: traefik:v3.3
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=platform_proxy
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - proxy
+
+  # ── Auth (dev profile): trust-everyone stub that injects a dev identity ────
+  authstub:
+    image: python:3.12-slim
+    restart: unless-stopped
+    profiles: ["dev"]
+    environment:
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+    volumes:
+      - ./authstub/server.py:/server.py:ro
+    command: ["python", "/server.py"]
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+
+  # ── Auth (google profile): oauth2-proxy against company Google ─────────────
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    restart: unless-stopped
+    profiles: ["google"]
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true
+      - --provider=google
+      - --email-domains=${COMPANY_EMAIL_DOMAIN}
+      - --upstream=static://202
+      - --skip-provider-button=true
+      - --cookie-domain=.${PLATFORM_DOMAIN}
+      - --whitelist-domain=.${PLATFORM_DOMAIN}
+      - --cookie-secure=true
+      - --set-xauthrequest=true
+      - --pass-access-token=false
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform_proxy
+      # Serve /oauth2/* (start, callback, sign-in) on every platform host.
+      - traefik.http.routers.oauth2.rule=HostRegexp(`{host:.+\.${PLATFORM_DOMAIN}}`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.oauth2.entrypoints=websecure
+      - traefik.http.routers.oauth2.tls=true
+      - traefik.http.services.oauth2.loadbalancer.server.port=4180
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+
+  # ── LLM gateway: the kiosk's own (redacted) calls go through here ──────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    networks:
+      - backplane
+
+  # ── Registry: honors the deploy-from-image contract ────────────────────────
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    volumes:
+      - registry-data:/var/lib/registry
+    networks:
+      - backplane
+
+  # ── Metadata Postgres: kiosk state + append-only audit ─────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backplane
+
+  # ── The Kiosk: user plane + orchestrator + build worker + audit ────────────
+  kiosk:
+    build: ./kiosk
+    image: platform/kiosk:m1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN}
+      AUTH_MODE: ${AUTH_MODE:-dev}
+      COMPANY_EMAIL_DOMAIN: ${COMPANY_EMAIL_DOMAIN}
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      KIOSK_LLM_MODEL: ${KIOSK_LLM_MODEL:-dockerfile-gen}
+      KIOSK_LLM_MODE: ${KIOSK_LLM_MODE:-llm}
+      KIOSK_HEAL_MAX_ITERATIONS: ${KIOSK_HEAL_MAX_ITERATIONS:-4}
+      KIOSK_LLM_TOKEN_BUDGET: ${KIOSK_LLM_TOKEN_BUDGET:-120000}
+      KIOSK_MAX_UNZIP_MB: ${KIOSK_MAX_UNZIP_MB:-512}
+      KIOSK_VERIFY_TIMEOUT_S: ${KIOSK_VERIFY_TIMEOUT_S:-40}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      REGISTRY_HOST: registry:5000
+      PROXY_NETWORK: platform_proxy
+    volumes:
+      # Docker-out-of-docker: the kiosk builds tenant images and runs tenant
+      # containers via the host daemon. Isolating the build worker from the
+      # token-holding API is a lean-v1 item (noted in M1.md); M1 keeps DooD.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kiosk-work:/work
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform_proxy
+      - traefik.http.routers.kiosk.rule=Host(`kiosk.${PLATFORM_DOMAIN}`)
+      - traefik.http.routers.kiosk.entrypoints=websecure
+      - traefik.http.routers.kiosk.tls=true
+      - traefik.http.routers.kiosk.middlewares=strip-auth-in@file,forwardauth@file
+      - traefik.http.services.kiosk.loadbalancer.server.port=8000
+    networks:
+      - proxy
+      - backplane

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ slug }} logs{% endblock %}
+{% block body %}
+<div class="panel">
+  <h1>{{ slug }} — container logs</h1>
+  <p class="muted"><a class="link" href="/apps/{{ slug }}">← back</a> ·
+     surfaced from the engine so creators never open the admin console.</p>
+  <pre>{{ logs }}</pre>
+</div>
+{% endblock %}

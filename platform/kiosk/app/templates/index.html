@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block body %}
+<div class="panel">
+  <h1>Drop a ZIP, get a hosted app</h1>
+  <p class="muted">We redact secrets, detect your stack, generate a Dockerfile,
+     build + verify + heal, scan, and deploy behind company Google login.</p>
+  <form action="/apps" method="post" enctype="multipart/form-data">
+    <label for="name">App name</label>
+    <input type="text" id="name" name="name" placeholder="ai-leaderboard" required>
+    <label for="zipfile">Project ZIP</label>
+    <input type="file" id="zipfile" name="zipfile" accept=".zip" required>
+    <button type="submit">Deploy →</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Your apps</h2>
+  {% if apps %}
+  <table>
+    <tr><th>App</th><th>Status</th><th>URL</th><th>Owner</th></tr>
+    {% for a in apps %}
+    <tr>
+      <td><a class="link" href="/apps/{{ a.slug }}">{{ a.name }}</a></td>
+      <td><span class="badge {{ a.status }}">{{ a.status }}</span></td>
+      <td>{% if a.url %}<a class="link" href="{{ a.url }}">{{ a.url }}</a>{% else %}—{% endif %}</td>
+      <td class="muted">{{ a.owner }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No apps yet. Drop a ZIP above.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Recent activity (audit)</h2>
+  <table>
+    {% for e in audit %}
+    <tr>
+      <td class="muted">{{ e.ts.strftime('%H:%M:%S') }}</td>
+      <td><b>{{ e.action }}</b></td>
+      <td>{{ e.app_slug or '—' }}</td>
+      <td class="muted">{{ e.actor }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
