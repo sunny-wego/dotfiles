@@ -1,0 +1,58 @@
+# =============================================================================
+#  LiteLLM proxy config — the single LLM gateway for the whole platform.
+#
+#  - Upstream is OpenRouter (one master key, held only by this container).
+#  - Tenants and the kiosk get VIRTUAL keys (minted at provision time) that map
+#    to these model aliases, each with its own budget / rate limit / allowlist.
+#  - Response cache is Redis-backed and TENANT-SCOPED via hooks/tenant_cache.py.
+# =============================================================================
+
+model_list:
+  # ---- aliases tenants/kiosk request (LHS) → real OpenRouter models (RHS) ----
+  # Keep aliases provider-neutral so you can re-route models without touching apps.
+  - model_name: chat-small
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: chat-large
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: reasoning
+    litellm_params:
+      model: openrouter/openai/o4-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # Dedicated alias the kiosk uses for Dockerfile generation / build-healing.
+  - model_name: code-strong
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: os.environ/OPENROUTER_API_KEY
+
+litellm_settings:
+  drop_params: true                 # tolerate SDK params a given model ignores
+  num_retries: 2
+  request_timeout: 120
+  # ---- tenant-scoped caching ----
+  cache: true
+  cache_params:
+    type: redis
+    host: os.environ/REDIS_HOST
+    port: os.environ/REDIS_PORT
+    ttl: 3600
+    # Base namespace; hooks/tenant_cache.py appends the tenant id per request so
+    # two tenants sending the same prompt NEVER share a cached response.
+    namespace: platform
+  # Custom hook that enforces the per-tenant cache namespace (see file).
+  callbacks: ["hooks.tenant_cache.tenant_cache_isolation"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL   # virtual keys, budgets, spend ledger
+  # Reject any request whose virtual key asks for a model not on its allowlist.
+  enforce_user_param: false
+  # Alert (log) when a key crosses its budget — the control-plane reads spend
+  # from LiteLLM's /key/info for per-tenant metering/billing.
+  allow_requests_on_db_unavailable: false
