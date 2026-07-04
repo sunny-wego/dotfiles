@@ -6,7 +6,7 @@
 
 **Two planes (core principle):** **Creators (non-engineers) only ever use the Kiosk** (user-facing). **Operators (engineers) use the Coolify dashboard as the admin/ops console.** The Kiosk drives Coolify through its API on the creator's behalf; nobody non-technical touches Coolify.
 
-**Day-0 vs sequencing:** everything here is the **Day-0 scope commitment** (what v1 must include). It is *not* a claim that it's small — the Kiosk is the hard, novel, multi-engineer-month part. **§7 sequences the build** (walking-skeleton first) with pilots and success metrics.
+**Scope commitment:** the actual v1 commitment is the **lean core + trigger table in the next section** — *not* all of §2–6. §2–6 are the **target architecture** (where each piece goes when demand pulls it in); v1 ships only what is the product itself or protects against irreversible loss, and defers the rest to documented triggers.
 
 ---
 
@@ -21,6 +21,51 @@ People keep vibe-coding useful internal tools and hit the same wall: **nowhere p
 | Flip toggles (DB/Cron/Auth/RBAC/LLM/Storage/Email) | Provisions per-tenant DB, LLM key, bucket, mail creds; wires cron + RBAC |
 | Paste keys, confirm roles + any public/webhook paths | Stores secrets encrypted, deploys via Coolify, assigns URL + TLS, **backs up** |
 | — | Live URL + invite link + **logs/health in the Kiosk** |
+
+---
+
+## Scope — lean v1, target architecture, triggers
+
+**The commitment is the lean v1 below + the trigger table — not all of §2–6.** §2–6 describe the *target architecture* (where each piece goes when demand pulls it in). v1 keeps only what is *the product itself* or *protects against irreversible loss*, and converts the rest from a Day-0 commitment into a documented trigger.
+
+**Irreducible core — what we actually want:**
+1. **ZIP → hosted app with no engineer** — the LLM Dockerfile + build-verify-heal loop (this *is* the product).
+2. **Google login + "only the right people can open this app."**
+3. **A database, secrets, cron, and an LLM key per app.**
+4. **Can't leak by accident, can't lose data** — private by default, egress-deny, backups.
+
+**Lean v1 — one box, ~8 containers:**
+```
+traefik → oauth2-proxy → tenant apps
+kiosk (UI + orchestrator + build worker + audit)
+postgres (one cluster: kiosk metadata + db-per-tenant)
+litellm · registry · uptime-kuma        (+ minio locally / S3 on EC2)
+```
+Deliberate simplifications (still **fail-closed** — coarser, not weaker):
+- **Access = whole-app, not per-route.** oauth2-proxy per app with an allow-list (emails or a Google Group) — "who can open this app," full stop. Deletes the authz service, manifest role rules, route detection, role proposal, and the server-action hybrid *entirely*. Most internal tools need exactly "my team can see this."
+- **Data governance = policy + attestation + egress-deny, no scanning.** "No customer/PNR data on this tier" as a rule + a deploy checkbox + default-deny egress (the load-bearing *structural* boundary stays). Drops the classification LLM pass, detector eval harness, and red-team corpus.
+- **Backups = nightly `pg_dump` per database + a platform-state dump to S3.** RPO of a day — honest and adequate for internal tools; a cron job, not WAL shipping.
+- **Observability = Kiosk-surfaced logs + Uptime-Kuma + a disk alert.** Nothing else.
+- **Keep the cheap hygiene** (nearly free, prevents irreversible mistakes): safe ZIP extraction · secret redaction before any LLM call · base-image allowlist · apps private by default · an append-only audit table · the Slack escalation channel. **And keep the provisioning saga idempotent/re-runnable**, so a partial failure is recoverable by hand (the reconciler just automates this later).
+
+**Deferred → trigger:**
+| Deferred | Bring it back when… |
+|---|---|
+| Per-route RBAC (authz service, manifest roles, server-action rule) | an app needs Viewer/Editor/Admin (**ADM Tracker** is the known trigger) |
+| Webhook / machine-token paths | the first app must receive a webhook (an additive manifest field) |
+| Classification scanning + eval harness | you decide to host customer-data apps on this tier at all |
+| Preview-before-promote | a bad-but-healthy update first burns someone (rollback covers v1) |
+| Email relay, object-storage buckets | the first app that needs them |
+| Lifecycle sleep/archive, dup detection, reconciler auto-GC | the catalog exceeds ~15–20 apps (until then: an owner field + a monthly "orphans" report) |
+| Grafana/Loki/GlitchTip | Kiosk logs demonstrably stop being enough |
+| WAL minute-level backup | losing a day of an app's data actually hurts |
+| Multi-server, replica-HA, graduation | a workload actually saturates the box |
+
+**Why deferral is safe, not debt:** every item is *additive*, because the core keeps the two seams that matter — **everything routes through Traefik + oauth2-proxy**, and **every app is an image from a Dockerfile**. Nothing above requires re-architecting to add later.
+
+**Consequence:** the build order collapses to ~2 milestones (walking skeleton → lean v1 → **Pilot 1: Leaderboard**). **Pilot 2 (ADM Tracker) intentionally sits *behind* the per-route-RBAC + classification triggers — it is not a v1 expectation.** Roughly one engineer-month, honestly **part-time-carryable** until adoption proves out — which *un-blocks* (rather than forces) the Path B vs C decision.
+
+> **Do not cut the heal-loop quality bar.** ZIP→app success rate is the entire value proposition; the one place where *under*-engineering kills the project. Spend the saved effort there.
 
 ---
 
@@ -106,6 +151,8 @@ The gap is **structural** (apps stall waiting for an engineer). Two named pilots
 - **Add-ons (toggles):** Database · Cron · Google auth · per-app RBAC · LLM · Object storage · Email.
 - **Contract:** a **Dockerfile is always the artifact** — LLM-generated for the creator, never hand-written. **It is reused across updates and regenerated only when detection changes** — so "reproducible" holds and updates don't re-roll the LLM.
 
+> *v1 ships the lean subset (see Scope); the rest of this list is target capability, each pulled in by its trigger.*
+
 <details>
 <summary><b>Feature → component map</b></summary>
 
@@ -153,7 +200,7 @@ Vibe-coded apps use mainstream ORMs that assume Postgres or file-SQLite. **Detec
 
 **Postgres db-per-tenant on one shared cluster** is the default because it buys the mainstream ecosystem, **RLS without a second engine**, and **one backup story** — while still being cheap (a database, not an instance, per tenant). libSQL is the lightweight option for tiny/edge cases, not the default.
 
-**Shared-cluster guards (Day-0):** a shared cluster loses instance-per-tenant's free isolation, so add **per-tenant connection limits, statement timeouts, and per-database size quotas** — one runaway query or unbounded table must not affect neighbors.
+**Shared-cluster guards (with the shared cluster, so effectively v1):** a shared cluster loses instance-per-tenant's free isolation, so add **per-tenant connection limits, statement timeouts, and per-database size quotas** — one runaway query or unbounded table must not affect neighbors.
 </details>
 
 ---
@@ -181,6 +228,8 @@ We lean on Coolify for everything it does well, and **only build what it genuine
 ## 4. The Kiosk — design, deployment, monitoring
 
 The Kiosk is the **user plane** — creators' only surface, and the brain that turns a ZIP into a governed, hosted app.
+
+> **v1 Kiosk = 4 components:** UI · orchestrator (idempotent saga) · build worker · audit. The reconciler, lifecycle, and detection-heavy pieces below are target architecture pulled in by trigger.
 
 ### Design (components)
 ```
@@ -212,6 +261,8 @@ State lives in the **metadata Postgres**; UI/API/workers are otherwise stateless
 ---
 
 ## 5. User journey
+
+> **v1 access is whole-app** (oauth2-proxy allow-list per app — "who can open this"). The per-route RBAC detailed below (roles, the server-action hybrid) is **target architecture**, triggered when an app needs Viewer/Editor/Admin — e.g. ADM Tracker. The journey below shows the full target flow.
 
 Canonical hard case: a **Next.js app using every feature** — staff log in with Google, see role-gated pages, read/write their org's data, ask an LLM to summarize it, get a nightly email report, and **receive Stripe webhooks**.
 
@@ -249,7 +300,7 @@ Safety must not rest on LLM recall — a **silent false negative** (missed custo
 - **Structural defaults hold even at zero recall:** default-deny routes · default-coarse/hybrid RBAC for multiplexing frameworks · the egress boundary for customer data. The LLM only *proposes*; the guarantee is the default. (Zero-recall check: if fingerprinting misses, an action-marked POST lands on a page route whose manifest entry is GET-only → default-deny catches it.)
 - **Safety-critical defaults key off deterministic signals** (static route parse, framework fingerprint, high-precision format regex, egress grants) — the LLM augments, never decides the default.
 - **Fail toward restrictive:** union of independent detectors; any hit escalates/restricts.
-- **Detector eval harness (Day-0):** a labeled + **red-team** fixture corpus with measured **recall/precision targets**, regression-tested on every model/prompt change; detectors are treated as safety-critical code with coverage, and **confidence is calibrated** so low-confidence detections route to the human queue.
+- **Detector eval harness (with the classification tier, when triggered):** a labeled + **red-team** fixture corpus with measured **recall/precision targets**, regression-tested on every model/prompt change; detectors are treated as safety-critical code with coverage, and **confidence is calibrated** so low-confidence detections route to the human queue.
 - **Net:** LLM recall affects *friction* (how often a human is pulled in, how coarse the default), **not safety**.
 </details>
 
@@ -263,21 +314,23 @@ oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI 
 
 ---
 
-## 6. Operations (Day-0)
+## 6. Operations (target architecture — pulled by trigger)
+
+> **v1 keeps only:** nightly `pg_dump` backups + a platform-state dump · Kiosk-surfaced logs + Uptime-Kuma + a disk alert · the cheap hygiene (safe extract, redaction, allowlist, private-by-default, audit table, Slack escalation) · an owner field + monthly orphans report. Everything else below arrives on its trigger (see Scope).
 
 <details>
 <summary><b>Backup & DR</b> — tenant data AND platform state</summary>
 
 - **Tenant DBs:** cluster WAL to S3, one backup story. Honest per-tenant RTO: restore = **restore the cluster elsewhere + extract the one database** (not native per-db PITR). (libSQL apps: bottomless S3 replication.)
 - **Coolify's own state** (domains, envs, tasks, destinations = the deployment state): **data-dir backup + a restore-tested runbook + host provisioning as code.** Retained ZIPs+Dockerfiles only reproduce apps if the engine that deploys them does too.
-- RPO ≈ minutes; RTO = restore engine + data. **A DR drill (measure mean-restore-time) is a Day-0 exercise.**
+- RPO ≈ minutes (WAL) or a day (v1 nightly `pg_dump`); RTO = restore engine + data. **A restore drill — basic in v1, full once WAL is added — measures mean-restore-time.**
 </details>
 
 <details>
 <summary><b>Availability — no fleet-wide SPOF</b></summary>
 
 - **Metadata Postgres** is in the hot path (authz reads manifests per request). So authz **serves from a local cache with explicit staleness bounds** (invalidated on role change) — "Kiosk DB blip" must not mean "every app down."
-- **Honest HA:** on a single EC2 box everything shares fate with the host — so Day-0 the real mitigations are the **authz cache + fast restore**; genuine Postgres **HA arrives with the second server** (don't claim HA the single-box topology can't deliver).
+- **Honest HA:** on a single EC2 box everything shares fate with the host — so at first the real mitigations are the **authz cache + fast restore**; genuine Postgres **HA arrives with the second server** (don't claim HA the single-box topology can't deliver).
 - **oauth2-proxy + authz are replicated**, not singletons.
 </details>
 
@@ -339,21 +392,23 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 
 ## 7. Delivery — sequencing, pilots, success metrics
 
-**Reconciliation with Day-0:** Day-0 defines the *scope* (§2–6); this section defines the *build order*. **The Kiosk is several engineer-months** — Coolify removes ~60–70% of plumbing, but the remaining 30–40% (orchestrator + reconciler, build/heal pipeline, detection/probes, authz + manifest, catalog/lifecycle, audit, observability) is the hard, novel part. Stakeholders approve a scope *and* a cost; this makes both explicit.
+**The v1 commitment is milestones 1–2** (→ Pilot 1) — roughly **one engineer-month**. Milestones 3–6 are the *target* sequence, each **pulled in by a trigger** (see Scope), not committed up front. Coolify removes ~60–70% of plumbing; the value and the risk both live in the **build/heal pipeline** (M1), which is why that's the one place not to under-invest.
 
 **Build order (dependency edges → each milestone is shippable):**
-1. **Walking skeleton:** ZIP → LLM Dockerfile (redacted→LiteLLM) → build+scan → deploy behind oauth2-proxy. *No RBAC/DB/lifecycle.* Proves the core loop + two-plane. **Includes a minimal escalation surface (a Slack channel + a table)** — the heal loop can produce escalations from day one, so this can't wait for M6.
-2. **+ Data & secrets:** per-tenant Postgres + Coolify secret store. → **Pilot 1: Leaderboard.**
-3. **+ RBAC & machine access:** authz service + manifest + webhook/machine-token escape hatch + server-action downgrade detection.
-4. **+ AI governance:** LiteLLM per-tenant keys (Kiosk already routes through it from step 1).
-5. **+ Day-0 ops:** backup/DR (+drill), HA/authz-cache, disk GC/quotas, reconciler, classification, audit, lifecycle. → **Pilot 2: ADM Tracker** (RBAC+email+classification+hardened-tier gate).
-6. **+ Polish:** cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation **queue UI** (the escalation surface itself shipped in M1).
+1. **Walking skeleton:** ZIP → LLM Dockerfile (redacted→LiteLLM) → build+scan → deploy behind oauth2-proxy. Proves the core loop + two-plane. **Includes a minimal escalation surface (Slack + a table).**
+2. **Lean v1:** + per-tenant Postgres + secret store + **whole-app oauth2-proxy allow-list** + cron + LLM key + nightly backups + Uptime-Kuma + disk alert. → **Pilot 1: Leaderboard.** *This is the v1 commitment.*
+
+*Triggered afterward (target sequence, not committed):*
+3. **+ Per-route RBAC & machine access** — authz service + manifest roles + server-action hybrid + webhook/machine-token. *(Trigger: an app needs Viewer/Editor/Admin — e.g. Pilot 2, ADM Tracker.)*
+4. **+ Data-classification tier** — scanning + eval harness + hardened-tier gate. *(Trigger: hosting customer-data apps.)*
+5. **+ Ops depth** — WAL backups/DR drill, authz-cache/HA, reconciler auto-GC, lifecycle, Grafana/Loki. *(Trigger: fleet size / data value.)*
+6. **+ Polish** — email, storage, preview-before-promote, rebuild cadence, escalation queue UI. *(Trigger: first app that needs each.)*
 
 **Minimal start (one box).** The first footprint is small — one **Colima VM or a small EC2** running **Coolify (or plain Docker) · Traefik · oauth2-proxy · the Kiosk skeleton · LiteLLM · one Postgres**; that's all M1 needs, and everything else arrives milestone-by-milestone on the *same box*. **Bootstrap shape differs by path:** the Coolify path is its **installer + host-as-code** (then Coolify deploys the rest); the plain-Docker variant is **one `docker compose up`** — either way, one VM, one command. **Do the dev-auth stub first for local** — it removes the only annoying laptop dependency (Google OAuth + `*.apps.internal` TLS/DNS); a real EC2 with internal DNS drops even that. Growing **one-box → fleet** later is **additive, not a migration**, because apps address the platform through Traefik hostnames + the Dockerfile contract.
 
 **Success metrics:** apps migrated off off-platform hosting · **time-to-first-deploy** (ZIP→live) · **% builds healed without human** · self-serve completion rate (no escalation) · platform uptime · **mean restore time** (from the DR drill).
 
-**Ownership assumption (a decision for the sponsor, not a technical one):** this plan presumes a **staffed, on-call owner** — the brief's **Path C**. The Kiosk is load-bearing internal infrastructure with an escalation SLA, DR drills, and an upgrade cadence; a "free-time / Path B" owner can build the walking skeleton but cannot carry the Day-0 operational commitments above. Naming this is part of the buy-in.
+**Ownership (a sponsor decision, now un-blocked):** the **lean v1 is honestly part-time-carryable** — that's the point of deferring the fleet-scale operational load. So v1 doesn't force the **Path B vs C** question; it lets adoption prove out first. Path C (staffed, on-call, SLA + DR drills) becomes necessary only as the triggered milestones (classification tier, ops depth, multi-server) pull in real operational weight.
 
 ---
 

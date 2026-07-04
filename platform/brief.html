@@ -281,20 +281,31 @@
   </section>
 
   <section>
-    <p class="eyebrow">Delivery</p>
-    <h2>Sequencing, pilots &amp; cost — for buy-in</h2>
-    <p class="measure">Day-0 defines the <i>scope</i>; this defines the <i>build order</i>. <b>The Kiosk is several engineer-months</b> — Coolify removes ~60–70% of plumbing, but the remaining 30–40% (orchestrator + reconciler, build/heal, detection, authz + manifest, lifecycle, audit, observability) is the hard, novel part.</p>
+    <p class="eyebrow">Scope &amp; delivery</p>
+    <h2>Lean v1 now, target architecture on triggers</h2>
+    <p class="measure">The commitment is a <b>lean v1</b>, not all of §2–6 — those are the <i>target architecture</i>, pulled in as demand triggers each piece. v1 keeps only the product itself and protection against irreversible loss.</p>
+    <div class="grid cols-2" style="margin:1rem 0">
+      <div class="card"><span class="k">Irreducible core</span><ul class="clean">
+        <li>ZIP → hosted app, no engineer (the heal loop)</li>
+        <li>Google login + "only the right people can open it"</li>
+        <li>DB, secrets, cron, LLM key per app</li>
+        <li>Can't leak by accident / lose data</li>
+      </ul></div>
+      <div class="card"><span class="k">Lean simplifications (still fail-closed)</span><ul class="clean">
+        <li><b>Whole-app access</b> (allow-list), not per-route RBAC</li>
+        <li>Policy + attestation + egress-deny, no scanning</li>
+        <li>Nightly <code>pg_dump</code> backups (RPO a day)</li>
+        <li>Kiosk logs + Uptime-Kuma + disk alert</li>
+      </ul></div>
+    </div>
     <ol class="steps measure">
-      <li><b>Walking skeleton</b> — ZIP → LLM Dockerfile → build+scan → deploy behind oauth2-proxy. No RBAC/DB/lifecycle. + a minimal escalation surface (Slack + table).</li>
-      <li><b>+ Data &amp; secrets</b> — per-tenant Postgres + secret store. → <b>Pilot 1: Leaderboard</b> (easy path).</li>
-      <li><b>+ RBAC &amp; machine access</b> — authz + manifest + webhook/machine-token + server-action detection.</li>
-      <li><b>+ AI governance</b> — LiteLLM per-tenant keys.</li>
-      <li><b>+ Day-0 ops</b> — backup/DR, authz cache, disk/DB guards, reconciler, classification, audit, lifecycle. → <b>Pilot 2: ADM Tracker</b> (hard path).</li>
-      <li><b>+ Polish</b> — cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation queue UI.</li>
+      <li><b>Walking skeleton</b> — ZIP → Dockerfile → build → deploy behind oauth2-proxy (+ Slack escalation).</li>
+      <li><b>Lean v1</b> — per-tenant Postgres, secrets, whole-app allow-list, cron, LLM key, nightly backups. → <b>Pilot 1: Leaderboard</b>. <i>This is the v1 commitment (~1 engineer-month).</i></li>
     </ol>
+    <p class="measure"><span class="k">Triggered later (not committed)</span> — per-route RBAC (when an app needs Viewer/Editor/Admin; e.g. Pilot 2 ADM Tracker) · classification tier (customer-data apps) · webhooks · email/storage · reconciler/lifecycle (~15–20 apps) · WAL backups · multi-server. Each is <b>additive</b> — the Traefik + Dockerfile seams make deferral safe, not debt.</p>
     <div class="principle measure"><b>Minimal start — one box.</b> M1 is a small footprint: one Colima VM / small EC2 running Coolify (or plain Docker) · Traefik · oauth2-proxy · Kiosk skeleton · LiteLLM · one Postgres. Coolify path bootstraps via installer + host-as-code; plain-Docker via one <code>docker compose up</code>. Do the dev-auth stub first for local. One-box → fleet later is <b>additive, not a migration</b> (Traefik hostnames + Dockerfile contract).</div>
     <p class="measure"><span class="k">Success metrics</span> — apps migrated off off-platform hosting · time-to-first-deploy · % builds healed without human · self-serve completion rate · uptime · mean restore time (DR drill).</p>
-    <div class="principle measure"><b>Ownership assumption (a sponsor decision).</b> This presumes a <b>staffed, on-call owner</b> — the brief's <b>Path C</b>. A free-time / Path B owner can build the walking skeleton but can't carry the Day-0 operational commitments (SLA, DR drills, upgrade cadence).</div>
+    <div class="principle measure"><b>Ownership — un-blocked, not forced.</b> The lean v1 is honestly <b>part-time-carryable</b>, so it doesn't force the Path B vs C question — adoption proves out first. Path C (staffed, on-call, SLA + DR drills) becomes necessary only as the triggered milestones pull in real operational weight. <b>Don't cut the heal-loop bar</b> — ZIP→app success is the whole value proposition.</div>
   </section>
 
   <section>
