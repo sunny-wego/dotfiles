@@ -9,6 +9,7 @@ Binds 0.0.0.0:$PORT. The platform injects PORT + DATABASE_URL; nothing is
 hand-configured. This mirrors what the app did on Vercel, now self-served.
 """
 
+import html
 import os
 
 import psycopg
@@ -30,7 +31,9 @@ def index():
         rows = c.execute(
             "SELECT name, points FROM scores ORDER BY points DESC, name LIMIT 20"
         ).fetchall()
-    items = "".join(f"<li>{n} — <b>{p}</b></li>" for n, p in rows) or "<li>no scores yet</li>"
+    # Escape names at render time — they're user-submitted (stored XSS otherwise).
+    items = "".join(f"<li>{html.escape(n)} — <b>{p}</b></li>" for n, p in rows) \
+        or "<li>no scores yet</li>"
     return f"""<h1>🏆 AI Engineering Leaderboard</h1><ol>{items}</ol>
       <form method=post action=/add>
         <input name=name placeholder=name>
@@ -41,7 +44,9 @@ def index():
 
 @app.route("/add", methods=["POST"])
 def add():
-    name = request.form.get("name", "").strip()
+    # Cap length and drop control chars on ingest (defense in depth).
+    name = "".join(c for c in request.form.get("name", "").strip()
+                   if c.isprintable())[:80]
     points = int(request.form.get("points", "0") or 0)
     if name:
         with psycopg.connect(DB) as c:
