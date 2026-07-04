@@ -47,10 +47,13 @@ Envelope-encrypt tenant secrets in Postgres (key from host/KMS); short-lived
 tenant tokens; control-plane under the sandbox profile. No HA — instead nightly
 volume snapshots + declarative rebuild + monitoring/alerts.
 
-### Compat-fallback policy (the one new decision adversarial mode forces)
-When an app fails to boot under `runsc`, the rule is: **_TBD — deny vs
-allow-with-scrutiny_**. The boot check reuses the existing build-verify-heal
-health step, run under gVisor, so compat is tested per app for free.
+### Compat-fallback policy (decided): deny by default
+When an app fails to boot under `runsc`, the deploy is **denied by default** —
+the heal loop first attempts an automatic fix (swap native dep, drop the
+offending feature); only if that fails does it deny. An **admin-approved
+allow-on-`runc`** is the sole exception: a deliberate, logged decision per app,
+never automatic. The boot check reuses the build-verify-heal health step under
+gVisor, so compat is tested per app for free.
 
 ### Traceability
 | Risk | Fixed by |
