@@ -9,33 +9,33 @@ app — enforced at the proxy, zero app code, fail-closed.
 | Platform RBAC | the **creator** managing their app | kiosk / Coolify dashboard |
 | **End-user RBAC** ← this doc | the **people using the deployed app** | proxy in front of the tenant app |
 
-## Why "just use Authelia" isn't enough
-Authelia is one shared SSO instance with **static, file-based access-control rules**
-that need a **reload/restart** to change. Encoding every tenant app's role→path
-rules as Authelia ACL entries means rewriting + restarting Authelia on every
-provision — disruptive and non-scaling. So Authelia is the wrong place for *per-app*
-authorization.
+## Auth tool: oauth2-proxy (NOT Authelia)
+Login must use **company Google accounts**. Authelia can't broker Google — it's an
+OIDC *provider*, not a *relying party* (verified). So authN uses **oauth2-proxy**,
+which logs users in via Google OIDC and restricts to the company domain
+(`--email-domain=wego.com` / Google `hd`). Per-app authorization is NOT done by the
+auth tool (static rules don't scale per-tenant) — it's a separate service.
 
 ## Design: split authN from authZ (middleware chain)
 Each tenant app gets a **forward-auth middleware chain** attached via Coolify
 `custom_labels` (API-confirmed settable):
 
 ```
-request → [authelia]           → [platform-authz]              → tenant app
-          authN + SSO (Google)   per-app authZ (manifest-driven)
-          inject Remote-User/     host → manifest rules → user
-          Remote-Groups           groups → allow/deny (default-deny)
+request → [oauth2-proxy]        → [platform-authz]              → tenant app
+          authN via Google        per-app authZ (manifest-driven)
+          (@company only), inject  host → manifest rules → user
+          X-Auth-Request-Email     → allow/deny (default-deny)
 ```
 
-1. **Authelia = authentication only.** Google SSO, session, "logged in?", injects
-   `Remote-User` / `Remote-Groups` / `Remote-Email`. One instance, all apps,
-   **no per-app config changes.**
+1. **oauth2-proxy = authentication only.** Google login (company domain only),
+   session, injects `X-Auth-Request-Email` (+ groups if configured). One instance,
+   all apps, **no per-app config changes.**
 2. **`platform-authz` = small manifest-driven authz service** in the chain. Per
    request: resolve **app** (host header) → load its **confirmed manifest**
-   (role→path/method rules + default-deny, from metadata DB) → read **user groups**
-   (Authelia headers) → **allow/deny**. Manifests cached in memory; a pure,
-   **deterministic** lookup (no LLM in the request path — the LLM only *generated*
-   the manifest offline). New app = new manifest row, **no Authelia restart**.
+   (role→path/method rules + default-deny, from metadata DB) → read **user identity**
+   (oauth2-proxy header) → map email→role for this app → **allow/deny**. Manifests
+   cached in memory; a pure, **deterministic** lookup (no LLM in the request path —
+   the LLM only *generated* the manifest offline). New app = new manifest row.
 
 ## What each app gets
 - **Roles** (Admin/Editor/Viewer) — LLM-proposed from the route map, creator-confirmed.
@@ -78,14 +78,18 @@ Everything else is made no-code:
 **Ceiling:** filter logic is eliminated (DB does it), the creator's part is a
 toggle + confirm, and the "who's calling" link is at worst a confirmed one-liner.
 
-## Alternative (small fleets)
-Generate **Authelia ACL rules per app-domain** and reload Authelia on provision.
-Authelia can express domain + path-regex + method + group + default-deny, but you
-pay a config-reload per app. Fine for a handful of apps; the authz-service scales
-better for a dynamically-provisioned fleet.
+## Auth tool alternatives
+- **oauth2-proxy** (recommended) — Google login + company-domain restriction +
+  forward-auth; lean, exactly fits "just Google login + gate."
+- **traefik-forward-auth** — even more minimal (Google + `--domain`).
+- **Zitadel / Keycloak** — full self-hosted IdPs that broker Google *and* give
+  richer self-serve orgs/user management; adopt if per-tenant org management
+  outgrows a flat email→role map. (Clerk is **not** an option — SaaS-only + SDK-
+  embedded, breaks the proxy model and residency; see the Clerk discussion.)
 
 ## Ties to other docs
 - Rules come from the **confirmed manifest** — see `app-contract-and-detection.md`.
-- Identity/SSO via Authelia — see `coolify-evaluation.md` (attached via custom labels).
+- Google login via oauth2-proxy, attached as a forward-auth middleware via Coolify
+  custom labels — see `coolify-evaluation.md`.
 - Enforcement is **deterministic**; the LLM is offline (generates the manifest, not
   per-request decisions).

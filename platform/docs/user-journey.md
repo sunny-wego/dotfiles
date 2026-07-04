@@ -19,7 +19,7 @@ report. Its bundle contains: `package.json` (deps incl. `next`, `@libsql/client`
 
 ## Phase 1 — Create (creator, in the kiosk)
 
-1. **Sign in** to the kiosk with Google (Authelia). Lands in their tenant.
+1. **Sign in** to the kiosk with the company Google account (oauth2-proxy). Lands in their tenant.
 2. **New App → name it** (`acme-tool`) → choose source: **drag & drop ZIP**.
 3. Upload → the **kiosk** unzips it in a working dir and **detects**:
    - runtime **Node / Next.js**, build `next build`, start `next start`, port `3000`;
@@ -54,9 +54,9 @@ Idempotent, resumable steps (kiosk logic + Coolify API):
    `STRIPE_KEY` (Coolify's encrypted store).
 6. **Coolify: configure** — custom domain, per-app **CPU/memory limits**, a
    **Scheduled Task** (09:00 cron), and **custom Traefik labels** attaching the
-   Authelia forward-auth middleware.
+   forward-auth middleware chain (oauth2-proxy → authz service).
 7. **Coolify: deploy** (`/applications/{uuid}/start`) → build/run → health-check →
-   TLS → routed, gated by Authelia.
+   TLS → routed, gated by oauth2-proxy (Google) + the authz service.
 8. **Record** — `tenant → app → {namespace, virtual key, domain, roles, manifest}`
    in the metadata Postgres.
 
@@ -68,13 +68,14 @@ Creator invites staff by email and assigns **Admin / Editor / Viewer**. No code.
 ## Phase 4 — End-user runtime
 ```
 staff browser → Coolify Traefik (TLS, host route)
-             → authelia (logged in? role allowed on this path?) → inject Remote-User/Groups
+             → oauth2-proxy (logged in via company Google? inject X-Auth-Request-Email)
+             → platform-authz (role allowed on this path/method? default-deny)
              → acme-tool container (Next.js)
                  ├─ reads/writes its OWN sqld namespace (DATABASE_URL)
                  └─ calls the LLM via OPENAI_BASE_URL → litellm (virtual key,
                     per-tenant budget + tenant-scoped cache) → OpenRouter
 ```
-- A **Viewer** hitting `/admin` is blocked by Authelia **before** the app sees it.
+- A **Viewer** hitting `/admin` is blocked by the authz service **before** the app sees it.
 - The app can't reach other tenants (its own **Coolify Destination**); can't reach
   IMDS (hop-limit 1); trusts `Remote-*` only from Coolify's Traefik.
 
@@ -101,8 +102,8 @@ exits. Run history + logs in Coolify.
 | Client + backend | Next.js (fullstack) |
 | Database | sqld namespace + injected `DATABASE_URL` |
 | Cron | Coolify Scheduled Task |
-| Google auth | Authelia |
-| End-user RBAC | Authelia (authN) + manifest-driven authz service (per-app role→path, default-deny), via custom-label middleware chain — see `rbac.md` |
+| Google auth | oauth2-proxy (company Google only) |
+| End-user RBAC | oauth2-proxy (authN, Google) + manifest-driven authz service (per-app role→path, default-deny), via custom-label middleware chain — see `rbac.md` |
 | LLM app | LiteLLM virtual key + injected `OPENAI_/ANTHROPIC_` env |
 | Secrets | Coolify encrypted env store, injected at deploy |
 | Custom domain | Coolify (Traefik + TLS) |

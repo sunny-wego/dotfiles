@@ -43,7 +43,7 @@ sandbox — an accidental bad build merely *fails*.
   hand-rolled per-tenant network we'd have built.
 - **KEEP** EC2 IMDSv2 + hop-limit 1 (one setting, near-free insurance).
 - **RELAX** the strict egress allowlist / anti-spoofing (malice-only). Coolify's
-  Traefik owns identity-header injection; Authelia middleware attaches via the
+  Traefik owns identity-header injection; oauth2-proxy middleware attaches via the
   app's custom labels.
 
 **Move 4 — quotas on shared stores — KEEP**
@@ -102,7 +102,7 @@ differences are two near-free host settings.
 | Layer | Laptop (Colima) | Remote EC2 | How parity is kept |
 |---|---|---|---|
 | Coolify engine (ingress/build/cron/lifecycle) | ✅ | ✅ | same Coolify both sides |
-| Platform services (kiosk, litellm, authelia, sqld, postgres, redis) | ✅ | ✅ | same service definitions, only config differs |
+| Platform services (kiosk, litellm, oauth2-proxy, authz, sqld, postgres, redis) | ✅ | ✅ | same service definitions, only config differs |
 | Destination-per-tenant, per-app limits | ✅ | ✅ | via Coolify |
 | Runtime | `runc` | `runc` | standard everywhere — no `runsc`, no compat/perf gap |
 | IMDSv2 hop-limit (Move 3) | N/A | ✅ EC2 setting | EC2-only, near-free |
@@ -132,7 +132,7 @@ not a rewrite. Prefer vertical/managed before distributed-self-hosted.
 | **LiteLLM gateway** | 1 container | horizontal replicas behind LB (state in shared Postgres+Redis) | managed gateway | request/latency saturation |
 | **Metadata Postgres** | 1 instance | vertical + split logical DBs | **RDS/Aurora** + read replicas | write/connection pressure |
 | **Redis** | 1 instance | replica | **ElastiCache / Redis Cluster** | cache/rate-counter load |
-| **Authelia** | 1 | replicas + shared session store (Postgres/Redis) | **Zitadel/Keycloak cluster** for richer org RBAC | login volume / RBAC complexity |
+| **Auth (oauth2-proxy + authz)** | 1 each | replicas behind LB (stateless / shared session store) | **Zitadel/Keycloak** for richer self-serve orgs | login volume / org-management complexity |
 | **Kiosk** | 1 | stateless replicas behind LB; saga idempotent/queue-driven | same | provisioning concurrency |
 | **Object storage** (if needed) | kiosk volume | MinIO | **S3 / R2** (re-point) | blob/upload volume |
 
