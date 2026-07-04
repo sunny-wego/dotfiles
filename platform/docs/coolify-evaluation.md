@@ -64,15 +64,48 @@ default-deny RBAC · per-tenant DB (sqld namespaces).
 - **Immutable setups?** Yes, and good: image-per-deploy = reproducible, rollback by
   redeploying the prior image, no config drift. Data/volumes persist across redeploys.
 
-## The one spike before committing
-Confirm **custom Traefik labels are settable via the API** (not UI-only) — the RBAC
-middleware attach depends on it. Fallback if not: a shared Traefik dynamic-config
-file rule keyed by host. Either way, not a blocker.
+## Spike confirmations (verified via Coolify API docs)
+
+**1. Custom labels via API — CONFIRMED.** The application create + update API
+payloads include a **`custom_labels`** field (plus `custom_docker_run_options`);
+it's treated as sensitive (needs `can_read_sensitive` to read back). So the kiosk
+can attach the Authelia forward-auth middleware programmatically.
+*Caveats (from filed issues):* custom labels are **overwritten for docker-compose
+deployments** (#1737) and there are historical "labels not persisting on save"
+reports (#2627) → **deploy tenant apps as Dockerfile/image (not compose)** and add
+an auth smoke-test (unauthenticated request must NOT return 200). Fallback if a
+pinned version misbehaves: a shared Traefik dynamic-config rule keyed by host.
+
+**2. Destination-per-tenant via API — CONFIRMED for assignment; one caveat.**
+`destination_uuid` (and `server_uuid`) are settable at **app-create** via the API
+and are **immutable** thereafter, and destinations are isolated Docker networks —
+so assigning a tenant's Destination at creation gives per-tenant network isolation.
+*Residual:* programmatic **creation** of a new destination isn't clearly in the
+public API (appears UI-based). Options: pre-create a pool of destinations, create
+the Docker network out-of-band and register it, or use the Coolify MCP/`coolipy`
+client. Decide tenant→destination at create time (immutability requires it). Not a
+blocker; confirm the create path on the pinned version.
 
 ## Scaling ceiling (the one graduation)
 Single-app **replica-based HA** isn't native until Coolify v5. If one app ever needs
 it: Swarm (experimental) or graduate that app to Cloud Run/Fly/K8s — a re-point via
 the Dockerfile contract. Everything else stays turnkey.
+
+## Security requirements (design-level, must hold when built)
+1. **Kiosk behind auth, always.** The kiosk holds the crown jewels
+   (`COOLIFY_API_TOKEN`, `LITELLM_MASTER_KEY`) — it must sit behind Authelia,
+   deployed as a Coolify **Dockerfile app** with the forward-auth middleware on it,
+   never as an unauthenticated service. Add a test that fails if the kiosk answers
+   200 to an unauthenticated request.
+2. **sqld requires an admin auth key.** Set `SQLD_ADMIN_AUTH_KEY` / JWT (per the
+   pinned libsql-server release) so every namespace operation is authenticated; the
+   kiosk carries the token. Do not expose sqld's admin API on `0.0.0.0` to tenant
+   workloads.
+3. **Internal-only network for datastores.** postgres, redis, sqld, litellm live on
+   an internal network the kiosk reaches — **never** on Coolify's shared tenant/proxy
+   network. Set Redis `requirepass`.
+4. **Tenant apps never share a network with the datastores** — enforced by
+   Destination-per-tenant.
 
 ## Parity
 Coolify on **Colima** locally, Coolify on **EC2** remotely — same engine both sides.

@@ -95,14 +95,14 @@ sensitive apps, scale) appears.
 
 ## 2. Laptop ↔ EC2 parity
 
-Dropping gVisor makes parity trivial: **standard `runc` everywhere**, so the whole
-stack runs via `docker compose up` on a laptop identically to EC2. The only
-remaining differences are two near-free host settings.
+Dropping gVisor makes parity trivial: **standard `runc` everywhere**, so the same
+Coolify + platform services run on a laptop identically to EC2. The only remaining
+differences are two near-free host settings.
 
 | Layer | Laptop (Colima) | Remote EC2 | How parity is kept |
 |---|---|---|---|
 | Coolify engine (ingress/build/cron/lifecycle) | ✅ | ✅ | same Coolify both sides |
-| Platform services (kiosk, litellm, authelia, sqld, postgres, redis) | ✅ | ✅ | same compose, only `.env` differs |
+| Platform services (kiosk, litellm, authelia, sqld, postgres, redis) | ✅ | ✅ | same service definitions, only config differs |
 | Destination-per-tenant, per-app limits | ✅ | ✅ | via Coolify |
 | Runtime | `runc` | `runc` | standard everywhere — no `runsc`, no compat/perf gap |
 | IMDSv2 hop-limit (Move 3) | N/A | ✅ EC2 setting | EC2-only, near-free |
@@ -111,8 +111,8 @@ remaining differences are two near-free host settings.
 setup — no gVisor provision script needed anymore. Functional parity is 1:1; only
 the EC2-only IMDS setting and disk-quota driver differ.
 
-**Rule of thumb:** compose brings up the whole thing; only a couple of EC2 host
-settings sit outside it. Local and remote are effectively identical.
+**Rule of thumb:** Coolify + the platform services bring up the whole thing; only a
+couple of EC2 host settings sit outside it. Local and remote are effectively identical.
 
 ---
 

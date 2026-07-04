@@ -9,19 +9,17 @@ lifecycle, cron, env/secrets, resource limits, rollback, and multi-server
 placement. We build the **kiosk / LLM / RBAC** layer on top via Coolify's API.
 See `docs/coolify-evaluation.md` for the verified architecture + operating rules.
 
-This directory scaffolds the **LLM layer**; the rest is planning docs.
+**This is a design plan — docs only, no implementation code.**
 
-## What's here
+## Docs
 
-| Path | Role |
+| Doc | Contents |
 |------|------|
-| `docker-compose.yml` | The **platform services** (kiosk, litellm, authelia, sqld, postgres, redis). Deploy as a Coolify resource or run locally. Tenant apps are created via the Coolify API, not here. |
-| `litellm/config.yaml` | LiteLLM gateway: OpenRouter upstream, model aliases, tenant-scoped Redis cache. |
-| `litellm/hooks/tenant_cache.py` | Forces a per-tenant cache namespace so tenants never share cached completions. |
-| `control-plane/src/provisionLlmApp.ts` | Detects an LLM app, mints a per-tenant LiteLLM virtual key, injects gateway env vars, flags hard-coded keys. |
-| `postgres/init/01-databases.sql` | Creates the `litellm` and `authelia` sidecar databases. |
-| `.env.example` | Kiosk + engine config; only this differs local↔remote. |
-| `docs/` | Planning decision records: `coolify-evaluation`, `isolation-and-scaling`, `secrets`, `app-contract-and-detection`, `user-journey`. |
+| `docs/coolify-evaluation.md` | Architecture-of-record: Coolify-as-engine, verified findings + API spikes, provisioning flow, operating rules, security requirements. |
+| `docs/isolation-and-scaling.md` | Trust model (trusted-internal, accident-hardened), the 5 moves, laptop↔EC2 parity, scale-out path. |
+| `docs/secrets.md` | App env/secrets: define → store (Coolify) → inject. |
+| `docs/app-contract-and-detection.md` | How RBAC is applied without restricting authoring: fail-closed default-deny + multi-signal detection (incl. LLM-generated probe scripts). |
+| `docs/user-journey.md` | End-to-end walkthrough for a stock Next.js app using every feature. |
 
 ## Operating rules (from the Coolify verification)
 
@@ -56,12 +54,12 @@ tenant app N ───────────┘    tenant-scoped cache, spend 
 - Both `OPENAI_*` and `ANTHROPIC_*` SDK env vars are pointed at the gateway, so
   whichever SDK the creator's app uses, it routes through governance.
 
-## Tenant-scoped cache — verify once
+## Tenant-scoped cache — design note
 
-`hooks/tenant_cache.py` sets a per-request `cache.namespace` of `tenant:<id>`.
-Confirm against your pinned LiteLLM image with a two-tenant identical-prompt
-test. If your version ignores per-request namespacing, the guaranteed-safe
-fallback is to mint tenant keys with caching disabled (cache only the kiosk key).
+The LiteLLM cache must be namespaced per tenant (`tenant:<id>`) so tenants never
+share cached completions. Confirm the chosen mechanism against the pinned LiteLLM
+image with a two-tenant identical-prompt test; the guaranteed-safe fallback is to
+disable caching on tenant keys (cache only the kiosk's own key).
 
 ## Isolation notes (trusted-internal, accident-hardened)
 

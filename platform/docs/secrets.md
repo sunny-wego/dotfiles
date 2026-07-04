@@ -13,10 +13,10 @@ graduation trigger to a fetch-based model is noted at the end.
 
 ## Define
 Reuse the ZIP analysis done for Dockerfile generation to detect required env
-**names** (never values): from `.env.example` and `process.env.X` / `os.environ`
-references. The kiosk shows a masked form for the creator-provided ones.
-`sanitizeHardcodedKeys` (see `control-plane/src/provisionLlmApp.ts`) strips any
-key the creator hard-coded and re-homes it here.
+**names** (never values): from the app's own `.env.example` and `process.env.X` /
+`os.environ` references. The kiosk shows a masked form for the creator-provided
+ones, and flags any key the creator hard-coded (detect + flag, per the no-codemod
+rule — see `app-contract-and-detection.md`).
 
 **Hard rule:** secrets are **runtime-only, never build args** (build `ARG`s bake
 into image layers). Only non-secret config may be a build arg.
@@ -58,9 +58,9 @@ entirely: a **short-lived tenant token** at launch + a sidecar pulling from
 Vault/Infisical. More secure, more than a vibe-coded app wires itself — a scale
 step, not the default.
 
-## Env keys (kiosk config, see `.env.example`)
+## Kiosk config (env keys the kiosk itself needs)
 - `COOLIFY_BASE_URL` / `COOLIFY_API_TOKEN` — the engine the kiosk drives.
 - `REGISTRY_URL` / `REGISTRY_USER` / `REGISTRY_PASSWORD` — where tenant images are
   pushed; Coolify deploys from here.
-- App secrets themselves live in **Coolify's encrypted env store**, not in our
-  `.env`.
+- `OPENROUTER_API_KEY`, `LITELLM_MASTER_KEY` — the LLM upstream + key-minting.
+- App secrets themselves live in **Coolify's encrypted env store**, not in kiosk config.
