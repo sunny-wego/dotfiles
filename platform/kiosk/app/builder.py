@@ -117,7 +117,7 @@ class Builder:
     def _build(self, dockerfile: str) -> str | None:
         Path(self.root, "Dockerfile").write_text(dockerfile, encoding="utf-8")
         self.log("[build] docker build …")
-        res = dockercli.build(self.image, self.root)
+        res = dockercli.build(self.image, self.root, network=config.BUILD_NETWORK)
         if res.ok:
             self.log("[build] ok")
             return None

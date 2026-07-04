@@ -35,11 +35,12 @@ def run(args: list[str], *, timeout: int = 900, cwd: str | None = None) -> Run:
 
 
 def build(tag: str, context: str, dockerfile: str = "Dockerfile",
-          timeout: int = 1200) -> Run:
-    return run(
-        ["build", "--pull", "-t", tag, "-f", f"{context}/{dockerfile}", context],
-        timeout=timeout,
-    )
+          network: str = "", timeout: int = 1200) -> Run:
+    args = ["build", "--pull", "-t", tag, "-f", f"{context}/{dockerfile}"]
+    if network:
+        args += ["--network", network]
+    args.append(context)
+    return run(args, timeout=timeout)
 
 
 def rm_force(name: str) -> None:

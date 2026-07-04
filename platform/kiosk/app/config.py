@@ -41,6 +41,10 @@ class Config:
 
     REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "registry:5000")
     PROXY_NETWORK = os.environ.get("PROXY_NETWORK", "platform_proxy")
+    # Optional docker network for tenant builds (e.g. "host"). Some corporate
+    # networks require builds to run on the host network to reach an egress
+    # proxy / internal mirrors. Empty = docker's default build network.
+    BUILD_NETWORK = os.environ.get("KIOSK_BUILD_NETWORK", "")
 
     WORK_DIR = os.environ.get("KIOSK_WORK_DIR", "/work")
 
