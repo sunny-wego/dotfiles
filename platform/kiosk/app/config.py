@@ -40,7 +40,9 @@ class Config:
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 
     # ── v1: secrets, DB, egress, LLM, networks ──────────────────────────────
-    # Encryption key for secrets at rest. MUST be stable across restarts.
+    # Encryption key for secrets at rest. MUST be stable across restarts, and
+    # MUST NOT be the shipped default in production (enforced at startup).
+    INSECURE_SECRET_KEY = "kiosk-insecure-dev-key-change-me"
     SECRET_KEY = os.environ.get("KIOSK_SECRET_KEY", "")
 
     # Shared postgres cluster admin URL (kiosk connects as superuser to create

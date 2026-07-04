@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import re
 
-# Allowed image *families* (prefix match on the repository, tag ignored).
-ALLOWED_PREFIXES = (
+# Allowed image *families*. An entry matches a repository only by EXACT equality,
+# or — for entries ending in "/" — as a path-boundary namespace prefix. It is NOT
+# a bare substring/startswith match: `node` allows `node` but NOT `node-pwn/x` or
+# `node.evil.com/backdoor`; `gcr.io/distroless/` allows anything under it.
+ALLOWED_FAMILIES = (
     "node",
     "python",
     "nginx",
@@ -22,11 +25,23 @@ ALLOWED_PREFIXES = (
     "docker.io/library/python",
 )
 
-_FROM = re.compile(r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?(?P<img>\S+)")
+_FROM = re.compile(
+    r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?(?P<img>\S+)(?:\s+AS\s+(?P<alias>\S+))?")
 
 
 def from_images(dockerfile: str) -> list[str]:
     return [m.group("img") for m in _FROM.finditer(dockerfile)]
+
+
+def _parse(dockerfile: str) -> tuple[list[str], set[str]]:
+    """Return (all FROM images, set of build-stage aliases declared via `AS`)."""
+    imgs: list[str] = []
+    aliases: set[str] = set()
+    for m in _FROM.finditer(dockerfile):
+        imgs.append(m.group("img"))
+        if m.group("alias"):
+            aliases.add(m.group("alias").lower())
+    return imgs, aliases
 
 
 def _repo(image: str) -> str:
@@ -40,19 +55,23 @@ def _repo(image: str) -> str:
     return ref.split(":", 1)[0]
 
 
+def _allowed_family(repo: str) -> bool:
+    return any(repo == p or (p.endswith("/") and repo.startswith(p))
+               for p in ALLOWED_FAMILIES)
+
+
 def validate(dockerfile: str) -> tuple[bool, str]:
-    imgs = from_images(dockerfile)
+    imgs, aliases = _parse(dockerfile)
     if not imgs:
         return False, "no FROM instruction found"
     for img in imgs:
-        # A `FROM builder`-style alias reference resolves to a prior stage; the
-        # actual base is the aliased stage's FROM, already checked. We treat any
-        # image that isn't a known-registry ref and matches a build stage name
-        # loosely: only enforce on refs that look like registry images.
-        repo = _repo(img)
-        if not any(repo == p or repo.startswith(p) for p in ALLOWED_PREFIXES):
-            # Allow references to earlier build stages (no dots/slashes, no tag).
-            if re.fullmatch(r"[A-Za-z0-9_-]+", img):
-                continue
-            return False, f"base image not allowlisted: {img!r}"
+        if _allowed_family(_repo(img)):
+            continue
+        # A bare reference to an EARLIER build stage (declared `FROM x AS name`)
+        # resolves to that stage's base, which is itself validated above. Only a
+        # name actually declared as a stage in THIS Dockerfile qualifies — never
+        # an arbitrary bare image like `FROM redis`.
+        if "/" not in img and ":" not in img and img.lower() in aliases:
+            continue
+        return False, f"base image not allowlisted: {img!r}"
     return True, "ok"

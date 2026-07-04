@@ -12,8 +12,9 @@ import json
 import time
 from contextlib import contextmanager
 
-import psycopg
+import psycopg  # noqa: F401  (kept for type/reference parity)
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from .config import config
 
@@ -101,34 +102,41 @@ CREATE TRIGGER audit_no_mutate
 )
 
 
-def _connect(retries: int = 30) -> psycopg.Connection:
+# A connection POOL, not a single shared connection: the kiosk serves requests
+# on a threadpool AND runs background threads (cron/monitor/backup), so one
+# shared psycopg connection would serialize everything and race on reconnect.
+# The pool hands each caller its own connection for the duration of a cursor().
+_pool: ConnectionPool | None = None
+
+
+def _make_pool(retries: int = 30) -> ConnectionPool:
     last: Exception | None = None
     for _ in range(retries):
         try:
-            return psycopg.connect(config.DATABASE_URL, autocommit=True,
-                                   row_factory=dict_row)
-        except psycopg.OperationalError as e:  # noqa: PERF203
+            pool = ConnectionPool(
+                config.DATABASE_URL, min_size=1, max_size=10, timeout=10,
+                kwargs={"autocommit": True, "row_factory": dict_row}, open=True)
+            with pool.connection() as conn:
+                conn.execute("SELECT 1")
+            return pool
+        except Exception as e:  # noqa: BLE001,PERF203
             last = e
             time.sleep(1)
     raise RuntimeError(f"cannot reach postgres: {last}")
 
 
-_conn: psycopg.Connection | None = None
-
-
 def init() -> None:
-    global _conn
-    _conn = _connect()
-    with _conn.cursor() as cur:
+    global _pool
+    if _pool is None:
+        _pool = _make_pool()
+    with _pool.connection() as conn, conn.cursor() as cur:
         cur.execute(_SCHEMA)
 
 
 @contextmanager
 def cursor():
-    assert _conn is not None, "db.init() not called"
-    if _conn.closed:
-        init()
-    with _conn.cursor() as cur:
+    assert _pool is not None, "db.init() not called"
+    with _pool.connection() as conn, conn.cursor() as cur:
         yield cur
 
 

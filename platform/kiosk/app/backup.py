@@ -15,6 +15,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from . import audit, db, dockercli
 from .config import config
@@ -24,15 +25,29 @@ BACKUPS_VOLUME = "platform_backups"
 BACKPLANE = "platform_backplane"
 
 
-def _admin_base() -> str:
-    return config.PG_ADMIN_URL.rsplit("/", 1)[0]  # postgresql://user:pw@host:port
+def _admin_password() -> str:
+    return urlsplit(config.PG_ADMIN_URL).password or ""
+
+
+def admin_url(dbname: str | None = None) -> str:
+    """Admin connection URL with the password STRIPPED (it is passed separately
+    via PGPASSWORD, never interpolated into a shell string — a `$`/quote/backtick
+    in the operator's admin password must not break or inject into `sh -c`)."""
+    u = urlsplit(config.PG_ADMIN_URL)
+    host = u.hostname or "postgres"
+    port = f":{u.port}" if u.port else ""
+    userinfo = f"{u.username}@" if u.username else ""
+    path = f"/{dbname}" if dbname else (u.path or "")
+    return f"{u.scheme}://{userinfo}{host}{port}{path}"
 
 
 def _pg(cmd: str, *, extra_args: list[str] | None = None, timeout: int = 600):
-    """Run a shell command inside a one-shot postgres container with the
-    backups volume mounted and PG* client tools available."""
+    """Run a shell command inside a one-shot postgres container with the backups
+    volume mounted, PG* client tools available, and PGPASSWORD supplied via the
+    container env (argv, not shell — so it can't break the `sh -c` string)."""
     args = ["run", "--rm", "--network", BACKPLANE,
-            "-v", f"{BACKUPS_VOLUME}:/backups", *(extra_args or []),
+            "-v", f"{BACKUPS_VOLUME}:/backups",
+            "-e", f"PGPASSWORD={_admin_password()}", *(extra_args or []),
             PG_IMAGE, "sh", "-c", cmd]
     return dockercli.run(args, timeout=timeout)
 
@@ -40,11 +55,11 @@ def _pg(cmd: str, *, extra_args: list[str] | None = None, timeout: int = 600):
 def backup_all(log=lambda *_: None) -> dict:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     outdir = f"/backups/{stamp}"
-    targets: list[tuple[str, str]] = [("_platform_state", config.PG_ADMIN_URL)]
+    targets: list[tuple[str, str]] = [("_platform_state", admin_url())]
     for row in db.list_apps():
         t = db.get_tenant_db(row["slug"])
         if t:
-            targets.append((t["dbname"], f"{_admin_base()}/{t['dbname']}"))
+            targets.append((t["dbname"], admin_url(t["dbname"])))
 
     done, failed = [], []
     mk = _pg(f"mkdir -p {outdir}")
@@ -97,24 +112,27 @@ def restore_drill(stamp: str | None = None, log=lambda *_: None) -> dict:
         return {"ok": False, "error": "no backups found"}
     dump = f"/backups/{stamp}/_platform_state.sql"
     tmpdb = f"restore_drill_{int(time.time())}"
-    admin = config.PG_ADMIN_URL
 
     log(f"[drill] restoring {dump} into {tmpdb}")
-    create = _pg(f'psql "{admin}" -c "CREATE DATABASE {tmpdb}"')
+    create = _pg(f'psql "{admin_url()}" -c "CREATE DATABASE {tmpdb}"')
     if not create.ok:
         return {"ok": False, "error": f"create failed: {create.out[-200:]}"}
     try:
-        restore = _pg(f'psql "{_admin_base()}/{tmpdb}" -v ON_ERROR_STOP=0 -f {dump}')
-        check = _pg(f'psql "{_admin_base()}/{tmpdb}" -tAc '
+        # ON_ERROR_STOP=1: a dump that fails to replay makes psql exit non-zero,
+        # so a corrupt/partial backup fails the drill instead of silently passing.
+        restore = _pg(f'psql "{admin_url(tmpdb)}" -v ON_ERROR_STOP=1 -f {dump}')
+        check = _pg(f'psql "{admin_url(tmpdb)}" -tAc '
                     f'"SELECT count(*) FROM apps"')
         rows = check.out.strip()
         ok = restore.ok and check.ok and rows.isdigit()
+        if not restore.ok:
+            log(f"[drill] restore FAILED: {restore.out.strip()[-300:]}")
         log(f"[drill] restored; apps rows = {rows!r}; ok={ok}")
         audit.record("backup", "restore.drill", detail={"stamp": stamp, "ok": ok,
                                                          "apps_rows": rows})
         return {"ok": ok, "stamp": stamp, "apps_rows": rows}
     finally:
-        _pg(f'psql "{admin}" -c "DROP DATABASE IF EXISTS {tmpdb}"')
+        _pg(f'psql "{admin_url()}" -c "DROP DATABASE IF EXISTS {tmpdb}"')
 
 
 def start_nightly() -> None:

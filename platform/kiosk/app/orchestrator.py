@@ -87,18 +87,35 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
         manifests = collect_manifests(root, redact)
         dir_tree = redact(tree(root))
 
-        # 4. Build-verify-heal.
+        # 4. Provision per-tenant resources FIRST, so the verify boot (step 5)
+        #    can inject the real DATABASE_URL/secrets — apps that read their env
+        #    at import must survive the probe. Idempotent + reused on retry.
         job.status = "building"
         db.set_app_status(slug, "building")
+        job.log("provisioning per-tenant database …")
+        provision_db.ensure_tenant_db(slug, job.log)
+        audit.record(job.actor, "provision.db", app=slug)
+        egress.regenerate_allowlist(job.log)
+        env = tenant_env.build_env(slug, job.log)
+
+        # 5. Build-verify-heal (verify boots with the tenant env from step 4).
         llm = LLMSession()
         job.log(f"LLM mode = {llm.mode}; token budget = {llm.budget}")
         builder = Builder(slug, root, d, llm, job.log)
-        outcome = builder.run(manifests=manifests, tree=dir_tree)
+        outcome = builder.run(manifests=manifests, tree=dir_tree, verify_env=env)
 
         audit.record(job.actor, "build", app=slug, detail={
             "ok": outcome.ok, "attempts": outcome.attempts,
             "reason": outcome.reason, "tokens": llm.tokens_used,
+            "pushed": outcome.pushed,
         })
+        if outcome.ok and outcome.push_error:
+            slack.escalate(
+                job.actor, slug,
+                "Registry push FAILED (not a benign 'registry down' error). App "
+                "deploys from the local image but won't be pullable on a "
+                "recreate/remote deploy.",
+                {"detail": outcome.push_error})
 
         if not outcome.ok:
             job.status = "failed"
@@ -113,16 +130,9 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
 
         job.log(f"build ok after {outcome.attempts} attempt(s)")
 
-        # 5. Provision per-tenant resources (DB, egress allowlist, env bundle).
+        # 6. Deploy on the internal tenant network, behind auth + allow-list.
         job.status = "deploying"
         db.set_app_status(slug, "deploying", image=outcome.image, port=outcome.port)
-        job.log("provisioning per-tenant database …")
-        provision_db.ensure_tenant_db(slug, job.log)
-        audit.record(job.actor, "provision.db", app=slug)
-        egress.regenerate_allowlist(job.log)
-        env = tenant_env.build_env(slug, job.log)
-
-        # 6. Deploy on the internal tenant network, behind auth + allow-list.
         ok, url, msg = deployer.deploy(slug, outcome.image, outcome.port, env=env)
         if not ok:
             job.status = "failed"

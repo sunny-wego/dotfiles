@@ -105,10 +105,11 @@ class LLMSession:
         try:
             resp = httpx.post(url, json=payload, headers=headers, timeout=120)
             resp.raise_for_status()
+            data = resp.json()  # a 200 with a non-JSON body must not escape as a raw decode error
         except httpx.HTTPError as e:  # noqa: BLE001
             raise LLMError(f"LiteLLM call failed: {e}") from e
-
-        data = resp.json()
+        except ValueError as e:  # json.JSONDecodeError subclasses ValueError
+            raise LLMError(f"LiteLLM returned a non-JSON response: {e}") from e
         usage = data.get("usage", {})
         self.tokens_used += int(usage.get("total_tokens", 0))
         if self.tokens_used > self.budget:

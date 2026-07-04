@@ -12,7 +12,7 @@ calls "additive, not a migration". Nothing above the image contract changes.
 
 from __future__ import annotations
 
-from . import dockercli
+from . import db, dockercli, tenant_env
 from .config import config
 
 
@@ -62,6 +62,17 @@ def deploy(slug: str, image: str, port: int,
     if not res.ok:
         return False, "", f"deploy failed:\n{res.out[-500:]}"
     return True, f"https://{host}", "deployed behind Google login + allow-list"
+
+
+def redeploy(slug: str) -> tuple[bool, str, str]:
+    """Re-run an already-built app with a freshly-built env bundle, so changes to
+    secrets / egress allowlist take effect on the live container (they are only
+    injected at container start). No rebuild. Returns (ok, url, message)."""
+    rec = db.get_app(slug)
+    if not rec or not rec.get("image") or rec.get("status") != "running":
+        return False, "", "app is not currently running; nothing to redeploy"
+    env = tenant_env.build_env(slug)
+    return deploy(slug, rec["image"], rec["port"], env=env)
 
 
 def app_logs(slug: str, tail: int = 200) -> str:

@@ -27,6 +27,16 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 @app.on_event("startup")
 def _startup() -> None:
+    # Refuse to run in production (real Google auth) with the shipped default
+    # secret key — it would encrypt every secret at rest under a public value.
+    if config.SECRET_KEY in ("", config.INSECURE_SECRET_KEY):
+        if config.AUTH_MODE == "google":
+            raise RuntimeError(
+                "KIOSK_SECRET_KEY is the insecure default; refusing to start in "
+                "google mode. Set a real key (openssl rand -base64 32).")
+        print("[WARN] KIOSK_SECRET_KEY is the insecure dev default — "
+              "secrets at rest are NOT protected. Set a real key for real use.",
+              flush=True)
     db.init()
     egress.regenerate_allowlist()
     cron.start()
@@ -145,6 +155,7 @@ def set_visibility(request: Request, slug: str, visibility: str = Form(...)):
     if visibility not in ("invite-only", "all-staff"):
         raise HTTPException(400, "bad visibility")
     db.set_visibility(slug, visibility)
+    access.invalidate(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -157,6 +168,7 @@ def add_access(request: Request, slug: str, email: str = Form(...),
         db.remove_access(slug, email)
     else:
         db.add_access(slug, email)
+    access.invalidate(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -171,6 +183,8 @@ def set_secret(request: Request, slug: str, key: str = Form(...),
         if not value:
             raise HTTPException(400, "value required")
         secrets_store.set_secret(slug, key, value)
+    # Secrets are injected as env at container start, so apply on the live app.
+    deployer.redeploy(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -180,6 +194,9 @@ def add_egress(request: Request, slug: str, domain: str = Form(...)):
     _owner_guard(slug, who)
     db.add_egress(slug, domain.strip())
     egress.regenerate_allowlist()
+    # Egress proxy env is injected at start; redeploy so the running app can
+    # actually reach the newly-allowlisted domain (not just squid permitting it).
+    deployer.redeploy(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 

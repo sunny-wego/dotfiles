@@ -62,9 +62,20 @@ def database_url(slug: str) -> str | None:
 def _create(dbname: str, dbuser: str, password: str, log) -> None:
     log(f"[db] creating role {dbuser} + database {dbname}")
     with _admin() as conn, conn.cursor() as cur:
-        # Role (idempotent).
+        # Role (idempotent). If it already exists (e.g. a prior run created the
+        # role but died before persisting the tenant_db row), re-sync the
+        # password to the value we are about to store/inject — otherwise the
+        # stored password and the actual role password diverge and the tenant
+        # can never authenticate.
         cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (dbuser,))
-        if not cur.fetchone():
+        if cur.fetchone():
+            cur.execute(
+                sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {} CONNECTION LIMIT {}").format(
+                    sql.Identifier(dbuser),
+                    sql.Literal(password),
+                    sql.Literal(config.TENANT_DB_CONN_LIMIT),
+                ))
+        else:
             cur.execute(
                 sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} CONNECTION LIMIT {}").format(
                     sql.Identifier(dbuser),

@@ -36,10 +36,20 @@ class BuildOutcome:
     dockerfile: str = ""
     attempts: int = 0
     reason: str = ""
+    pushed: bool = False
+    push_error: str = ""   # set only when push failed for a NON-benign reason
     logs: list[str] = field(default_factory=list)
 
 
 class Builder:
+    # Proxy env vars are meaningful only at runtime on the tenant network; the
+    # verify boot runs on the backplane (where the egress-proxy isn't), so they
+    # are stripped before the probe to avoid a spurious unresolvable-host boot.
+    _VERIFY_ENV_SKIP = frozenset({
+        "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+        "NO_PROXY", "no_proxy",
+    })
+
     def __init__(self, slug: str, project_root: str, detection: Detection,
                  llm: LLMSession, log) -> None:
         self.slug = slug
@@ -49,8 +59,13 @@ class Builder:
         self.log = log
         self.image = f"{config.REGISTRY_HOST}/tenant-{slug}:{int(time.time())}"
         self.port = detection.suggested_port
+        self.verify_env: dict[str, str] = {}
 
-    def run(self, *, manifests: dict[str, str], tree: str) -> BuildOutcome:
+    def run(self, *, manifests: dict[str, str], tree: str,
+            verify_env: dict[str, str] | None = None) -> BuildOutcome:
+        # Env injected into the verify boot so apps that read DATABASE_URL /
+        # secrets at import survive the probe (they are provisioned before build).
+        self.verify_env = verify_env or {}
         outcome = BuildOutcome(ok=False, image=self.image, port=self.port)
         try:
             dockerfile = self.llm.generate_dockerfile(
@@ -103,11 +118,20 @@ class Builder:
             # contract), but is best-effort: on a single box the local daemon
             # already holds the built tag, so a registry that isn't configured
             # as insecure must not fail an otherwise-good provision.
-            pushed = self._push()
+            pushed, benign, detail = self._push()
             outcome.ok = True
-            outcome.reason = ("built, verified and pushed" if pushed
-                              else "built and verified (registry push skipped)")
+            outcome.pushed = pushed
             outcome.dockerfile = dockerfile
+            if pushed:
+                outcome.reason = "built, verified and pushed"
+            elif benign:
+                outcome.reason = "built and verified (registry push skipped)"
+            else:
+                # Real push failure — deploy still works from the local tag on
+                # THIS box, but the image won't be pullable on a recreate/remote
+                # deploy. Surface it instead of masking it as benign.
+                outcome.push_error = detail
+                outcome.reason = "built and verified (REGISTRY PUSH FAILED)"
             return outcome
 
         outcome.reason = f"heal loop exhausted after {max_iter} attempts"
@@ -132,10 +156,14 @@ class Builder:
         name = f"verify-{self.slug}"
         dockercli.rm_force(name)
         self.log(f"[verify] booting on :{self.port} …")
+        envargs: list[str] = ["-e", f"PORT={self.port}"]
+        for k, v in self.verify_env.items():
+            if k not in self._VERIFY_ENV_SKIP:
+                envargs += ["-e", f"{k}={v}"]
         res = dockercli.run([
             "run", "-d", "--name", name,
             "--network", "platform_backplane",
-            "-e", f"PORT={self.port}",
+            *envargs,
             self.image,
         ], timeout=60)
         if not res.ok:
@@ -170,15 +198,36 @@ class Builder:
         tail = "\n".join(res.out.strip().splitlines()[-15:])
         self.log(f"[trivy] {tail or 'no high/critical findings'}")
 
-    def _push(self) -> bool:
+    # Signatures of a registry that simply isn't set up on this single box —
+    # benign, expected, deploy-from-local is fine. Anything else (auth denied,
+    # disk full, manifest/layer errors) is a REAL failure worth surfacing.
+    _BENIGN_PUSH = (
+        "server gave http response to https client",
+        "connection refused",
+        "connection reset by peer",   # HTTP registry answering an HTTPS probe
+        "no such host",
+        "dial tcp",
+        "certificate",
+        "http: server gave",
+    )
+
+    def _push(self) -> tuple[bool, bool, str]:
+        """Return (pushed, benign, detail)."""
         self.log("[push] pushing to registry …")
         res = dockercli.run(["push", self.image], timeout=600)
         if res.ok:
             self.log("[push] ok")
-            return True
-        self.log("[push] skipped — registry not reachable/insecure; "
-                 "deploying the locally-built image instead")
-        return False
+            return True, True, ""
+        low = res.out.lower()
+        benign = any(s in low for s in self._BENIGN_PUSH)
+        if benign:
+            self.log("[push] skipped — registry not reachable/insecure; "
+                     "deploying the locally-built image instead")
+        else:
+            self.log("[push] FAILED (not a benign 'registry down' error) — the "
+                     "app deploys from the local image on THIS host but will NOT "
+                     f"be pullable elsewhere:\n{res.out[-400:]}")
+        return False, benign, res.out[-400:]
 
     def _heal_or_stop(self, dockerfile: str, error_log: str,
                       outcome: BuildOutcome) -> str | None:

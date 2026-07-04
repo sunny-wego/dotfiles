@@ -15,10 +15,20 @@ Google Group principals ("group:eng@company") are recognised in the schema but
 group membership resolution is deferred (documented) — v1 uses explicit emails.
 """
 
-from __future__ import annotations
+import threading
+import time
 
 from . import db
 from .config import config
+
+# Short-TTL decision cache: internal_authz runs on EVERY tenant request, so
+# without this the metadata DB is a full-traffic SPOF (README: "authz serves
+# from a local cache with explicit staleness bounds, invalidated on role
+# change"). Staleness is bounded by the TTL and by invalidate() on any change.
+_CACHE_TTL = 30.0
+_CACHE_MAX = 5000
+_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+_lock = threading.Lock()
 
 
 def domain_ok(email: str) -> bool:
@@ -26,8 +36,33 @@ def domain_ok(email: str) -> bool:
     return "@" in email and email.rsplit("@", 1)[1] == config.COMPANY_EMAIL_DOMAIN.lower()
 
 
+def invalidate(slug: str | None = None) -> None:
+    """Drop cached decisions — for one app on role/visibility change, or all."""
+    with _lock:
+        if slug is None:
+            _cache.clear()
+        else:
+            for k in [k for k in _cache if k[0] == slug]:
+                _cache.pop(k, None)
+
+
 def can_open(slug: str, email: str) -> bool:
     email = (email or "").lower()
+    key = (slug, email)
+    now = time.time()
+    with _lock:
+        hit = _cache.get(key)
+        if hit is not None and hit[0] > now:
+            return hit[1]
+    result = _compute(slug, email)
+    with _lock:
+        if len(_cache) > _CACHE_MAX:
+            _cache.clear()
+        _cache[key] = (now + _CACHE_TTL, result)
+    return result
+
+
+def _compute(slug: str, email: str) -> bool:
     if not domain_ok(email):
         return False
     app = db.get_app(slug)

@@ -23,8 +23,9 @@ from .config import config
 def _fernet() -> Fernet:
     raw = config.SECRET_KEY
     if not raw:
-        # Fail loud in prod; only the dev default should ever be empty-derived.
-        raw = "kiosk-insecure-dev-key-change-me"
+        # Dev fallback only. Production use of this key is blocked at startup
+        # (see main._startup, which refuses google mode with the default key).
+        raw = config.INSECURE_SECRET_KEY
     # Accept either a proper 44-char urlsafe base64 Fernet key, or any string
     # (which we hash into 32 bytes) so operators can set a human-friendly value.
     try:
