@@ -121,6 +121,28 @@ The gap is **structural** (apps stall waiting for an engineer). This is the bles
 | Isolation | Destination-per-tenant + per-app limits + default-deny RBAC + budgets |
 </details>
 
+<details>
+<summary><b>Supported combinations</b> — runtime × shape × add-ons</summary>
+
+Frameworks per runtime × shape:
+
+| Runtime | Static client | Fullstack | Backend API | Worker / agent |
+|---|---|---|---|---|
+| **Node.js** | React, Vue, Svelte, Astro | **Next.js**, Nuxt, Remix, SvelteKit | Express, Fastify, NestJS, Hono | plain Node (cron/agent) |
+| **Python** | — | **Streamlit, Gradio, Dash** (data-apps) | FastAPI, Flask, Django | plain Python (cron/agent) |
+
+Which add-ons apply to which shape:
+
+| Shape | DB | Cron | Auth | RBAC | LLM | Storage | Email |
+|---|---|---|---|---|---|---|---|
+| Static client | via edge/proxy | opt | ✅ | UI-only | opt | opt | opt |
+| Fullstack | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Backend API | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Worker / agent | ✅ | ✅ (it *is* the schedule) | — | — | ✅ | ✅ | ✅ |
+
+The kiosk surfaces ~7 base recipes (each runtime × valid shape) with the add-ons as independent toggles — not the raw cartesian.
+</details>
+
 ---
 
 ## 3. Deviations & extensions from native Coolify (and why)
@@ -176,9 +198,32 @@ State lives in the **metadata Postgres** (tenant↔app↔db, manifests, roles, a
 
 ## 5. User journey
 
-**Create:** Google sign-in → name → **drop ZIP** → detect + LLM Dockerfile + build-verify-heal + **data-classification** → plain-English summary + toggles (LLM-proposed roles) → **Deploy**.
-**Provision (saga):** build+scan → push → DB namespace → LLM key → bucket + SMTP creds → set env/domain/limits/cron via Coolify API → attach auth middleware chain → deploy in tenant Destination → enable backup → record owner + manifest + audit.
-**Use:** `Traefik → oauth2-proxy → authz → app → its DB + LLM gateway`. **Maintain:** new ZIP → rebuild → health-checked swap; rollback = redeploy prior image.
+Worked through with the canonical hard case: a **stock Next.js app that uses *every* feature** — staff log in with Google, see role-gated pages, read/write their org's data, ask an LLM to summarize it, and get a nightly email report. The ZIP has `package.json` (`next`, `@libsql/client`, `openai`), a `.env.example` (`STRIPE_KEY`), and an `/admin` route.
+
+**Phase 1 — Create (what the creator does).**
+1. Sign in to the Kiosk with the company Google account.
+2. **New App → name it → drag the ZIP.**
+3. The Kiosk detects **Next.js**, that it's an **LLM app** (`openai`), that it uses a **DB** (`@libsql/client`), that it needs **`STRIPE_KEY`**, and runs a **data-classification** pass.
+4. A hardened **Dockerfile is generated** and run through the **build-verify-heal** loop until it boots and serves.
+5. Plain-English summary + toggles, pre-filled from detection: **Database ON**, **LLM ON** (tier), **Auth ON** (LLM proposes **Admin/Editor/Viewer** from the route map, `/admin/*` → Admin only), **Cron** ("nightly 09:00"), **Secrets** (paste `STRIPE_KEY`), **Storage/Email** if needed, optional **custom domain**.
+6. Click **Deploy**.
+
+**Phase 2 — Provision (invisible saga).** Build + scan → push image → create DB namespace → mint LLM virtual key → provision bucket + SMTP creds → set env/domain/limits/cron via the Coolify API → attach the auth middleware chain → deploy in the tenant's **Destination** → enable backup → record **owner + manifest + audit**. Creator gets a **live URL + invite link + logs**.
+
+**Phase 3 — Invite & roles.** Creator invites staff by email and assigns Admin/Editor/Viewer. No code.
+
+**Phase 4 — End users use it.**
+```
+staff browser → Coolify Traefik (TLS, host route)
+             → oauth2-proxy  (company Google? inject X-Auth-Request-Email)
+             → platform-authz (role allowed on this path/method? default-deny)
+             → the app → its OWN DB namespace + the LLM gateway (budgeted, cached)
+```
+A Viewer hitting `/admin` is blocked **before** the app sees it; the app can't reach other tenants (its own Destination) or IMDS.
+
+**Phase 5 — Scheduled work.** At 09:00 the app's Coolify **Scheduled Task** runs the report (same env, DB, LLM key), sends the email via the relay, exits — with run history in the Kiosk.
+
+**Phase 6 — Maintain.** Update = **new ZIP** → rebuild → health-checked swap. Rollback = redeploy a prior image. Rotate a secret, browse logs/health/cron history, manage users, or offboard (export → tear down) — all in the Kiosk.
 
 <details>
 <summary><b>Deployments, rollback & migration caveat</b></summary>
