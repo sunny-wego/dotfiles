@@ -6,7 +6,7 @@
 
 **Two planes (core principle):** **Creators (non-engineers) only ever use the Kiosk** (user-facing). **Operators (engineers) use the Coolify dashboard as the admin/ops console.** The Kiosk drives Coolify through its API on the creator's behalf; nobody non-technical touches Coolify.
 
-Everything here is **Day-0 scope** (including backups, observability, audit, lifecycle). Superseded per-topic records are in [`legacy/`](./legacy).
+Everything here is **Day-0 scope** (including backups, observability, audit, lifecycle).
 
 ---
 
@@ -277,6 +277,16 @@ Kiosk writes an **append-only, actor-attributed** log (actor = Google identity �
 **Multi-service:** default single image; genuine multi-service → **multiple linked Coolify apps in one project** (images-not-compose preserved for RBAC labels); permit **compose** when only app-level (not per-path) auth is needed. **Build UX:** queue + scalable worker pool; on heal-failure show a **plain-English diagnosis + suggested fix + escalate-to-human + save-as-draft** — never a raw stack trace.
 </details>
 
+<details>
+<summary><b>Scaling & growth</b></summary>
+
+- **More powerful app:** raise per-app CPU/mem limits and/or place it on a **beefier server** (Coolify per-resource placement). No replicas needed — this is the axis Coolify does well.
+- **Spread load:** add servers to the Coolify fleet.
+- **Data:** more sqld nodes → **Turso Cloud**; metadata/object storage → managed RDS / S3.
+- **Ceiling:** single-app **replica-HA** isn't native until Coolify v5 → that one app graduates to **Cloud Run / Fly / K8s** (a re-point via the Dockerfile contract). Everything else stays turnkey.
+- **Parity:** same Coolify on **Colima (laptop)** and **EC2**; only config differs.
+</details>
+
 ---
 
 ## 7. Key decisions & rationale
@@ -296,6 +306,17 @@ Kiosk writes an **append-only, actor-attributed** log (actor = Google identity �
 <summary><b>Per-app RBAC internals</b></summary>
 
 Chain via Coolify custom labels: `oauth2-proxy (Google, company-only) → authz (host→manifest rules→email→role→allow/deny, default-deny) → app`. Roles LLM-proposed, creator-confirmed into the **manifest** (Postgres). Coarse (path/method) = zero app code, fail-closed. **Row-level** = opt-in Postgres **RLS** (no filter code; non-owner role + `FORCE RLS`; deny-when-unset), identity reaches the DB via an identity-aware gateway (zero code) or a confirmed one-liner.
+
+**Auth-tool alternatives:** oauth2-proxy (default) · traefik-forward-auth (minimal) · **Zitadel/Keycloak** (richer self-hosted orgs, both broker Google). Clerk excluded (SaaS-only, SDK-shaped, residency).
+</details>
+
+<details>
+<summary><b>Detection & app contract</b> — RBAC applied without touching source</summary>
+
+- **The guarantee is fail-closed default-deny, not perfect detection** — a route the platform *misses* is **denied, not exposed**. Detection accuracy is a friction concern, not a correctness one.
+- **Multi-signal:** static route parsing + **LLM-generated ephemeral probe scripts** (run against a throwaway instance) + LLM semantic classification, reconciled; low-confidence items flagged for confirmation.
+- **Conventions recommended, not mandated** (12-factor, conventional router, read identity headers, no self-auth); non-conformers still deploy with lower auto-confidence. **No codemods** — the creator's code is never rewritten.
+- **Confirmed manifest = source of truth**, re-checked as a **delta** on each redeploy so an update can't silently open a route.
 </details>
 
 ---
@@ -303,6 +324,8 @@ Chain via Coolify custom labels: `oauth2-proxy (Google, company-only) → authz 
 ## 8. Security posture
 
 **Verdict:** secure *for the trusted-internal, accident-hardened model* with the fixes below — two "arbitrary code on the shared host" risks **contained, not eliminated** (gVisor excluded), and **customer-data apps kept off this tier by policy**.
+
+**Central tension:** the pipeline feeds **untrusted, LLM-interpreted input** (the ZIP) **into privileged operations** (the build) — so the fixes apply *regardless* of trusting authors, and a dependency-compromised app of even a trusted author is in scope.
 
 **Top fixes (all Coolify-friendly):** base-image allowlist + Trivy scan (build-RCE); network segmentation via **Traefik-hostname platform access** (tenant Destinations hold no datastores); strip inbound `X-Auth-*` + fail-closed authz + path canonicalization.
 
