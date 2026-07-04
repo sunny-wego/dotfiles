@@ -28,8 +28,8 @@ report. Its bundle contains: `package.json` (deps incl. `next`, `@libsql/client`
    - **required secret name** `STRIPE_KEY` (from `.env.example`) — value not yet known;
    - a hard-coded key in source → flagged for stripping.
 4. **Dockerfile generated** (hardened `node-next` template: pinned base, multi-stage,
-   non-root, `EXPOSE 3000`) → **build-verify-heal loop** builds it in the sandboxed
-   rootless builder until the health check passes **under `runsc`** (compat proven).
+   non-root, `EXPOSE 3000`) → **build-verify-heal loop** builds it (with a build
+   timeout) until the health check passes (app boots and serves).
 5. Kiosk shows a **plain-English summary** + toggles, pre-filled from detection:
    - **Database: ON** (detected).
    - **LLM: ON** (detected) → pick tier (e.g. `standard`).
@@ -43,7 +43,8 @@ report. Its bundle contains: `package.json` (deps incl. `next`, `@libsql/client`
 ## Phase 2 — Provision (control-plane saga, invisible to creator)
 
 Idempotent, resumable steps:
-1. **Build** image via sandboxed rootless BuildKit; push to local registry.
+1. **Build** image on the Docker daemon (with a build timeout + resource cap);
+   push to local registry.
 2. **DB** — create the tenant's **sqld namespace**; get `DATABASE_URL` + token.
 3. **LLM** — mint a **LiteLLM virtual key** (tier `standard`: budget + rpm/tpm +
    model allowlist + `metadata.tenant_id`); build `OPENAI_/ANTHROPIC_` env.
@@ -54,12 +55,12 @@ Idempotent, resumable steps:
 6. **Network** — create a per-tenant Docker network; multi-home `litellm` + `sqld`
    onto it (no other tenant, no datastores).
 7. **Launch** with the sandbox profile:
-   - `--runtime=runsc` (`$TENANT_RUNTIME`), `--cpus/--memory/--pids-limit`,
+   - `--cpus/--memory/--pids-limit`, block-I/O + `--storage-opt` disk quota,
      `--cap-drop=ALL`, `--security-opt=no-new-privileges`, read-only rootfs +
-     tmpfs, `--env-file` (tmpfs), **no published ports**;
+     tmpfs, `--env-file` (tmpfs), **no published ports** (standard `runc`);
    - Traefik labels → `Host(acme.tools.internal)` + `authelia@docker` middleware;
    - Ofelia label → the 09:00 cron job.
-8. **Verify** — boot/health-check under `runsc` (compat confirmed).
+8. **Verify** — boot/health-check (app serves before going live).
 9. **Route** — Traefik auto-discovers the labels; issues TLS; Authelia gates it.
 10. **Record** — `tenant → app → {namespace, virtual key, encrypted secrets,
     domain, roles}` persisted in Postgres.
@@ -88,7 +89,7 @@ same sandbox profile + same sqld namespace + same LLM virtual key**, sends the
 email via the configured secret, exits.
 
 ## Phase 6 — Maintain (creator)
-- **Update**: drop a new ZIP → rebuild → verify under `runsc` → zero-downtime swap.
+- **Update**: drop a new ZIP → rebuild → verify (boots/serves) → zero-downtime swap.
 - **Rollback**: pick a prior immutable image.
 - **Rotate `STRIPE_KEY`**: update value → redeploy.
 - **Logs / metrics / cron history / DB browse / user management / custom domain**:
@@ -110,5 +111,5 @@ email via the configured secret, exits.
 | LLM app | LiteLLM virtual key + injected `OPENAI_/ANTHROPIC_` env |
 | Secrets | envelope-encrypted in Postgres, injected as env at launch |
 | Custom domain | Traefik + TLS |
-| Isolation | sandbox profile (`runsc`, limits, caps) + net-per-tenant + nftables |
-| Parity | same compose local (Colima+`runsc`) and EC2; only `.env` differs |
+| Isolation (accident-hardened) | sandbox profile (limits, caps, quotas) + net-per-tenant + IMDS hop-limit + default-deny RBAC + LLM budgets |
+| Parity | same compose local (Colima, `runc`) and EC2; only `.env` differs |

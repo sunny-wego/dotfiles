@@ -19,6 +19,16 @@ tenant able to be an LLM app). The rest of the stack is wired in
 | `control-plane/src/provisionLlmApp.ts` | Detects an LLM app, mints a per-tenant LiteLLM virtual key (budget + limits + model allowlist), injects gateway env vars, strips hard-coded keys. |
 | `postgres/init/01-databases.sql` | Creates the `litellm` and `authelia` sidecar databases. |
 | `.env.example` | The only thing that differs between local and remote. |
+| `docs/` | Planning decision records: `isolation-and-scaling`, `secrets`, `app-contract-and-detection`, `user-journey`, `coolify-evaluation`. |
+
+## Trust model
+
+**Trusted-internal, accident-hardened** — tenants are trusted colleagues; the
+threat is *accidental bad code*, not malice. Keep all blast-radius controls
+(resource limits, quotas, LLM budgets, default-deny RBAC, secret encryption,
+backups); drop the anti-malice hardening (gVisor, rootless-build sandbox, strict
+egress). Standard `runc` everywhere → trivial laptop↔EC2 parity, and Coolify is a
+viable turnkey substrate. See `docs/isolation-and-scaling.md`.
 
 ## LLM traffic model
 

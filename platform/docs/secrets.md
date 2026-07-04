@@ -64,7 +64,8 @@ but more than a non-technical app wires itself — hence the scale step, not the
 default.
 
 ## Env keys (see `.env.example`)
-- `TENANT_RUNTIME` — `runsc` (parity) or `runc` (fast local iteration).
+- `TENANT_RUNTIME` — `runc` (standard everywhere; gVisor not used in the
+  trusted-internal model — reserved for future per-app hardening).
 - `KEK_PROVIDER` — `age` (local) | `kms` (EC2).
 - `AGE_KEY_FILE` — local KEK path (gitignored).
 - `KMS_KEY_ID` — EC2 KEK.

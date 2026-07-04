@@ -23,15 +23,16 @@ Three signals, cross-checked (implemented as kiosk agent skills):
 1. **Static** — parse the framework's routes/decorators (Next.js App Router,
    Express, FastAPI); enumerate routes, methods, env/secret refs, DB calls.
 2. **Dynamic — LLM-generated ephemeral probe/observer scripts** (NO source edits).
-   During the `runsc` verify step, run against a throwaway instance:
+   During the verify step, run against a throwaway instance:
    - *Black-box probe:* LLM-generated, framework-tailored script hitting candidate
      endpoints (seeded by static analysis) to enumerate reachable routes/methods,
      incl. dynamically-registered ones.
    - *Non-invasive observer (optional):* a platform preload (`NODE_OPTIONS=--require`
      / Python import hook) that only *observes* — logs the registered route table,
      env reads, DB/outbound calls. Records, never rewrites.
-   Guardrails: the generated script is treated as untrusted (runs under the same
-   gVisor + per-tenant net + egress-block sandbox as tenant code); ephemeral
+   Guardrails: the generated script runs in the same throwaway sandbox as the app
+   (resource-limited, per-tenant network), with the same standing as tenant code;
+   ephemeral
    (generated → run once → output captured → discarded); never shipped in the
    image or the request path; feeds the manifest only. Coverage gaps are safe —
    default-deny protects any route the probe didn't reach. Re-run on redeploy for
