@@ -22,31 +22,33 @@ egress/anti-spoofing). Keep the **near-free** hardening as cheap insurance.
 
 ### The 5 moves (re-scoped for accidents)
 
-**Move 1 — "tenant sandbox profile" on every launch — KEEP**
-- Resource caps: `--cpus`, `--memory`+`--memory-swap`, `--pids-limit`, block-I/O
-  weight, `--storage-opt size=` (disk quota). ← the core anti-accident control.
-- Hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, read-only
-  rootfs + small writable tmpfs, non-root user.
-- No published ports — reachable only via Traefik.
-- ~~Move 1a `--runtime=runsc` (gVisor)~~ **DROPPED** — kernel escape is a malicious
-  exploit; accidents don't trigger it. Standard `runc` everywhere.
+**Move 1 — per-app limits — KEEP (via Coolify)**
+- **Coolify per-app CPU/memory limits** — the core anti-accident control (stops a
+  runaway loop / leak starving the box). Extra hardening (`--cap-drop`, read-only
+  rootfs, non-root) via Coolify custom Docker options where supported.
+- Ports not published — apps reachable only through Coolify's Traefik.
+- ~~gVisor (`runsc`)~~ **DROPPED** — kernel escape is a malicious exploit; accidents
+  don't trigger it. Standard `runc`.
 
-**Move 2 — build — DOWNGRADE**
-Build on the host/Coolify Docker daemon with **timeouts + resource limits** (so an
-accidental runaway build doesn't hog the host). The rootless/Kaniko RCE sandbox is
-**dropped** — an accidental bad build merely *fails*, it doesn't attack the host.
+**Move 2 — build → immutable image — via our heal loop + Coolify deploy**
+Kiosk builds the image (build-verify-heal) with a **build timeout**, pushes it to a
+registry; **Coolify deploys the image**. Every deploy is an **immutable artifact**
+(reproducible, rollback = redeploy prior image, no drift). No rootless/Kaniko RCE
+sandbox — an accidental bad build merely *fails*.
 
-**Move 3 — network — DOWNGRADE (keep the near-free parts)**
-- **KEEP** one Docker network per tenant (`litellm` + `sqld` multi-homed; datastores
-  + control-plane never on a tenant network) — stops *accidental* cross-tenant /
-  wrong-DB access.
+**Move 3 — network — via Coolify Destinations**
+- **One Coolify Destination (Docker network) per tenant** — apps on different
+  Destinations can't communicate, so this is the native per-tenant isolation
+  mechanism (stops accidental cross-tenant / wrong-DB reach). Replaces the
+  hand-rolled per-tenant network we'd have built.
 - **KEEP** EC2 IMDSv2 + hop-limit 1 (one setting, near-free insurance).
-- **RELAX** the strict nftables egress allowlist and the anti-spoofing posture
-  (those defend against malice). Traefik still owns identity-header injection.
+- **RELAX** the strict egress allowlist / anti-spoofing (malice-only). Coolify's
+  Traefik owns identity-header injection; Authelia middleware attaches via the
+  app's custom labels.
 
 **Move 4 — quotas on shared stores — KEEP**
-Per-namespace size cap on sqld (+ monitoring); per-bucket quota on MinIO; disk via
-Move 1; per-key rpm/tpm on litellm.
+Per-namespace size cap on sqld (+ monitoring); disk via per-app limits; per-key
+rpm/tpm on litellm.
 
 **Move 5 — secret encryption + cheap recovery — KEEP**
 Envelope-encrypt tenant secrets in Postgres (KEK via age/KMS) — guards accidental
@@ -99,11 +101,11 @@ remaining differences are two near-free host settings.
 
 | Layer | Laptop (Colima) | Remote EC2 | How parity is kept |
 |---|---|---|---|
-| traefik, authelia, control-plane, litellm, sqld, postgres, redis, minio, ofelia | ✅ compose | ✅ compose | identical file; only `.env` differs |
-| Network-per-tenant, resource limits, quotas | ✅ | ✅ | applied at container launch |
-| Runtime | `runc` | `runc` | standard everywhere — no `runsc` install, no compat/perf gap |
+| Coolify engine (ingress/build/cron/lifecycle) | ✅ | ✅ | same Coolify both sides |
+| Platform services (kiosk, litellm, authelia, sqld, postgres, redis) | ✅ | ✅ | same compose, only `.env` differs |
+| Destination-per-tenant, per-app limits | ✅ | ✅ | via Coolify |
+| Runtime | `runc` | `runc` | standard everywhere — no `runsc`, no compat/perf gap |
 | IMDSv2 hop-limit (Move 3) | N/A | ✅ EC2 setting | EC2-only, near-free |
-| Disk-quota storage driver (Move 1) | best-effort | ✅ | storage-driver dependent; degrades locally |
 
 **Local runtime: Colima** (a real Linux VM) runs the standard runtime with no extra
 setup — no gVisor provision script needed anymore. Functional parity is 1:1; only
@@ -124,22 +126,20 @@ not a rewrite. Prefer vertical/managed before distributed-self-hosted.
 
 | Component | Single box today | First scale step | Full scale | Trigger |
 |---|---|---|---|---|
-| **Tenant runtime ("serverless docker")** | Docker (`runc`) on host | multi-node via Nomad/Swarm; control-plane schedules across hosts | **Cloud Run / Fly Machines / Knative** — managed microVMs, scale-to-zero, Firecracker isolation | RAM ceiling, "all-apps-down" unacceptable, or an app goes internet-facing/sensitive |
-| **MinIO** | single node | distributed MinIO (multi-node erasure coding) | swap endpoint → **S3 / R2** (S3-API, re-point) | disk/throughput limits |
-| **DB isolation (sqld)** | 1 sqld, namespace per tenant | multiple sqld nodes; control-plane routes tenant→node; heavy tenants get dedicated | **Turso Cloud** (managed, thousands of edge DBs) | sqld CPU/connection contention |
-| **LiteLLM gateway** | 1 container | horizontal replicas behind LB (state already in shared Postgres+Redis) | managed gateway | request/latency saturation |
-| **Postgres (platform/litellm/authelia)** | 1 instance | vertical + split 3 logical DBs onto separate instances | **RDS/Aurora** + read replicas | write/connection pressure |
+| **Tenant runtime** | Coolify on one server (`runc`) | **beefier server + raise per-app CPU/mem limits** (vertical); **add servers to the fleet + per-resource placement** (spread apps) | **Cloud Run / Fly / K8s** for an app needing replica-HA (Coolify replicas = v5) | app needs more power (vertical → easy) or replica-HA (→ graduate) |
+| **Ingress / build / cron / lifecycle** | Coolify (single server) | Coolify multi-server fleet | managed ingress if ever needed | Coolify-provided — scales with the fleet |
+| **DB isolation (sqld)** | 1 sqld, namespace per tenant | multiple sqld nodes; kiosk routes tenant→node; heavy tenants dedicated | **Turso Cloud** (managed, thousands of edge DBs) | sqld CPU/connection contention |
+| **LiteLLM gateway** | 1 container | horizontal replicas behind LB (state in shared Postgres+Redis) | managed gateway | request/latency saturation |
+| **Metadata Postgres** | 1 instance | vertical + split logical DBs | **RDS/Aurora** + read replicas | write/connection pressure |
 | **Redis** | 1 instance | replica | **ElastiCache / Redis Cluster** | cache/rate-counter load |
-| **Traefik ingress** | 1 | replicas behind L4 LB (ALB/NLB); switch provider from Docker socket to shared config | managed ingress | ingress throughput |
-| **Authelia** | 1 | replicas + shared session store (already Postgres/Redis) | **Zitadel/Keycloak cluster** for richer org RBAC | login volume / RBAC complexity |
-| **Build pipeline** | 1 builder | pool of BuildKit build workers | **Depot** (managed builds) | build queue latency |
-| **Control-plane** | 1 | stateless replicas behind LB; saga must be idempotent/queue-driven | same | provisioning concurrency |
-| **Cron (ofelia)** | 1 | — | **Temporal / self-hosted Trigger.dev** | job volume/reliability needs |
-| **Host/compute** | 1 EC2 | autoscaling worker pool + orchestrator | go managed serverless, skip node mgmt | capacity |
+| **Authelia** | 1 | replicas + shared session store (Postgres/Redis) | **Zitadel/Keycloak cluster** for richer org RBAC | login volume / RBAC complexity |
+| **Kiosk** | 1 | stateless replicas behind LB; saga idempotent/queue-driven | same | provisioning concurrency |
+| **Object storage** (if needed) | kiosk volume | MinIO | **S3 / R2** (re-point) | blob/upload volume |
 
-**Key insight:** graduating the *tenant runtime* to serverless microVMs (Cloud
-Run/Fly/Knative) is the highest-leverage step — it restores **scale-to-zero** (lost
-on the single box), removes the compute SPOF, **and** provides **Firecracker-grade
-isolation** if the trust model ever hardens (adversarial or internet-facing apps),
-without adopting gVisor on the box. Because the Dockerfile is the contract, it's a
-re-point.
+**Key insight:** with Coolify, **vertical scale is the everyday lever** — a beefier
+server + higher per-app limits handle "more powerful apps" with no re-architecture,
+and adding servers to the fleet spreads the load. The only thing that forces a
+*graduation* is an app needing **replica-based HA** (Coolify: v5) or ever going
+**adversarial / internet-facing / sensitive** — then that one app moves to Cloud
+Run/Fly/K8s. Because the Dockerfile+image is the contract, it's a re-point, not a
+rewrite.

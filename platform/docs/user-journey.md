@@ -21,7 +21,7 @@ report. Its bundle contains: `package.json` (deps incl. `next`, `@libsql/client`
 
 1. **Sign in** to the kiosk with Google (Authelia). Lands in their tenant.
 2. **New App → name it** (`acme-tool`) → choose source: **drag & drop ZIP**.
-3. Upload → stored in **MinIO**. Control-plane unzips in a sandbox and **detects**:
+3. Upload → the **kiosk** unzips it in a working dir and **detects**:
    - runtime **Node / Next.js**, build `next build`, start `next start`, port `3000`;
    - **LLM app** (imports `openai`);
    - **DB usage** (`@libsql/client`);
@@ -42,28 +42,23 @@ report. Its bundle contains: `package.json` (deps incl. `next`, `@libsql/client`
 
 ## Phase 2 — Provision (control-plane saga, invisible to creator)
 
-Idempotent, resumable steps:
-1. **Build** image on the Docker daemon (with a build timeout + resource cap);
-   push to local registry.
-2. **DB** — create the tenant's **sqld namespace**; get `DATABASE_URL` + token.
+Idempotent, resumable steps (kiosk logic + Coolify API):
+1. **Build** the image (build-verify-heal, with a build timeout) → **push to registry**
+   (immutable artifact).
+2. **DB** — create the tenant's **sqld namespace**; get `DATABASE_URL`.
 3. **LLM** — mint a **LiteLLM virtual key** (tier `standard`: budget + rpm/tpm +
-   model allowlist + `metadata.tenant_id`); build `OPENAI_/ANTHROPIC_` env.
-4. **Secrets** — `sanitizeHardcodedKeys` strips the hard-coded key; `STRIPE_KEY`
-   is **envelope-encrypted** into Postgres (KEK via `age` locally / `kms` on EC2).
-5. **Assemble container env** = platform-injected (`DATABASE_URL`,
-   `OPENAI_BASE_URL`, virtual key) + decrypted creator secrets (`STRIPE_KEY`).
-6. **Network** — create a per-tenant Docker network; multi-home `litellm` + `sqld`
-   onto it (no other tenant, no datastores).
-7. **Launch** with the sandbox profile:
-   - `--cpus/--memory/--pids-limit`, block-I/O + `--storage-opt` disk quota,
-     `--cap-drop=ALL`, `--security-opt=no-new-privileges`, read-only rootfs +
-     tmpfs, `--env-file` (tmpfs), **no published ports** (standard `runc`);
-   - Traefik labels → `Host(acme.tools.internal)` + `authelia@docker` middleware;
-   - Ofelia label → the 09:00 cron job.
-8. **Verify** — boot/health-check (app serves before going live).
-9. **Route** — Traefik auto-discovers the labels; issues TLS; Authelia gates it.
-10. **Record** — `tenant → app → {namespace, virtual key, encrypted secrets,
-    domain, roles}` persisted in Postgres.
+   model allowlist + `metadata.tenant_id`).
+4. **Secrets** — detect/flag any hard-coded key; collect `STRIPE_KEY`.
+5. **Coolify: create app from image** in the tenant's **Destination** (network
+   isolation), and set **env** via the API = `DATABASE_URL` + LiteLLM key +
+   `STRIPE_KEY` (Coolify's encrypted store).
+6. **Coolify: configure** — custom domain, per-app **CPU/memory limits**, a
+   **Scheduled Task** (09:00 cron), and **custom Traefik labels** attaching the
+   Authelia forward-auth middleware.
+7. **Coolify: deploy** (`/applications/{uuid}/start`) → build/run → health-check →
+   TLS → routed, gated by Authelia.
+8. **Record** — `tenant → app → {namespace, virtual key, domain, roles, manifest}`
+   in the metadata Postgres.
 
 Result shown to creator: **live URL + invite link + streaming logs.**
 
@@ -72,7 +67,7 @@ Creator invites staff by email and assigns **Admin / Editor / Viewer**. No code.
 
 ## Phase 4 — End-user runtime
 ```
-staff browser → traefik (TLS, host route)
+staff browser → Coolify Traefik (TLS, host route)
              → authelia (logged in? role allowed on this path?) → inject Remote-User/Groups
              → acme-tool container (Next.js)
                  ├─ reads/writes its OWN sqld namespace (DATABASE_URL)
@@ -80,13 +75,13 @@ staff browser → traefik (TLS, host route)
                     per-tenant budget + tenant-scoped cache) → OpenRouter
 ```
 - A **Viewer** hitting `/admin` is blocked by Authelia **before** the app sees it.
-- The app can't reach other tenants or datastores (per-tenant network); can't hit
-  IMDS or internal IPs (nftables); trusts `Remote-*` only from Traefik.
+- The app can't reach other tenants (its own **Coolify Destination**); can't reach
+  IMDS (hop-limit 1); trusts `Remote-*` only from Coolify's Traefik.
 
 ## Phase 5 — Scheduled work
-At 09:00 **Ofelia** launches the report job as a container with the **same env +
-same sandbox profile + same sqld namespace + same LLM virtual key**, sends the
-email via the configured secret, exits.
+At 09:00 the app's **Coolify Scheduled Task** runs the report command inside the
+container (same env, same sqld namespace, same LLM virtual key), sends the email,
+exits. Run history + logs in Coolify.
 
 ## Phase 6 — Maintain (creator)
 - **Update**: drop a new ZIP → rebuild → verify (boots/serves) → zero-downtime swap.
@@ -94,22 +89,22 @@ email via the configured secret, exits.
 - **Rotate `STRIPE_KEY`**: update value → redeploy.
 - **Logs / metrics / cron history / DB browse / user management / custom domain**:
   all in the kiosk.
-- **Offboard**: export data → tear down container, sqld namespace, virtual key
-  (revoked), secrets, network, domain.
+- **Offboard**: export data → delete the Coolify app + Destination, sqld namespace,
+  virtual key (revoked), secrets, domain.
 
 ---
 
 ## Feature → component map (traceability)
 | Feature | Delivered by |
 |---|---|
-| Host a Node app | Dockerfile (generated) + Docker + Traefik |
+| Host a Node app | generated Dockerfile → image → Coolify deploy-from-image |
 | Client + backend | Next.js (fullstack) |
 | Database | sqld namespace + injected `DATABASE_URL` |
-| Cron | Ofelia job (same env/sandbox) |
+| Cron | Coolify Scheduled Task |
 | Google auth | Authelia |
-| End-user RBAC | Authelia forward-auth (role→path), roles proposed by LLM |
+| End-user RBAC | Authelia forward-auth (role→path) via custom labels, roles proposed by LLM |
 | LLM app | LiteLLM virtual key + injected `OPENAI_/ANTHROPIC_` env |
-| Secrets | envelope-encrypted in Postgres, injected as env at launch |
-| Custom domain | Traefik + TLS |
-| Isolation (accident-hardened) | sandbox profile (limits, caps, quotas) + net-per-tenant + IMDS hop-limit + default-deny RBAC + LLM budgets |
-| Parity | same compose local (Colima, `runc`) and EC2; only `.env` differs |
+| Secrets | Coolify encrypted env store, injected at deploy |
+| Custom domain | Coolify (Traefik + TLS) |
+| Isolation (accident-hardened) | per-app limits + Destination-per-tenant + IMDS hop-limit + default-deny RBAC + LLM budgets |
+| Parity | same Coolify local (Colima) and EC2; only `.env` differs |

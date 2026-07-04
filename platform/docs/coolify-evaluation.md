@@ -1,62 +1,78 @@
-# Coolify evaluation
+# Coolify as the engine — architecture & decision record
 
-Status: **planning**. How much Coolify simplifies the platform, re-assessed under
-the **trusted-internal, accident-hardened** trust model.
+Status: **planning**. Decision: **adopt Coolify as the deployment engine**; build
+the kiosk/LLM/RBAC layer on top via its API. Verified — **no blocker** (Apache 2.0,
+full REST API, per-tenant isolation via Destinations, deploy-from-image).
 
-## Verdict: strong fit (~60–70% of the plumbing)
-Under the earlier *adversarial* model, Coolify was a partial win with a sharp
-caveat — it can't cleanly do per-app gVisor, isolated builds, or strict per-tenant
-networks. **Those are exactly the things the accident-hardened model no longer
-needs**, so the caveat evaporates and Coolify becomes a near-turnkey substrate.
-
-## What Coolify replaces (your remaining safety rails + plumbing)
-| Our piece | Coolify |
+## Verified findings (July 2026)
+| Concern | Result |
 |---|---|
-| Traefik ingress + TLS + custom/wildcard domains | ✅ built-in |
-| Build pipeline (Dockerfile) | ✅ built-in (on its Docker daemon — fine now) |
-| `docker run` + labels + networks + rollback + zero-downtime | ✅ managed lifecycle |
-| socket-proxy orchestration | ✅ Coolify owns the daemon |
-| Env/secret storage per app (encrypted at rest) | ✅ |
-| Cron (Ofelia) | ✅ scheduled tasks |
-| Postgres/Redis provisioning | ✅ one-click |
-| Per-container CPU/memory limits | ✅ (the core anti-accident control) |
-| Logs, health checks, deploy history | ✅ |
-| Multi-server scale-out | ✅ |
-| API to drive provisioning | ✅ — kiosk calls Coolify's API, not Docker directly |
+| **License** | **Apache 2.0** — commercial + proprietary integration, no copyleft |
+| **Source ingestion** | We build the image (heal loop) → push to registry → Coolify **deploys from image** via API. (Git-based build is the alternative.) |
+| **Per-tenant network isolation** | **Destinations** = Docker-network endpoints; apps on different destinations can't talk → **one Destination per tenant**. (Per-project auto-isolation is not yet native, so this is deliberate.) |
+| **API** | Full REST (`/api/v1`, OpenAPI 3.1): create app (incl. Dockerfile/image), envs, lifecycle (`start`/`stop`/`restart`=deploy), token perms, 200 req/min. Headless. |
+| **Cron** | Scheduled Tasks run **inside the container** (no host cron needed); 1h timeout cap |
+| **Custom Traefik labels (Authelia RBAC)** | Honored on **standard Dockerfile/image apps**; overridden on **compose/predefined templates** → **deploy tenant apps as images, never compose** |
+| **Resource limits** | Per-app CPU/memory native |
+| **Scaling** | Vertical + per-server placement native; **single-app replicas not until v5** |
+| **Cheap DB** | No one-click libSQL, but sqld/SQLite run as custom resources (see below) |
 
-## What stays yours (the differentiated core — Coolify covers none of it)
-- Non-technical **kiosk UX** (ZIP-drop, auto-detect, plain-English summary, toggles).
-- **LLM Dockerfile generation + build-verify-heal loop.**
-- **LiteLLM multi-tenant gateway** (virtual keys, budgets, tenant-scoped cache).
-- **End-user RBAC for the deployed apps** (Authelia + default-deny + confirmed
-  manifest). Coolify's RBAC governs *its own dashboard*, not app end-users.
-- **Per-tenant sqld namespaces** + tenant↔db mapping.
-- **Detection / LLM-generated probe scripts / manifest.**
+## How much it simplifies (~60–70% of plumbing)
+Deleted from our stack: hand-rolled **Traefik**, **Ofelia (cron)**,
+**docker-socket-proxy + launch orchestration**, **build pipeline**, **secret
+envelope-encryption**, **rollback/logs/lifecycle**. Coolify provides all of it.
 
-## What you still layer on top (cheap, now compatible)
-The accident-model hardening that Coolify doesn't provide but that composes fine:
-- **Resource limits** — Coolify supports these directly. ✅
-- **Per-tenant network** — map each app to a Coolify project/network for accidental
-  cross-tenant isolation (verify Coolify's networking supports the split).
-- **IMDSv2 hop-limit** — EC2 host setting, outside Coolify. ✅
-- **Default-deny RBAC** — your Authelia layer in front of Coolify-managed apps.
-- **Build timeout** — Coolify build settings.
+## What stays ours (the differentiated core)
+Kiosk UX · LLM Dockerfile generation + build-verify-heal · LLM-generated probe
+detection + manifest · LiteLLM gateway + per-tenant virtual keys · Authelia +
+default-deny RBAC · per-tenant DB (sqld namespaces).
 
-Dropped entirely (not needed): gVisor runtime, rootless/Kaniko build sandbox,
-strict egress allowlist/anti-spoofing.
+## Architecture
+```
+┌─ Kiosk (ours) ── ZIP-drop · detect + probe · LLM Dockerfile + heal · build image
+│                   · mint LiteLLM key · provision DB namespace · drive Coolify API
+├─ Coolify (engine) ── ingress/TLS/domains · deploy-from-image · CRON · env/secrets
+│                       · resource limits · rollback · per-server placement
+├─ Platform services (on Coolify) ── litellm · authelia · sqld · redis · metadata PG
+└─ Tenant apps ── deployed FROM image · 1 Destination/tenant · Authelia mw via labels
+```
 
-## Recommendation
-Adopt Coolify as the **deploy substrate**; keep the kiosk / LLM / RBAC / DB layer
-as your product calling its API. Confirm two things during a short spike:
-1. Coolify **API** covers programmatic create/deploy/env/domain/cron end-to-end.
-2. Coolify networking allows a **per-app/per-project network** for accidental
-   cross-tenant isolation.
+## Provisioning flow (Coolify)
+1. Kiosk: detect + probe + generate Dockerfile + **build-verify-heal → image**.
+2. Kiosk: **push image** to registry; mint **LiteLLM virtual key**; create **sqld
+   namespace**.
+3. Kiosk → **Coolify API**: create app **from image** in the tenant's **Destination**;
+   set env (DB URL + LiteLLM key + secrets via Coolify's store); set domain +
+   resource limits; add Scheduled Task (cron); attach **custom labels** for the
+   Authelia forward-auth middleware; **deploy** (`/start`).
+4. Kiosk records tenant↔app↔db↔manifest in metadata Postgres.
 
-If both hold, Coolify removes the boring, well-understood ~60–70% and you build
-only the differentiated core.
+## Operating rules (fall out of verification — must follow)
+1. **Tenant apps deploy as images, not compose** (keeps custom RBAC labels).
+2. **Build ourselves → push → Coolify deploys the image** (reuses heal loop; also
+   makes every deploy an **immutable artifact** → clean rollback, no drift).
+3. **One Destination per tenant** for network isolation.
+4. **libSQL/sqld namespaces (default) or SQLite-on-volume** for cheap per-tenant DB;
+   Postgres-per-tenant only on demand (~50–100× the RAM at fleet scale).
 
-## Parity note
-Coolify runs on a Linux server; for local dev it runs inside the **Colima** VM
-(heavier than a bare `docker compose up`, but the same substrate as EC2 → true
-parity). Alternatively keep the hand-rolled compose for local dev and Coolify for
-remote — but running Coolify both places maximizes parity.
+## Answers to standing questions
+- **Beefier app server?** Yes — raise per-app CPU/mem limits, and/or add a bigger
+  server to the fleet and place the app on it (per-resource server selection). No
+  replicas needed; this is the scale axis Coolify does well.
+- **Per-tenant enforcement?** Yes on all axes: network (Destination), RBAC
+  (Authelia), resources (limits), cost (LiteLLM budgets), data (sqld namespace).
+- **Immutable setups?** Yes, and good: image-per-deploy = reproducible, rollback by
+  redeploying the prior image, no config drift. Data/volumes persist across redeploys.
+
+## The one spike before committing
+Confirm **custom Traefik labels are settable via the API** (not UI-only) — the RBAC
+middleware attach depends on it. Fallback if not: a shared Traefik dynamic-config
+file rule keyed by host. Either way, not a blocker.
+
+## Scaling ceiling (the one graduation)
+Single-app **replica-based HA** isn't native until Coolify v5. If one app ever needs
+it: Swarm (experimental) or graduate that app to Cloud Run/Fly/K8s — a re-point via
+the Dockerfile contract. Everything else stays turnkey.
+
+## Parity
+Coolify on **Colima** locally, Coolify on **EC2** remotely — same engine both sides.
