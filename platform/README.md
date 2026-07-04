@@ -404,6 +404,20 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 5. **+ Ops depth** — WAL backups/DR drill, authz-cache/HA, reconciler auto-GC, lifecycle, Grafana/Loki. *(Trigger: fleet size / data value.)*
 6. **+ Polish** — email, storage, preview-before-promote, rebuild cadence, escalation queue UI. *(Trigger: first app that needs each.)*
 
+### Milestone breakdown (implementation-ready)
+
+*Committed now — build in order:*
+
+**M1 · Walking skeleton** — *depends on: nothing.*
+- **Build:** one-box bootstrap (Coolify installer + host-as-code, or `docker compose`) · oauth2-proxy → Google, company-domain-restricted · kiosk skeleton (upload → safe-unzip → detect → LLM Dockerfile gen + **build-verify-heal** + Trivy + push → Coolify app-from-image) · Traefik routing + TLS · LiteLLM up, kiosk's own calls redacted→LiteLLM · Slack escalation + append-only audit table.
+- **Done when:** a trivial **Node** ZIP *and* a **Python** ZIP each go drop → live URL behind Google login, Dockerfile LLM-generated, the heal loop recovering ≥1 induced failure; a non-company Google account is denied.
+
+**v1 · Lean v1** *(the commitment)* — *depends on: M1.*
+- **Build:** per-tenant **Postgres db-per-tenant** + injected `DATABASE_URL` · **whole-app allow-list** per app (emails / Google Group) · secrets via Coolify env · **cron** (Scheduled Task) · per-tenant **LLM key** · **egress-deny + outbound allowlist** · **nightly `pg_dump`** + platform-state dump to S3 · Kiosk logs/health + Uptime-Kuma + disk alert · owner field + basic catalog.
+- **Done when:** **Pilot 1 (Leaderboard)** runs on-platform doing what it did on Vercel, self-served end-to-end by a non-engineer; an unauthorized user is denied; a **restore-from-backup drill passes**; egress to a non-allowlisted host is blocked.
+
+*Triggered later — author the Definition of Done when the trigger fires (don't pre-plan):* **M3** per-route RBAC + machine access · **M4** classification tier · **M5** ops depth · **M6** polish. Build tasks are sketched in the Scope table + the target sequence above; each becomes a detailed milestone only when its trigger lands.
+
 **Minimal start (one box).** The first footprint is small — one **Colima VM or a small EC2** running **Coolify (or plain Docker) · Traefik · oauth2-proxy · the Kiosk skeleton · LiteLLM · one Postgres**; that's all M1 needs, and everything else arrives milestone-by-milestone on the *same box*. **Bootstrap shape differs by path:** the Coolify path is its **installer + host-as-code** (then Coolify deploys the rest); the plain-Docker variant is **one `docker compose up`** — either way, one VM, one command. **Do the dev-auth stub first for local** — it removes the only annoying laptop dependency (Google OAuth + `*.apps.internal` TLS/DNS); a real EC2 with internal DNS drops even that. Growing **one-box → fleet** later is **additive, not a migration**, because apps address the platform through Traefik hostnames + the Dockerfile contract.
 
 **Success metrics:** apps migrated off off-platform hosting · **time-to-first-deploy** (ZIP→live) · **% builds healed without human** · self-serve completion rate (no escalation) · platform uptime · **mean restore time** (from the DR drill).
