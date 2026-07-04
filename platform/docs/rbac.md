@@ -47,9 +47,36 @@ request → [authelia]           → [platform-authz]              → tenant ap
 ## Confirmed vs open
 - **Authn + coarse per-app authZ (path/method/role, default-deny):** enforced at the
   proxy, **zero app code**. Middleware attach is API-confirmed (`custom_labels`).
-- **Fine-grained (row/field-level, "only my own rows"):** **app-cooperative** — the
-  app reads `Remote-Groups` and filters. The one open item (e.g. ADM Tracker). The
-  platform provides coarse rules + identity; the app does the row filter.
+- **Fine-grained (row-level, "only my own rows"):** the app must convey *who is
+  calling* to the data layer — the one irreducible cooperation. Design below makes
+  everything else no-code (e.g. ADM Tracker).
+
+## Row-level — as no-code as possible
+Row-level = access control on individual records (vs route/method). The one thing
+that can't be zero-code: the app must tell the data layer who's calling, per request.
+Everything else is made no-code:
+
+1. **Only where needed.** Most apps are fine with per-tenant isolation + coarse role
+   gating (100% no-code). Row-level is opt-in per app.
+2. **DB-enforced (Postgres RLS), not app filter code.** The DB returns only the
+   caller's rows for a plain `SELECT *`; the app writes no filter logic and can't
+   leak other rows even if buggy. (Use **Postgres** for these apps — libSQL/SQLite
+   lack RLS.)
+3. **Creator declares, doesn't code.** A kiosk toggle "records are private to each
+   user" + confirm the LLM-proposed **owner column**. Platform generates + applies
+   the RLS policy.
+4. **The identity link, no-code-first:**
+   - *Zero app code:* injected `DATABASE_URL` points at an **identity-aware data
+     gateway** that stamps the request's user into the PG session (`SET LOCAL
+     app.user`), so RLS filters automatically.
+   - *Near-zero fallback:* an **LLM-generated, creator-confirmed one-liner** (read
+     identity header → set session user) for connection-pooling apps. Approved in
+     plain English, not hand-written; it's a requested feature, not silent codemod.
+5. **Fail-closed:** RLS returns **no rows** when `app.user` is unset — a broken
+   identity link leaks nothing (empty), never everything.
+
+**Ceiling:** filter logic is eliminated (DB does it), the creator's part is a
+toggle + confirm, and the "who's calling" link is at worst a confirmed one-liner.
 
 ## Alternative (small fleets)
 Generate **Authelia ACL rules per app-domain** and reload Authelia on provision.
