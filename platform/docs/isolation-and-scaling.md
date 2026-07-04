@@ -89,15 +89,20 @@ identical to EC2. Parity holds for all functionality; the difference is a thin,
 | traefik, authelia, control-plane, litellm, sqld, postgres, redis, minio, ofelia | ✅ compose | ✅ compose | identical file; only `.env` differs |
 | Network-per-tenant, socket-proxy | ✅ | ✅ | applied at container launch |
 | Resource limits (Move 1) | ✅ | ✅ | launch profile |
-| **gVisor runtime (Move 1a)** | Linux dev host: ✅ native · macOS/Windows: ✗ | ✅ | **`TENANT_RUNTIME` env** (`runc` local, `runsc` remote); validate gVisor compat on Linux staging/EC2, not the laptop |
+| **gVisor runtime (Move 1a)** | **Colima VM: ✅** (`runsc` installed via provision script) · stock Docker Desktop: ✗ | ✅ | **`TENANT_RUNTIME` env** (`runsc` both sides for compat parity, or `runc` locally for fast iteration); perf still validated on EC2 |
 | nftables egress (Move 3) | skipped/no-op | ✅ host provisioning | host-level, not compose; declarative via user-data/ansible |
 | IMDSv2 hop-limit (Move 3) | N/A | ✅ EC2 setting | EC2-only |
 | Disk-quota storage driver (Move 1) | best-effort | ✅ | storage driver dependent; degrades locally |
 
+**Local runtime: Colima.** macOS dev uses **Colima** (a real Linux VM), so `runsc`
+runs locally on the `systrap` platform (no nested KVM needed) — install it via a
+Colima **provision script** so every dev gets it. This closes the parity gap:
+gVisor **compat** can be tested on the laptop. gVisor **performance** is still
+validated on EC2 (Colima's VM + systrap is slower; EC2 can use the KVM platform).
+
 **Rule of thumb:** compose brings up the *app*; a thin host-provisioning layer
-applies the *isolation controls*. Both are declarative. The only capability the
-laptop can't fully exercise is gVisor on macOS/Windows — so kernel-isolation
-compat is validated on a Linux box (EC2/staging), everything else is 1:1.
+applies the *isolation controls*. Both are declarative. With Colima+`runsc`,
+functional parity is 1:1; only performance numbers differ from EC2.
 
 ---
 
