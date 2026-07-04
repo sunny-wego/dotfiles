@@ -292,6 +292,7 @@
       <li><b>+ Day-0 ops</b> — backup/DR, authz cache, disk/DB guards, reconciler, classification, audit, lifecycle. → <b>Pilot 2: ADM Tracker</b> (hard path).</li>
       <li><b>+ Polish</b> — cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation queue UI.</li>
     </ol>
+    <div class="principle measure"><b>Minimal start — one box.</b> M1 is a small footprint: one Colima VM / small EC2 running Coolify (or plain Docker) · Traefik · oauth2-proxy · Kiosk skeleton · LiteLLM · one Postgres. Coolify path bootstraps via installer + host-as-code; plain-Docker via one <code>docker compose up</code>. Do the dev-auth stub first for local. One-box → fleet later is <b>additive, not a migration</b> (Traefik hostnames + Dockerfile contract).</div>
     <p class="measure"><span class="k">Success metrics</span> — apps migrated off off-platform hosting · time-to-first-deploy · % builds healed without human · self-serve completion rate · uptime · mean restore time (DR drill).</p>
     <div class="principle measure"><b>Ownership assumption (a sponsor decision).</b> This presumes a <b>staffed, on-call owner</b> — the brief's <b>Path C</b>. A free-time / Path B owner can build the walking skeleton but can't carry the Day-0 operational commitments (SLA, DR drills, upgrade cadence).</div>
   </section>
