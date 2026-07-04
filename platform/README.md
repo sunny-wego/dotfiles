@@ -17,6 +17,7 @@ See `docs/coolify-evaluation.md` for the verified architecture + operating rules
 |------|------|
 | `docs/coolify-evaluation.md` | Architecture-of-record: Coolify-as-engine, verified findings + API spikes, provisioning flow, operating rules, security requirements. |
 | `docs/isolation-and-scaling.md` | Trust model (trusted-internal, accident-hardened), the 5 moves, laptop↔EC2 parity, scale-out path. |
+| `docs/rbac.md` | Per-app end-user RBAC: authN (Authelia) split from authZ (manifest-driven service), default-deny, coarse vs fine-grained. |
 | `docs/secrets.md` | App env/secrets: define → store (Coolify) → inject. |
 | `docs/app-contract-and-detection.md` | How RBAC is applied without restricting authoring: fail-closed default-deny + multi-signal detection (incl. LLM-generated probe scripts). |
 | `docs/user-journey.md` | End-to-end walkthrough for a stock Next.js app using every feature. |

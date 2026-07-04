@@ -15,6 +15,7 @@ RBAC is a security boundary, so it must **fail closed**:
 - **Default-deny at the proxy** + an explicit, confirmed **allowlist** of
   role→path rules. A route the platform *fails to detect* is **denied**, not
   exposed. Detection accuracy becomes a friction concern, not a correctness one.
+  (Enforcement mechanism — the manifest-driven authz service — is in `rbac.md`.)
 - Authentication (login required), network isolation, and secret isolation are
   all enforced at layers that **don't need to understand the app**.
 

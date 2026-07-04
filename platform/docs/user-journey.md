@@ -102,7 +102,7 @@ exits. Run history + logs in Coolify.
 | Database | sqld namespace + injected `DATABASE_URL` |
 | Cron | Coolify Scheduled Task |
 | Google auth | Authelia |
-| End-user RBAC | Authelia forward-auth (role→path) via custom labels, roles proposed by LLM |
+| End-user RBAC | Authelia (authN) + manifest-driven authz service (per-app role→path, default-deny), via custom-label middleware chain — see `rbac.md` |
 | LLM app | LiteLLM virtual key + injected `OPENAI_/ANTHROPIC_` env |
 | Secrets | Coolify encrypted env store, injected at deploy |
 | Custom domain | Coolify (Traefik + TLS) |
