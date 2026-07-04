@@ -1,0 +1,368 @@
+<title>Internal App Platform — Decision Brief</title>
+<style>
+  :root {
+    --paper: #f6f7f5; --surface: #ffffff; --surface-2: #f0f2ef; --ink: #1b1f24;
+    --muted: #55606c; --faint: #8a929c; --line: #e2e5e2; --line-strong: #cfd4cf;
+    --accent: #0f766e; --accent-soft: #dcecea; --accent-ink: #0b544e;
+    --good: #2f7a4f; --warn: #b45309; --crit: #b3261e;
+    --blueprint-bg: #eef3f2; --blueprint-line: #cfe0dd;
+    --shadow: 0 1px 2px rgba(20,30,28,.05), 0 8px 24px -12px rgba(20,30,28,.12);
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --measure: 70ch; --pad: clamp(1.1rem, 4vw, 2rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #12151a; --surface: #191d23; --surface-2: #1f242b; --ink: #e7eae8;
+      --muted: #9aa4ae; --faint: #69737d; --line: #282e36; --line-strong: #333a43;
+      --accent: #4fd1c5; --accent-soft: #16302e; --accent-ink: #7ee0d6;
+      --good: #63c088; --warn: #e2a24a; --crit: #e6675e;
+      --blueprint-bg: #161c1d; --blueprint-line: #24413d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f7f5; --surface: #ffffff; --surface-2: #f0f2ef; --ink: #1b1f24;
+    --muted: #55606c; --faint: #8a929c; --line: #e2e5e2; --line-strong: #cfd4cf;
+    --accent: #0f766e; --accent-soft: #dcecea; --accent-ink: #0b544e;
+    --good: #2f7a4f; --warn: #b45309; --crit: #b3261e;
+    --blueprint-bg: #eef3f2; --blueprint-line: #cfe0dd;
+    --shadow: 0 1px 2px rgba(20,30,28,.05), 0 8px 24px -12px rgba(20,30,28,.12);
+  }
+  :root[data-theme="dark"] {
+    --paper: #12151a; --surface: #191d23; --surface-2: #1f242b; --ink: #e7eae8;
+    --muted: #9aa4ae; --faint: #69737d; --line: #282e36; --line-strong: #333a43;
+    --accent: #4fd1c5; --accent-soft: #16302e; --accent-ink: #7ee0d6;
+    --good: #63c088; --warn: #e2a24a; --crit: #e6675e;
+    --blueprint-bg: #161c1d; --blueprint-line: #24413d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans);
+    font-size: 16.5px; line-height: 1.62; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 var(--pad); }
+  .measure { max-width: var(--measure); }
+  a { color: var(--accent-ink); text-underline-offset: 2px; text-decoration-color: var(--accent-soft); }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+  section { padding: clamp(2.2rem, 6vw, 3.6rem) 0; border-top: 1px solid var(--line); }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.35rem, 3.2vw, 1.72rem); margin: 0 0 .2rem; line-height: 1.2; }
+  h3 { font-size: 1.06rem; margin: 0 0 .35rem; font-family: var(--sans); font-weight: 650; letter-spacing: 0; }
+  p { margin: .6rem 0; }
+  .lead { font-size: 1.08rem; color: var(--muted); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent-ink); margin: 0 0 .9rem; display: flex; align-items: center; gap: .6rem; }
+  .eyebrow::before { content: ""; width: 1.4rem; height: 2px; background: var(--accent); display: inline-block; }
+  header.hero { padding: clamp(2.6rem, 7vw, 4.4rem) 0 clamp(1.6rem,4vw,2.4rem); border-top: none; }
+  .hero h1 { font-size: clamp(2.1rem, 6vw, 3.25rem); line-height: 1.04; margin: .2rem 0 .5rem; }
+  .hero .lead { font-size: clamp(1.05rem, 2.4vw, 1.28rem); max-width: 42ch; }
+  .pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.4rem; }
+  .pill { font-family: var(--mono); font-size: .72rem; letter-spacing: .04em; padding: .34rem .68rem;
+    border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: var(--surface); }
+  .pill b { color: var(--ink); font-weight: 600; }
+  .principle { margin-top: 1.8rem; padding: 1.1rem 1.25rem; background: var(--accent-soft);
+    border: 1px solid var(--blueprint-line); border-radius: 12px; color: var(--ink); }
+  .principle b { color: var(--accent-ink); }
+  .schematic { margin: 1.4rem 0 .4rem; background: var(--blueprint-bg); border: 1px solid var(--blueprint-line);
+    border-radius: 12px; overflow: hidden;
+    background-image: linear-gradient(var(--blueprint-line) 1px, transparent 1px), linear-gradient(90deg, var(--blueprint-line) 1px, transparent 1px);
+    background-size: 26px 26px; background-position: -1px -1px; box-shadow: var(--shadow); }
+  .schematic .cap { font-family: var(--mono); font-size: .7rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); padding: .7rem 1rem; border-bottom: 1px solid var(--blueprint-line);
+    background: color-mix(in srgb, var(--blueprint-bg) 60%, var(--surface)); }
+  .schematic pre { margin: 0; padding: 1.1rem 1.15rem; overflow-x: auto; font-family: var(--mono);
+    font-size: .76rem; line-height: 1.5; color: var(--ink); tab-size: 2; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.15rem 1.25rem; box-shadow: var(--shadow); }
+  .grid { display: grid; gap: 1rem; }
+  @media (min-width: 720px) { .grid.cols-2 { grid-template-columns: 1fr 1fr; } .grid.cols-3 { grid-template-columns: repeat(3,1fr); } }
+  .card p { margin: .35rem 0 0; color: var(--muted); font-size: .95rem; }
+  .card .k { font-family: var(--mono); font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-ink); }
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; background: var(--surface); }
+  th, td { text-align: left; padding: .7rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  td b { font-weight: 650; }
+  code { font-family: var(--mono); font-size: .84em; background: var(--surface-2); padding: .08em .38em; border-radius: 5px; }
+  .tags { display: flex; flex-wrap: wrap; gap: .5rem; margin: .8rem 0; }
+  .tag { font-family: var(--mono); font-size: .74rem; padding: .32rem .62rem; border-radius: 7px;
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); }
+  .tag.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+  .sev { font-family: var(--mono); font-size: .68rem; letter-spacing: .04em; padding: .18rem .5rem; border-radius: 6px; white-space: nowrap; }
+  .sev.good { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, transparent); }
+  .sev.warn { color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+  .sev.crit { color: var(--crit); border: 1px solid color-mix(in srgb, var(--crit) 45%, transparent); }
+  details { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); margin-top: 1rem; box-shadow: var(--shadow); overflow: hidden; }
+  summary { cursor: pointer; padding: .95rem 1.15rem; font-weight: 600; list-style: none; display: flex; align-items: center; gap: .6rem; color: var(--ink); }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "+"; font-family: var(--mono); color: var(--accent); font-size: 1.05rem; width: 1rem; text-align: center; }
+  details[open] summary::before { content: "\2212"; }
+  summary .hint { margin-left: auto; font-family: var(--mono); font-size: .7rem; color: var(--faint); letter-spacing: .04em; }
+  .details-body { padding: 0 1.15rem 1.15rem; }
+  .details-body .tbl-scroll { box-shadow: none; }
+  ul.clean { margin: .5rem 0; padding-left: 1.1rem; }
+  ul.clean li { margin: .3rem 0; }
+  ul.clean li::marker { color: var(--accent); }
+  ol.steps { margin: .5rem 0; padding-left: 1.3rem; }
+  ol.steps li { margin: .4rem 0; }
+  ol.steps li::marker { color: var(--accent-ink); font-family: var(--mono); font-size: .85rem; }
+  .legend { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin: .3rem 0 0; }
+  footer { border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--faint); font-size: .82rem; font-family: var(--mono); letter-spacing: .03em; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <p class="eyebrow">Engineering · Platform · Decision Brief</p>
+    <h1>Where internal apps run</h1>
+    <p class="lead">A self-serve platform where non-engineers drop a ZIP and get a hosted internal app — database, cron, Google login, per-app access control, and optional AI — on Coolify.</p>
+    <div class="pills">
+      <span class="pill"><b>Status</b> · Planning / design</span>
+      <span class="pill"><b>Engine</b> · Coolify (Apache-2.0)</span>
+      <span class="pill"><b>Trust</b> · Trusted-internal, accident-hardened</span>
+      <span class="pill"><b>Runs on</b> · Colima (local) &amp; EC2 (internal)</span>
+    </div>
+    <div class="principle measure">
+      <b>Core principle — two planes.</b> Creators (non-engineers) only ever use the <b>Kiosk</b> (user-facing). Operators (engineers) use the <b>Coolify dashboard</b> as the admin console. The Kiosk drives Coolify through its API on the creator's behalf — nobody non-technical touches Coolify.
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">The problem</p>
+    <h2>Useful internal tools keep getting built with nowhere proper to run them</h2>
+    <p class="measure lead">The moment something has a backend, a database, or per-user access, it stalls — waiting on an engineer to deploy it. This is the blessed, self-serve path that closes the gap.</p>
+    <div class="grid cols-2" style="margin-top:1.4rem">
+      <div class="card"><span class="k">What a creator does</span>
+        <ul class="clean">
+          <li>Sign in with company Google</li>
+          <li>Name the app, <b>drop a ZIP</b></li>
+          <li>Confirm roles, public/webhook paths &amp; outbound domains</li>
+          <li>Paste any API keys</li>
+        </ul>
+      </div>
+      <div class="card"><span class="k">What the platform does automatically</span>
+        <ul class="clean">
+          <li>Redacts secrets, detects the stack, <b>generates a Dockerfile</b>, builds + scans</li>
+          <li>Provisions a per-tenant database, AI key, bucket, mail creds</li>
+          <li>Wires cron, roles, egress; deploys with a URL + TLS</li>
+          <li>Classifies data, backs up, streams logs into the Kiosk</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Composition · high level</p>
+    <h2>Two planes, three audiences</h2>
+    <div class="schematic">
+      <div class="cap">High-level — planes &amp; audiences</div>
+<pre>
+                          PEOPLE
+  Creators (non-eng)        Operators (eng)        End users + machines
+        |  use                   |  admin               |  use apps
+        v                        v                      v
+ +---------------+       +----------------+     +------------------+
+ |   KIOSK       |       | COOLIFY        |     |  Tenant apps     |
+ | (USER PLANE)  |--API->| dashboard      |     |  (behind auth)   |
+ | ZIP -> app,   |       | (ADMIN PLANE)  |     |                  |
+ | logs, catalog |       | infra/ops/debug|     +--------^---------+
+ +------+--------+       +-------+--------+              |
+        |  drives               |  is the engine        |  serves
+        +-----------+-----------+-----------------------+
+                    v
+           COOLIFY ENGINE  (builds, deploys, routes everything)
+</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Composition · system</p>
+    <h2>How the pieces compose</h2>
+    <div class="schematic">
+      <div class="cap">System — ingress · control plane · engine · shared services · per-tenant</div>
+<pre>
+-- INGRESS (Coolify-managed Traefik) --------------------------------------
+   https://&lt;app&gt;.apps.internal
+     +- BROWSER -> oauth2-proxy (Google, company-only) -> authz (default-deny) -> app
+     +- MACHINE -> allowlisted webhook path (app verifies sig) / machine token -> app
+
+-- CONTROL PLANE :: KIOSK  (a Coolify app, behind oauth2-proxy) -----------
+   UI - Orchestrator - Reconciler - Build(+allowlist+Trivy)
+      - Detect/LLM (redact -> LiteLLM) - Catalog - Lifecycle - Audit - Obs
+                          | drives Coolify REST API (least-privilege)
+                          v
+
+-- COOLIFY ENGINE ---------------------------------------------------------
+   build/deploy-from-image . cron . env/secrets . limits . rollback .
+   TLS/domains . multi-server . DB backups . notifications .
+   ADMIN DASHBOARD (operators)             [engine state itself is backed up]
+
+-- SHARED SERVICES (governed, per-tenant-scoped) --------------------------
+   LiteLLM -> OpenRouter (ZDR)   Postgres cluster (db-per-tenant, DEFAULT)
+   (Kiosk's own LLM calls,        + libSQL (lightweight option)
+    redacted, same gateway)       Metadata Postgres (authz cache + fast restore)
+   MinIO/S3 (backups + buckets)   Redis    Email relay -> SES / Postal
+   Observability: Uptime-Kuma . Grafana+Loki . GlitchTip
+
+-- PER TENANT -------------------------------------------------------------
+   Destination (isolated net) . database . LLM virtual key . bucket .
+   SMTP creds . manifest (roles + public paths + outbound allowlist) . owner+team
+</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Scope</p>
+    <h2>What we support</h2>
+    <p class="measure">A Dockerfile is always the artifact — generated for the creator, reused across updates, regenerated only when detection changes.</p>
+    <div class="tags"><span class="tag on">Node.js</span><span class="tag on">Python</span><span class="tag">static</span><span class="tag">fullstack</span><span class="tag">backend API</span><span class="tag">worker / agent</span></div>
+    <div class="tags"><span class="tag">Database</span><span class="tag">Cron</span><span class="tag">Google auth</span><span class="tag">per-app RBAC</span><span class="tag">LLM</span><span class="tag">Object storage</span><span class="tag">Email</span><span class="tag">Webhooks / machine access</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Rationale</p>
+    <h2>What we extend from native Coolify — and why</h2>
+    <p class="measure">We lean on Coolify for everything it does well and build only what it lacks. Native Coolify is the admin plane + deploy engine; our extensions are the user plane plus multi-tenant governance.</p>
+    <div class="tbl-scroll" style="margin-top:1rem">
+      <table>
+        <thead><tr><th>Coolify provides (use as-is)</th><th>We add — and why</th></tr></thead>
+        <tbody>
+          <tr><td>Ingress, TLS, custom domains</td><td><b>Kiosk</b> — self-serve, non-technical ZIP→app UX</td></tr>
+          <tr><td>Build + deploy-from-image, rollback</td><td><b>LLM Dockerfile generation + heal + probe detection</b></td></tr>
+          <tr><td>Cron (Scheduled Tasks)</td><td><b>LiteLLM gateway + per-tenant virtual keys</b> (multi-tenant AI governance)</td></tr>
+          <tr><td>Env / secret store</td><td><b>oauth2-proxy + manifest authz + webhook/machine-token escape hatch</b></td></tr>
+          <tr><td>Per-app CPU/mem limits</td><td><b>Postgres db-per-tenant + RLS</b> (Coolify provisions whole instances)</td></tr>
+          <tr><td>Multi-server placement</td><td><b>Destination-per-tenant</b> network isolation + <b>outbound egress allowlist</b></td></tr>
+          <tr><td>DB backups + its own state backup</td><td><b>per-tenant DB backups + Coolify-state restore runbook + host-as-code</b></td></tr>
+          <tr><td>Deploy notifications</td><td><b>Email relay, creator-facing observability, escalation queue</b></td></tr>
+          <tr><td><b>Admin dashboard (operators)</b></td><td><b>Governance</b> — data classification, lifecycle/sprawl, actor-attributed audit, reconciler</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The user plane</p>
+    <h2>The Kiosk — designed, deployed, self-monitoring</h2>
+    <div class="grid cols-3" style="margin-top:1.2rem">
+      <div class="card"><span class="k">Design</span><p>UI · orchestrator · reconciler (GCs orphans) · build workers (allowlist + Trivy) · detect + LLM (<b>redact → LiteLLM</b>) · catalog · lifecycle · audit · observability. State in Postgres; rest stateless.</p></div>
+      <div class="card"><span class="k">Deployment</span><p>Dogfooded — a Coolify app behind oauth2-proxy, least-privilege token, build workers isolated from it. Stateless replicas for HA; proxy + authz replicated.</p></div>
+      <div class="card"><span class="k">Monitoring</span><p>Surfaces each app's Coolify logs, health &amp; deploys to creators; tracks build status, AI spend, activity; writes audit; feeds operator dashboards.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Access control</p>
+    <h2>Per-app RBAC — route-precise, honest about the rest</h2>
+    <div class="grid cols-3">
+      <div class="card"><span class="k">Guaranteed</span><p>Route + method → role, default-deny, at the proxy with zero app code. A missed route is denied. A Viewer can't reach <code>/admin</code>.</p></div>
+      <div class="card"><span class="k">Hybrid for server actions</span><p>Server-action POSTs are deterministically marked (<code>Next-Action</code>) → held to the app's <b>strictest role</b>. GET nav &amp; <code>/api/*</code> keep per-path rules. GraphQL/ws → coarse gate.</p></div>
+      <div class="card"><span class="k">Row-level</span><p>Opt-in Postgres RLS (no filter code; deny-when-unset) — same class as operation-level: fine granularity needs the DB or app cooperation.</p></div>
+    </div>
+    <div class="principle measure" style="margin-top:1.3rem">
+      <b>LLM proposes, structure guarantees.</b> Classification, role proposal, and server-action detection all rest on deterministic defaults (default-deny routes, default-coarse RBAC, an egress boundary for customer data) + a detector eval harness. An LLM miss changes <i>friction</i>, not <i>safety</i>.
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Day-0 operations</p>
+    <h2>Built in from the start, not bolted on later</h2>
+    <div class="grid cols-3">
+      <div class="card"><span class="k">Backup &amp; DR</span><p>Cluster WAL to S3 (per-tenant RTO = restore + extract db); <b>Coolify's own state</b> backed up + restore runbook + host-as-code. DR drill on Day-0.</p></div>
+      <div class="card"><span class="k">Availability (honest)</span><p>authz serves from a local cache with staleness bounds so metadata-DB blips don't down every app. Single box shares host fate — real PG <b>HA arrives with server #2</b>.</p></div>
+      <div class="card"><span class="k">Data classification</span><p>Structural first: default-deny egress + an explicit grant to reach customer systems <i>is</i> the signal → a miss can't expose. Content scan is defense-in-depth.</p></div>
+      <div class="card"><span class="k">Egress &amp; webhooks</span><p>Outbound domain allowlist (Stripe SDK ⇒ <code>api.stripe.com</code>), creator-confirmed. Webhooks: platform allowlists the path; the <b>app verifies the provider signature</b>.</p></div>
+      <div class="card"><span class="k">Lifecycle &amp; audit</span><p>Owner+team; activity → sleep → archive → delete; fleet catalog. Google-Groups roles + short session TTL. Append-only audit attributed to the Google identity.</p></div>
+      <div class="card"><span class="k">Disk &amp; DB guards</span><p>Image GC + volume quotas + disk alerting; shared-Postgres connection limits, statement timeouts, per-db size quotas — no noisy neighbors.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Delivery</p>
+    <h2>Sequencing, pilots &amp; cost — for buy-in</h2>
+    <p class="measure">Day-0 defines the <i>scope</i>; this defines the <i>build order</i>. <b>The Kiosk is several engineer-months</b> — Coolify removes ~60–70% of plumbing, but the remaining 30–40% (orchestrator + reconciler, build/heal, detection, authz + manifest, lifecycle, audit, observability) is the hard, novel part.</p>
+    <ol class="steps measure">
+      <li><b>Walking skeleton</b> — ZIP → LLM Dockerfile → build+scan → deploy behind oauth2-proxy. No RBAC/DB/lifecycle. + a minimal escalation surface (Slack + table).</li>
+      <li><b>+ Data &amp; secrets</b> — per-tenant Postgres + secret store. → <b>Pilot 1: Leaderboard</b> (easy path).</li>
+      <li><b>+ RBAC &amp; machine access</b> — authz + manifest + webhook/machine-token + server-action detection.</li>
+      <li><b>+ AI governance</b> — LiteLLM per-tenant keys.</li>
+      <li><b>+ Day-0 ops</b> — backup/DR, authz cache, disk/DB guards, reconciler, classification, audit, lifecycle. → <b>Pilot 2: ADM Tracker</b> (hard path).</li>
+      <li><b>+ Polish</b> — cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation queue UI.</li>
+    </ol>
+    <p class="measure"><span class="k">Success metrics</span> — apps migrated off off-platform hosting · time-to-first-deploy · % builds healed without human · self-serve completion rate · uptime · mean restore time (DR drill).</p>
+    <div class="principle measure"><b>Ownership assumption (a sponsor decision).</b> This presumes a <b>staffed, on-call owner</b> — the brief's <b>Path C</b>. A free-time / Path B owner can build the walking skeleton but can't carry the Day-0 operational commitments (SLA, DR drills, upgrade cadence).</div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Security posture</p>
+    <h2>Secure for its model — honest about what's contained</h2>
+    <p class="measure">Secure for the trusted-internal, accident-hardened model with the fixes below. Two "arbitrary code on the shared host" risks are <b>contained, not eliminated</b> (gVisor excluded); customer-data apps are kept off this tier by policy.</p>
+    <div class="grid cols-3" style="margin:1.1rem 0">
+      <div class="card"><span class="k">Tension</span><p>Untrusted input (the ZIP) meets a privileged operation (the build) — so fixes hold regardless of trusting authors.</p></div>
+      <div class="card"><span class="k">Kiosk LLM egress</span><p>The platform's own inference is governed: secrets <b>redacted before any LLM sees the ZIP</b>; calls go through LiteLLM (ZDR).</p></div>
+      <div class="card"><span class="k">Top fixes</span><p>Allowlist + Trivy scan; platform services via Traefik hostnames (tenant nets hold no datastores); strip inbound identity headers; fail-closed authz.</p></div>
+    </div>
+    <details>
+      <summary>Full findings → fixes<span class="hint">expand</span></summary>
+      <div class="details-body">
+        <p class="legend">Where the fix lives — Coolify-native · service config · kiosk logic · accepted/contained</p>
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>Finding</th><th>Fix</th><th>Sev</th></tr></thead>
+            <tbody>
+              <tr><td>Kiosk LLM egress of tenant code/secrets</td><td>redact before LLM; route via LiteLLM (ZDR)</td><td><span class="sev crit">high</span></td></tr>
+              <tr><td>Build-time RCE (LLM Dockerfile)</td><td>base-image allowlist + Trivy scan; full sandbox deferred</td><td><span class="sev crit">high</span></td></tr>
+              <tr><td>Kiosk holds master tokens</td><td>least-priv token; behind oauth2-proxy; isolate build workers</td><td><span class="sev crit">high</span></td></tr>
+              <tr><td>Lateral movement (relaxed egress)</td><td>Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress</td><td><span class="sev crit">high</span></td></tr>
+              <tr><td>Server actions defeat path RBAC</td><td>deterministic marker → strictest-role; per-path for the rest</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>LLM detection silent false-negative</td><td>structural defaults + eval harness w/ recall targets</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>Metadata-PG SPOF</td><td>authz local cache w/ staleness; fast restore; replicate proxy/authz</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>Cross-tenant DB / noisy neighbor</td><td>per-tenant creds + RLS; conn limits, timeouts, size quotas</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>Customer data → OpenRouter</td><td>provider filtering + ZDR; policy: not hosted here</td><td><span class="sev warn">med</span></td></tr>
+              <tr><td>Coolify state loss</td><td>state backup + restore runbook + host-as-code</td><td><span class="sev warn">med</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="legend" style="margin-top:.8rem">Accepted / contained (no gVisor): container escape (contained by segmentation) · build-RCE residual · customer-data apps off-tier.</p>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <p class="eyebrow">Decisions on record</p>
+    <h2>Key choices &amp; rationale</h2>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Decision</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><b>Coolify as engine</b></td><td>Removes ~60–70% of plumbing; verified no blocker; admin plane for operators</td></tr>
+          <tr><td><b>Kiosk as user plane</b></td><td>Non-engineers can't use Coolify; the Kiosk is their only surface</td></tr>
+          <tr><td><b>Postgres db-per-tenant (default)</b></td><td>Mainstream ORM compatibility for vibe-coded apps + RLS + one backup story; libSQL is the light option</td></tr>
+          <tr><td><b>oauth2-proxy + company Google</b></td><td>Log in with company Google; a designed machine-token/webhook bypass for Stripe/Slack/cron. Not Clerk/Authelia</td></tr>
+          <tr><td><b>LLM proposes, structure guarantees</b></td><td>Safety rests on deterministic defaults + a detector eval harness — an LLM miss is friction, not exposure</td></tr>
+          <tr><td><b>Trusted-internal, accident-hardened</b></td><td>Threat is mistakes → keep blast-radius controls, drop gVisor → Coolify stays simple</td></tr>
+          <tr><td><b>No source modification</b></td><td>Detection = static + LLM probes + a confirmed manifest; code is never rewritten</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Still open</p>
+    <h2>What we're not claiming is settled</h2>
+    <ul class="clean measure">
+      <li><b>Coolify Destination creation via API</b> — assignment confirmed &amp; immutable; the creation path is a spike.</li>
+      <li><b>Detector eval harness &amp; recall targets</b> — build the labeled + red-team corpus; calibrate confidence.</li>
+      <li><b>Metadata-PG HA + authz cache staleness bounds</b> — design + test.</li>
+      <li><b>Tenant-scoped AI cache</b> — verify isolation with a two-tenant identical-prompt test.</li>
+      <li><b>gVisor / build sandbox</b> — excluded for simplicity → the contained risks; reopen for adversarial, internet-facing, or customer-data apps.</li>
+    </ul>
+  </section>
+
+  <footer class="wrap">
+    Internal App Platform · design brief for alignment &amp; discovery · trusted-internal, accident-hardened · Coolify-powered
+  </footer>
+</div>
