@@ -246,7 +246,7 @@ A Viewer hitting `/admin` (a GET navigation) is blocked before the app sees it. 
 <summary><b>Detection reliability — the LLM proposes, structure guarantees</b></summary>
 
 Safety must not rest on LLM recall — a **silent false negative** (missed customer data, undetected server actions) is the dangerous failure. So:
-- **Structural defaults hold even at zero recall:** default-deny routes · default-coarse RBAC for multiplexing frameworks · the egress boundary for customer data. The LLM only *proposes*; the guarantee is the default.
+- **Structural defaults hold even at zero recall:** default-deny routes · default-coarse/hybrid RBAC for multiplexing frameworks · the egress boundary for customer data. The LLM only *proposes*; the guarantee is the default. (Zero-recall check: if fingerprinting misses, an action-marked POST lands on a page route whose manifest entry is GET-only → default-deny catches it.)
 - **Safety-critical defaults key off deterministic signals** (static route parse, framework fingerprint, high-precision format regex, egress grants) — the LLM augments, never decides the default.
 - **Fail toward restrictive:** union of independent detectors; any hit escalates/restricts.
 - **Detector eval harness (Day-0):** a labeled + **red-team** fixture corpus with measured **recall/precision targets**, regression-tested on every model/prompt change; detectors are treated as safety-critical code with coverage, and **confidence is calibrated** so low-confidence detections route to the human queue.
@@ -416,7 +416,8 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | Coolify custom-label persistence on pinned version | verify |
 | Tenant-scoped LLM cache hook | verify (two-tenant identical-prompt test) |
 | Metadata-PG HA + authz cache staleness bounds | design + test |
-| Auth smoke test (unauth ≠ 200) & webhook-path bypass test | add when built |
+| Auth smoke tests | unauth ≠ 200 · webhook-path bypass · **action-marked POST from a non-admin session ≠ 200** (this enforcement lives in our authz code, not oauth2-proxy) — add when built |
+| Machine-token lifecycle | who issues · scope · rotation/revocation — sketch before M3 (the only credential without a lifecycle yet) |
 | Server-action / single-endpoint detection | hybrid (per-path + action-marker→strictest role); coarse only for GraphQL/ws |
 | Detector eval harness + recall targets | build the labeled + red-team corpus; calibrate confidence |
 | Fine-grained row/operation-level RBAC | app-cooperative (identity headers) or RLS |

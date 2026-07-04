@@ -263,7 +263,7 @@
       <div class="card"><span class="k">Row-level</span><p>Opt-in Postgres RLS (no filter code; deny-when-unset) — same class as operation-level: fine granularity needs the DB or app cooperation.</p></div>
     </div>
     <div class="principle measure" style="margin-top:1.3rem">
-      <b>LLM proposes, structure guarantees.</b> Classification, role proposal, and server-action detection all rest on deterministic defaults (default-deny routes, default-coarse RBAC, an egress boundary for customer data) + a detector eval harness. An LLM miss changes <i>friction</i>, not <i>safety</i>.
+      <b>LLM proposes, structure guarantees.</b> Classification, role proposal, and server-action detection all rest on deterministic defaults (default-deny routes, default-coarse/hybrid RBAC, an egress boundary for customer data) + a detector eval harness. An LLM miss changes <i>friction</i>, not <i>safety</i>.
     </div>
   </section>
 
@@ -357,6 +357,7 @@
       <li><b>Coolify Destination creation via API</b> — assignment confirmed &amp; immutable; the creation path is a spike.</li>
       <li><b>Detector eval harness &amp; recall targets</b> — build the labeled + red-team corpus; calibrate confidence.</li>
       <li><b>Metadata-PG HA + authz cache staleness bounds</b> — design + test.</li>
+      <li><b>Machine-token lifecycle</b> — who issues, scope, rotation/revocation; sketch before M3.</li>
       <li><b>Tenant-scoped AI cache</b> — verify isolation with a two-tenant identical-prompt test.</li>
       <li><b>gVisor / build sandbox</b> — excluded for simplicity → the contained risks; reopen for adversarial, internet-facing, or customer-data apps.</li>
     </ul>
