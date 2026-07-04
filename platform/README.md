@@ -233,8 +233,19 @@ A Viewer hitting `/admin` is blocked before the app sees it; Stripe's webhook re
 <summary><b>RBAC precision — what it does and doesn't guarantee</b></summary>
 
 - **Guarantees route + method** (path/method → role, default-deny), enforced at the proxy with zero app code. A missed route is denied.
-- **Does NOT guarantee sub-route operations.** Server actions, GraphQL (`POST /graphql`), websockets, and SSE **multiplex many operations on one route** — path/method can't tell "Viewer clicked a safe button" from "Viewer invoked the admin mutation." **Detection flags these patterns and downgrades the app to a coarse whole-app role gate (or "RBAC requires app cooperation via identity headers"), loudly** — the creator is never told per-page rules protect server actions when they don't.
+- **Does NOT guarantee sub-route operations.** Server actions, GraphQL (`POST /graphql`), websockets, and SSE **multiplex many operations on one route** — path/method can't tell "Viewer clicked a safe button" from "Viewer invoked the admin mutation." **The default is the safe one:** any framework that *can* multiplex (detected by a **deterministic signal** — `next` + app router, a GraphQL/ws dependency — not LLM judgment) gets a **coarse whole-app role gate**; per-path/method RBAC is claimed *only* where routes map 1:1 to operations. A detection miss yields the **coarser, safer** behavior, never a falsely-fine one, and the UI states the level plainly ("gated by role, not individual buttons; per-button control needs the app to read the identity header").
 - **Row-level** and **operation-level** are the same class: fine granularity below the route needs app cooperation (identity headers) or Postgres RLS.
+</details>
+
+<details>
+<summary><b>Detection reliability — the LLM proposes, structure guarantees</b></summary>
+
+Safety must not rest on LLM recall — a **silent false negative** (missed customer data, undetected server actions) is the dangerous failure. So:
+- **Structural defaults hold even at zero recall:** default-deny routes · default-coarse RBAC for multiplexing frameworks · the egress boundary for customer data. The LLM only *proposes*; the guarantee is the default.
+- **Safety-critical defaults key off deterministic signals** (static route parse, framework fingerprint, high-precision format regex, egress grants) — the LLM augments, never decides the default.
+- **Fail toward restrictive:** union of independent detectors; any hit escalates/restricts.
+- **Detector eval harness (Day-0):** a labeled + **red-team** fixture corpus with measured **recall/precision targets**, regression-tested on every model/prompt change; detectors are treated as safety-critical code with coverage, and **confidence is calibrated** so low-confidence detections route to the human queue.
+- **Net:** LLM recall affects *friction* (how often a human is pulled in, how coarse the default), **not safety**.
 </details>
 
 <details>
@@ -275,9 +286,13 @@ Trivy at build time is not enough. **Periodic re-scan of deployed images → reb
 </details>
 
 <details>
-<summary><b>Data-classification (with an honest coverage window)</b></summary>
+<summary><b>Data-classification — structural boundary first, detection second</b></summary>
 
-Attestation + an **ingest scan** (LLM/regex over code, schema, sample data — **after secret redaction**) + **egress/source signals**. Undeclared-but-detected → block/escalate to the hardened-tier policy. **Classification re-runs on every redeploy and on schema drift** — it's point-in-time, so the coverage window is stated honestly (an app clean at upload can ingest PNR at runtime; egress signals + re-scan narrow, not close, this).
+**Primary control is structural, not content-detection.** Apps are **default-deny egress**; reaching a **customer-data system** (prod DB, PNR API) requires an **explicit granted allowlist entry** — and that grant *is* the deterministic classification signal, routing the app to the hardened-tier gate. So a **classification miss can't cause exposure** — the app structurally can't reach the data.
+
+**Content scan is defense-in-depth:** attestation + an ingest scan (LLM/regex over code, schema, sample data, **after secret redaction**) + runtime egress signals, re-run on **every redeploy and schema drift**. Fail-toward-restrictive: any signal → escalate.
+
+**Honest residual:** the egress boundary closes "app *pulls* from customer systems," not "a user *pastes* PNR into a form" — for that, attestation + content scan are the weaker net (arguably a training/policy issue more than a platform control).
 </details>
 
 <details>
@@ -342,6 +357,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | **Postgres db-per-tenant (default)**, libSQL optional | Mainstream ORM compatibility for vibe-coded apps + RLS + one backup story; libSQL is the light option |
 | No source modification | Detection = static + LLM probes + confirmed manifest; code never rewritten |
 | **Kiosk LLM calls governed like tenants'** | Its own inference goes through LiteLLM (ZDR) after redaction |
+| **LLM proposes, structure guarantees** | Safety rests on deterministic defaults (default-deny, default-coarse RBAC, egress boundary) + a detector eval harness — an LLM miss changes friction, not safety |
 
 ---
 
@@ -366,7 +382,8 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | Kiosk master tokens | least-priv token; behind oauth2-proxy; isolate build workers; quotas | 🟦+🟨 |
 | Lateral movement | Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress | 🟦+🟩 |
 | Webhooks/machine clients blocked or over-exposed | manifest public-path allowlist + signed-webhook/machine-token | 🟨 |
-| Server actions defeat path RBAC | detect + downgrade to coarse/app-cooperative, loudly | 🟨 |
+| Server actions defeat path RBAC | deterministic-signal → default coarse gate; LLM only proposes finer | 🟨 |
+| LLM detection silent false-negative | structural defaults (egress boundary, default-coarse) + eval harness w/ recall targets | 🟨 |
 | Header spoofing | strip inbound `X-Auth-*`; ports unpublished | 🟦 |
 | authz fail-open / path bypass | fail-closed; canonicalize; cache invalidation | 🟨 |
 | Metadata-PG SPOF | authz local cache w/ staleness; PG HA; replicate proxy/authz | 🟩 |
@@ -390,7 +407,8 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | Tenant-scoped LLM cache hook | verify (two-tenant identical-prompt test) |
 | Metadata-PG HA + authz cache staleness bounds | design + test |
 | Auth smoke test (unauth ≠ 200) & webhook-path bypass test | add when built |
-| Server-action / single-endpoint detection | build the detector + downgrade |
+| Server-action / single-endpoint detection | deterministic detector → default-coarse gate |
+| Detector eval harness + recall targets | build the labeled + red-team corpus; calibrate confidence |
 | Fine-grained row/operation-level RBAC | app-cooperative (identity headers) or RLS |
 | gVisor / build sandbox | excluded for simplicity → contained risks; reopen for adversarial/internet-facing |
 
