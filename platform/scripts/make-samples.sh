@@ -6,7 +6,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$here/dist"
 mkdir -p "$dist"
 
-for app in node-hello python-hello; do
+for app in node-hello python-hello leaderboard; do
   src="$here/samples/$app"
   out="$dist/$app.zip"
   rm -f "$out"

@@ -39,6 +39,41 @@ class Config:
 
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 
+    # ── v1: secrets, DB, egress, LLM, networks ──────────────────────────────
+    # Encryption key for secrets at rest. MUST be stable across restarts.
+    SECRET_KEY = os.environ.get("KIOSK_SECRET_KEY", "")
+
+    # Shared postgres cluster admin URL (kiosk connects as superuser to create
+    # per-tenant databases/roles). Defaults to the metadata DATABASE_URL's admin.
+    PG_ADMIN_URL = os.environ.get("PG_ADMIN_URL", "") or os.environ.get(
+        "DATABASE_URL", "postgresql://kiosk:kiosk@postgres:5432/kiosk"
+    )
+    # Host tenants use to reach the cluster (the DATABASE_URL we inject).
+    PG_TENANT_HOST = os.environ.get("PG_TENANT_HOST", "postgres")
+    PG_TENANT_PORT = _int("PG_TENANT_PORT", 5432)
+    # Shared-cluster guards.
+    TENANT_DB_CONN_LIMIT = _int("KIOSK_TENANT_DB_CONN_LIMIT", 20)
+    TENANT_DB_STATEMENT_TIMEOUT = os.environ.get(
+        "KIOSK_TENANT_DB_STATEMENT_TIMEOUT", "30s")
+    TENANT_DB_QUOTA_MB = _int("KIOSK_TENANT_DB_QUOTA_MB", 1024)
+
+    # Networks the kiosk attaches tenant containers to.
+    TENANT_NETWORK = os.environ.get("TENANT_NETWORK", "platform_tenant")
+    # Egress proxy (squid) tenants use for allowlisted outbound; empty disables.
+    EGRESS_PROXY = os.environ.get("EGRESS_PROXY", "egress-proxy:3128")
+    # File the kiosk regenerates with the union of app outbound allowlists.
+    EGRESS_ALLOWLIST_FILE = os.environ.get(
+        "EGRESS_ALLOWLIST_FILE", "/egress/allowlist.txt")
+
+    # LiteLLM admin (per-tenant virtual keys).
+    LITELLM_MAX_BUDGET = float(os.environ.get("KIOSK_LLM_TENANT_BUDGET", "5"))
+
+    # Object storage for off-box backup copies (local MinIO / real S3).
+    MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+    MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+    MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
+    MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "platform-backups")
+
     REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "registry:5000")
     PROXY_NETWORK = os.environ.get("PROXY_NETWORK", "platform_proxy")
     # Optional docker network for tenant builds (e.g. "host"). Some corporate

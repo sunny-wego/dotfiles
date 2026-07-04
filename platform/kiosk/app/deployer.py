@@ -16,8 +16,14 @@ from . import dockercli
 from .config import config
 
 
-def deploy(slug: str, image: str, port: int) -> tuple[bool, str, str]:
-    """Return (ok, url, message)."""
+def deploy(slug: str, image: str, port: int,
+           env: dict[str, str] | None = None) -> tuple[bool, str, str]:
+    """Return (ok, url, message).
+
+    The app runs on the internal tenant network (no direct egress — v1's
+    default-deny boundary) and behind the auth chain: strip spoofed identity
+    headers -> company Google (forwardauth) -> per-app allow-list (appauthz).
+    """
     name = f"app-{slug}"
     host = config.app_host(slug)
     dockercli.rm_force(name)
@@ -25,27 +31,31 @@ def deploy(slug: str, image: str, port: int) -> tuple[bool, str, str]:
     router = f"app-{slug}"
     labels = [
         "--label", "traefik.enable=true",
-        "--label", f"traefik.docker.network={config.PROXY_NETWORK}",
+        "--label", f"traefik.docker.network={config.TENANT_NETWORK}",
         "--label", f"traefik.http.routers.{router}.rule=Host(`{host}`)",
         "--label", f"traefik.http.routers.{router}.entrypoints=websecure",
         "--label", f"traefik.http.routers.{router}.tls=true",
-        # strip spoofed identity headers, then require company Google login.
         "--label",
-        f"traefik.http.routers.{router}.middlewares=strip-auth-in@file,forwardauth@file",
+        f"traefik.http.routers.{router}.middlewares="
+        "strip-auth-in@file,forwardauth@file,appauthz@file",
         "--label",
         f"traefik.http.services.{router}.loadbalancer.server.port={port}",
     ]
+    envargs: list[str] = ["-e", f"PORT={port}"]
+    for k, v in (env or {}).items():
+        envargs += ["-e", f"{k}={v}"]
+
     res = dockercli.run([
         "run", "-d", "--name", name, "--restart", "unless-stopped",
-        "--network", config.PROXY_NETWORK,
-        "-e", f"PORT={port}",
+        "--network", config.TENANT_NETWORK,
+        *envargs,
         *labels,
         image,
     ], timeout=120)
 
     if not res.ok:
         return False, "", f"deploy failed:\n{res.out[-500:]}"
-    return True, f"https://{host}", "deployed behind Google login"
+    return True, f"https://{host}", "deployed behind Google login + allow-list"
 
 
 def app_logs(slug: str, tail: int = 200) -> str:

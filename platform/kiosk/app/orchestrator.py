@@ -16,7 +16,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 
-from . import audit, db, deployer, slack
+from . import audit, db, deployer, egress, provision_db, slack, tenant_env
 from .builder import Builder
 from .config import config
 from .detect import collect_manifests, detect, tree
@@ -113,10 +113,17 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
 
         job.log(f"build ok after {outcome.attempts} attempt(s)")
 
-        # 5. Deploy behind Google login (private by default).
+        # 5. Provision per-tenant resources (DB, egress allowlist, env bundle).
         job.status = "deploying"
         db.set_app_status(slug, "deploying", image=outcome.image, port=outcome.port)
-        ok, url, msg = deployer.deploy(slug, outcome.image, outcome.port)
+        job.log("provisioning per-tenant database …")
+        provision_db.ensure_tenant_db(slug, job.log)
+        audit.record(job.actor, "provision.db", app=slug)
+        egress.regenerate_allowlist(job.log)
+        env = tenant_env.build_env(slug, job.log)
+
+        # 6. Deploy on the internal tenant network, behind auth + allow-list.
+        ok, url, msg = deployer.deploy(slug, outcome.image, outcome.port, env=env)
         if not ok:
             job.status = "failed"
             db.set_app_status(slug, "failed")
@@ -124,7 +131,7 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
             slack.escalate(job.actor, slug, f"Deploy failed: {msg}")
             return
 
-        # 6. Record success.
+        # 7. Record success.
         job.status = "running"
         job.url = url
         db.set_app_status(slug, "running", url=url)

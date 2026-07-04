@@ -4,6 +4,8 @@
 #   ✓ trivial Node ZIP  → live URL behind login
 #   ✓ trivial Python ZIP → live URL behind login
 #   ✓ a non-company identity is denied (403)
+#   ✓ v1: a per-tenant DATABASE_URL is injected into the app
+#   ✓ v1: a restore-from-backup drill passes
 #   ✓ (optional, RUN_HEAL=1) the heal loop recovers ≥1 induced failure
 #
 # TLS is self-signed and hosts live under *.apps.localhost, so every curl pins
@@ -77,7 +79,23 @@ code=$(c "kiosk.$DOMAIN" / | tail -1)
 DEV_USER_EMAIL="${DEV_USER_EMAIL:-dev@${COMPANY_EMAIL_DOMAIN:-wego.com}}" \
   $COMPOSE --profile dev up -d authstub >/dev/null 2>&1
 
-# ── T5 (optional): heal loop recovers an induced failure ─────────────────────
+# ── T5: v1 — per-tenant DB injected into a deployed app ──────────────────────
+echo "-- per-tenant DATABASE_URL --"
+if docker exec app-node-hello sh -c 'echo "$DATABASE_URL"' 2>/dev/null | grep -q '^postgresql://'; then
+  ok "per-tenant DATABASE_URL injected"
+else
+  bad "no DATABASE_URL in the deployed app container"
+fi
+
+# ── T6: v1 — restore-from-backup drill passes ────────────────────────────────
+echo "-- backup + restore drill --"
+c "kiosk.$DOMAIN" /ops/backup -X POST >/dev/null
+drill=$(c "kiosk.$DOMAIN" /ops/restore-drill | sed '$d')
+echo "$drill" | grep -q '"ok": *true' \
+  && ok "restore-from-backup drill passed" \
+  || { echo "$drill"; bad "restore drill did not pass"; }
+
+# ── T7 (optional): heal loop recovers an induced failure ─────────────────────
 if [ "${RUN_HEAL:-0}" = "1" ]; then
   echo "-- heal loop (induced failure) --"
   KIOSK_INDUCE_BUILD_FAILURE=1 $COMPOSE up -d kiosk >/dev/null 2>&1

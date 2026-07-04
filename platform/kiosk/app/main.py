@@ -12,26 +12,68 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import db, deployer, orchestrator
+from . import (access, backup, cron, db, deployer, egress, monitor,
+               orchestrator, secrets_store)
 from .auth import identity
 from .config import config
 
-app = FastAPI(title="Internal App Platform — Kiosk (M1)")
+app = FastAPI(title="Internal App Platform — Kiosk (v1)")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @app.on_event("startup")
 def _startup() -> None:
     db.init()
+    egress.regenerate_allowlist()
+    cron.start()
+    backup.start_nightly()
+    monitor.start()
 
 
 @app.get("/healthz")
 def healthz() -> JSONResponse:
     return JSONResponse({"ok": True, "auth_mode": config.AUTH_MODE})
+
+
+@app.get("/internal/authz")
+def internal_authz(request: Request) -> Response:
+    """Second forward-auth hop for tenant apps: whole-app allow-list.
+
+    Called directly by Traefik (bypasses the kiosk's own router auth). Stage-1
+    (oauth2-proxy) has already set the identity header; here we enforce that the
+    identity may open THIS specific app. Fail-closed: any gap -> 403.
+    """
+    email = request.headers.get("x-auth-request-email", "")
+    host = request.headers.get("x-forwarded-host", "")
+    slug = host.split(".", 1)[0] if host else ""
+    if slug and access.can_open(slug, email):
+        return Response(status_code=200)
+    return Response(status_code=403, content=f"not authorized for {slug}")
+
+
+@app.post("/ops/backup")
+def ops_backup(request: Request):
+    identity(request)  # any company user may trigger an on-demand backup
+    return JSONResponse(backup.backup_all(print))
+
+
+@app.get("/ops/restore-drill")
+def ops_restore_drill(request: Request):
+    identity(request)
+    return JSONResponse(backup.restore_drill(log=print))
+
+
+def _owner_guard(slug: str, who: str) -> dict:
+    record = db.get_app(slug)
+    if record is None:
+        raise HTTPException(404, "no such app")
+    if (record.get("owner") or "").lower() != who.lower():
+        raise HTTPException(403, "only the app owner can manage this app")
+    return record
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -73,13 +115,75 @@ def app_page(request: Request, slug: str):
     job = orchestrator.get_job(slug)
     if record is None and job is None:
         raise HTTPException(404, "no such app")
+    is_owner = record is not None and (record.get("owner") or "").lower() == who.lower()
     return templates.TemplateResponse("app.html", {
         "request": request,
         "who": who,
         "slug": slug,
         "record": record,
         "job_status": job.status if job else (record or {}).get("status"),
+        "is_owner": is_owner,
+        "config_domain": config.COMPANY_EMAIL_DOMAIN,
+        "access": db.list_access(slug) if record else [],
+        "secret_keys": secrets_store.secret_keys(slug) if record else [],
+        "egress": db.list_egress(slug) if record else [],
+        "crons": db.list_cron(slug) if record else [],
     })
+
+
+# ── management (owner-only) ───────────────────────────────────────────────────
+@app.post("/apps/{slug}/visibility")
+def set_visibility(request: Request, slug: str, visibility: str = Form(...)):
+    who = identity(request)
+    _owner_guard(slug, who)
+    if visibility not in ("invite-only", "all-staff"):
+        raise HTTPException(400, "bad visibility")
+    db.set_visibility(slug, visibility)
+    return RedirectResponse(url=f"/apps/{slug}", status_code=303)
+
+
+@app.post("/apps/{slug}/access")
+def add_access(request: Request, slug: str, email: str = Form(...),
+               remove: str = Form("")):
+    who = identity(request)
+    _owner_guard(slug, who)
+    if remove:
+        db.remove_access(slug, email)
+    else:
+        db.add_access(slug, email)
+    return RedirectResponse(url=f"/apps/{slug}", status_code=303)
+
+
+@app.post("/apps/{slug}/secrets")
+def set_secret(request: Request, slug: str, key: str = Form(...),
+               value: str = Form(""), remove: str = Form("")):
+    who = identity(request)
+    _owner_guard(slug, who)
+    if remove:
+        secrets_store.delete_secret(slug, key)
+    else:
+        if not value:
+            raise HTTPException(400, "value required")
+        secrets_store.set_secret(slug, key, value)
+    return RedirectResponse(url=f"/apps/{slug}", status_code=303)
+
+
+@app.post("/apps/{slug}/egress")
+def add_egress(request: Request, slug: str, domain: str = Form(...)):
+    who = identity(request)
+    _owner_guard(slug, who)
+    db.add_egress(slug, domain.strip())
+    egress.regenerate_allowlist()
+    return RedirectResponse(url=f"/apps/{slug}", status_code=303)
+
+
+@app.post("/apps/{slug}/cron")
+def add_cron(request: Request, slug: str, name: str = Form(...),
+             schedule: str = Form(...), command: str = Form(...)):
+    who = identity(request)
+    _owner_guard(slug, who)
+    db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
+    return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
 @app.get("/apps/{slug}/status")

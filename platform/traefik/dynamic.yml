@@ -16,6 +16,13 @@ http:
           - X-Auth-Request-User
           - X-Auth-Request-Preferred-Username
 
+    # v1 whole-app allow-list: a second forward-auth hop to the kiosk, which
+    # decides whether this identity may open THIS app. Fail-closed.
+    appauthz:
+      forwardAuth:
+        address: "http://kiosk:8000/internal/authz"
+        trustForwardHeader: true
+
     # Strip client-supplied identity headers at ingress so an app can trust
     # them (defense against header spoofing — README §9).
     strip-auth-in:
