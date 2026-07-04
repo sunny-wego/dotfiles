@@ -29,15 +29,21 @@ def deploy(slug: str, image: str, port: int,
     dockercli.rm_force(name)
 
     router = f"app-{slug}"
+    slug_mw = f"slug-{slug}"
     labels = [
         "--label", "traefik.enable=true",
         "--label", f"traefik.docker.network={config.TENANT_NETWORK}",
         "--label", f"traefik.http.routers.{router}.rule=Host(`{host}`)",
         "--label", f"traefik.http.routers.{router}.entrypoints=websecure",
         "--label", f"traefik.http.routers.{router}.tls=true",
+        # Authoritative, server-set app identity for the authz hop. Set()
+        # overwrites any client-supplied X-App-Slug; strip-auth-in also clears
+        # it on ingress. This is what the kiosk trusts — never X-Forwarded-Host.
+        "--label",
+        f"traefik.http.middlewares.{slug_mw}.headers.customrequestheaders.X-App-Slug={slug}",
         "--label",
         f"traefik.http.routers.{router}.middlewares="
-        "strip-auth-in@file,forwardauth@file,appauthz@file",
+        f"strip-auth-in@file,{slug_mw},forwardauth@file,appauthz@file",
         "--label",
         f"traefik.http.services.{router}.loadbalancer.server.port={port}",
     ]

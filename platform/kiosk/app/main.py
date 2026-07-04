@@ -46,13 +46,19 @@ def internal_authz(request: Request) -> Response:
     Called directly by Traefik (bypasses the kiosk's own router auth). Stage-1
     (oauth2-proxy) has already set the identity header; here we enforce that the
     identity may open THIS specific app. Fail-closed: any gap -> 403.
+
+    SECURITY: the app slug MUST come from X-App-Slug, which each tenant router
+    sets server-side (Set-overwrites, so a client value can't win) and
+    strip-auth-in clears on ingress. We deliberately do NOT derive it from
+    X-Forwarded-Host — that is client-influenceable, and trusting it would let a
+    caller be authorized against app A while Traefik routes them to app B
+    (auth-bypass / IDOR).
     """
     email = request.headers.get("x-auth-request-email", "")
-    host = request.headers.get("x-forwarded-host", "")
-    slug = host.split(".", 1)[0] if host else ""
+    slug = request.headers.get("x-app-slug", "").strip()
     if slug and access.can_open(slug, email):
         return Response(status_code=200)
-    return Response(status_code=403, content=f"not authorized for {slug}")
+    return Response(status_code=403, content=f"not authorized for {slug or '?'}")
 
 
 @app.post("/ops/backup")
