@@ -53,7 +53,7 @@ Creators see **only** the Kiosk. Operators use **only** Coolify (admin). End use
    https://<app>.apps.internal
      ├▶ BROWSER users  → oauth2-proxy (Google, company-only; inject identity)
      │                  → authz (per-app manifest rules, default-deny) → app
-     └▶ MACHINE clients → allowlisted public/webhook path (signed-token verify)
+     └▶ MACHINE clients → allowlisted public/webhook path (app verifies provider sig)
         (Stripe/Slack/    or machine token → authz (machine policy) → app
          cron/CLI)
 
@@ -71,7 +71,7 @@ Creators see **only** the Kiosk. Operators use **only** Coolify (admin). End use
 ── SHARED SERVICES (Coolify-deployed, governed, per-tenant-scoped) ───────────
    LiteLLM ──▶ OpenRouter (ZDR)   Postgres cluster (db-per-tenant, DEFAULT)
    (also: the Kiosk's OWN          + libSQL (lightweight option)
-    LLM calls, redacted)          Metadata Postgres (HA) + Redis
+    LLM calls, redacted)          Metadata Postgres (authz cache + fast restore) + Redis
    MinIO / S3 (backups+buckets)   Email relay ──▶ SES / Postal
    Observability: Uptime-Kuma · Grafana+Loki · GlitchTip
 
@@ -115,7 +115,8 @@ The gap is **structural** (apps stall waiting for an engineer). Two named pilots
 | Database | **Postgres db-per-tenant (default)** / libSQL (light option) + injected `DATABASE_URL` |
 | Cron | Coolify Scheduled Task (overlap-guard, timezone, retry, creator alerts) |
 | Google login | oauth2-proxy (company domain only) |
-| Machine/webhook access | manifest public-path allowlist + signed-webhook verify / machine token |
+| Machine/webhook access | manifest public-path allowlist + app-verified provider signature / machine token |
+| Outbound egress | manifest **domain allowlist** (default-deny); detection proposes from SDKs/env, creator confirms |
 | End-user RBAC | oauth2-proxy (authN) + manifest-driven authz (authZ) |
 | LLM | LiteLLM per-tenant virtual key + injected env |
 | Object storage | per-app MinIO/S3 bucket (or Coolify volume) |
@@ -151,6 +152,8 @@ Vibe-coded apps use mainstream ORMs that assume Postgres or file-SQLite. **Detec
 | raw SQL / libsql client | ✅ | ✅ | ✅ |
 
 **Postgres db-per-tenant on one shared cluster** is the default because it buys the mainstream ecosystem, **RLS without a second engine**, and **one backup story** — while still being cheap (a database, not an instance, per tenant). libSQL is the lightweight option for tiny/edge cases, not the default.
+
+**Shared-cluster guards (Day-0):** a shared cluster loses instance-per-tenant's free isolation, so add **per-tenant connection limits, statement timeouts, and per-database size quotas** — one runaway query or unbounded table must not affect neighbors.
 </details>
 
 ---
@@ -212,28 +215,28 @@ State lives in the **metadata Postgres**; UI/API/workers are otherwise stateless
 
 Canonical hard case: a **Next.js app using every feature** — staff log in with Google, see role-gated pages, read/write their org's data, ask an LLM to summarize it, get a nightly email report, and **receive Stripe webhooks**.
 
-**Phase 1 — Create.** Sign in (Google) → name → **drop ZIP** → Kiosk **redacts secrets**, detects Next.js + LLM + DB, runs **classification** → hardened **Dockerfile** via build-verify-heal → plain-English summary + toggles (LLM-proposed roles; **and detected webhook/machine paths to allowlist**) → **Deploy**.
+**Phase 1 — Create.** Sign in (Google) → name → **drop ZIP** → Kiosk **redacts secrets**, detects Next.js + LLM + DB, runs **classification** → hardened **Dockerfile** via build-verify-heal → plain-English summary + toggles (LLM-proposed roles; detected **webhook/machine paths**; and **detected outbound domains to allowlist** — a Stripe SDK ⇒ `api.stripe.com`) → **Deploy**.
 
-**Phase 2 — Provision (saga).** Redact → build + scan → push → create per-tenant **Postgres database** → mint LLM key → bucket + SMTP creds → set env/domain/limits/cron via Coolify API → attach auth chain (+ public-path allowlist) → deploy in the **Destination** → enable backup → record owner + manifest + audit.
+**Phase 2 — Provision (saga).** Redact → build + scan → push → create per-tenant **Postgres database** → mint LLM key → bucket + SMTP creds → set env/domain/limits/cron via Coolify API → attach auth chain (+ public-path allowlist + **outbound egress allowlist**) → deploy in the **Destination** → enable backup → record owner + manifest + audit.
 
 **Phase 3 — Invite & roles.** Invite staff, assign Admin/Editor/Viewer. Set default visibility (invite-only vs all-staff). No code.
 
 **Phase 4 — Use it.**
 ```
 BROWSER  → Traefik → oauth2-proxy (company Google) → authz (role/route, default-deny) → app
-MACHINE  → Traefik → allowlisted /webhooks/stripe (signed-token verify) ─────────────→ app
+MACHINE  → Traefik → allowlisted /webhooks/stripe (path allowlist; app verifies sig) ─→ app
 ```
-A Viewer hitting `/admin` is blocked before the app sees it; Stripe's webhook reaches the app because that path is explicitly allowlisted and signature-verified.
+A Viewer hitting `/admin` (a GET navigation) is blocked before the app sees it; **server-action POSTs are held to the app's strictest role** (individual actions can't be distinguished). Stripe's webhook reaches the app because its path is allowlisted; **the app verifies the Stripe signature** (the platform allowlists the path and can verify a few known providers as a bonus).
 
 **Phase 5 — Scheduled work.** 09:00 Coolify Scheduled Task runs the report (overlap-guarded, timezone-declared, retries, **failure alerts the creator**), sends email via the relay, exits.
 
-**Phase 6 — Maintain.** Update = new ZIP → rebuild (Dockerfile reused unless detection changed) → **preview URL → promote** → health-checked swap. Rollback = redeploy a prior image. Manage secrets/logs/users/cron; offboard (export → tear down, reconciler GCs remnants).
+**Phase 6 — Maintain.** Update = new ZIP → rebuild (Dockerfile reused unless detection changed) → **preview URL → promote** → health-checked swap. **Preview is isolated:** it boots against a **throwaway copy of the tenant DB** (a Postgres `TEMPLATE` copy — cheap at internal-tool sizes), with **cron disabled and the email relay in redirect/sandbox mode**, so a startup migration or side effect can't touch prod; promote runs migrations against the live DB. Rollback = redeploy a prior image. Manage secrets/logs/users/cron; offboard (export → tear down, reconciler GCs remnants).
 
 <details>
 <summary><b>RBAC precision — what it does and doesn't guarantee</b></summary>
 
 - **Guarantees route + method** (path/method → role, default-deny), enforced at the proxy with zero app code. A missed route is denied.
-- **Does NOT guarantee sub-route operations.** Server actions, GraphQL (`POST /graphql`), websockets, and SSE **multiplex many operations on one route** — path/method can't tell "Viewer clicked a safe button" from "Viewer invoked the admin mutation." **The default is the safe one:** any framework that *can* multiplex (detected by a **deterministic signal** — `next` + app router, a GraphQL/ws dependency — not LLM judgment) gets a **coarse whole-app role gate**; per-path/method RBAC is claimed *only* where routes map 1:1 to operations. A detection miss yields the **coarser, safer** behavior, never a falsely-fine one, and the UI states the level plainly ("gated by role, not individual buttons; per-button control needs the app to read the identity header").
+- **Sub-route operations get a hybrid rule (not a blanket coarse gate).** Server actions, GraphQL (`POST /graphql`), websockets, and SSE **multiplex many operations on one route**. But **server-action invocations are deterministically identifiable** (a `POST` carrying the `Next-Action` header / action payload), so we enforce **hybrid**: normal `GET` navigation and `/api/*` keep **per-path/method role rules** — *so a Viewer is still blocked from `/admin`* — while **any request carrying the action marker is held to the app's *most-restrictive* role (or denied below a threshold)**, since we can't tell one action from another. **Opaque single-endpoint multiplexers with no such marker (GraphQL, websockets) fall back to a coarse whole-app gate.** Detection uses a deterministic framework signal, not LLM judgment; a miss yields the safer behavior, and the UI states the level plainly.
 - **Row-level** and **operation-level** are the same class: fine granularity below the route needs app cooperation (identity headers) or Postgres RLS.
 </details>
 
@@ -251,7 +254,9 @@ Safety must not rest on LLM recall — a **silent false negative** (missed custo
 <details>
 <summary><b>Machine clients & webhooks (non-browser)</b></summary>
 
-oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI can't complete it. So the manifest carries a **public/webhook path allowlist** (with the same loud "public" warning as any public rule): those paths bypass the browser login and are protected by **signed-webhook verification** (provider signature) or a **platform-issued machine token** for service-to-service calls. Detection proposes these paths from signals like a Stripe/Slack SDK; the creator confirms.
+oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI can't complete it. So the manifest carries a **public/webhook path allowlist** (with the same loud "public" warning). **Signature verification is normally the app's job** — Stripe/Slack use provider-specific HMAC schemes their SDKs verify; the platform **allowlists the path** and can verify a **few known providers** as a bonus (the manifest warning says so). Service-to-service calls use a **platform-issued machine token**. Detection proposes the paths *and a matching outbound-domain allowlist* from SDK/env signals; the creator confirms.
+
+**Outbound egress is the same mechanism.** Default-deny egress means the STRIPE_KEY app's call to `api.stripe.com` fails at runtime unless allowlisted — so the outbound domain allowlist is a first-class, creator-confirmed manifest section. It's *also* the egress-grant the classification control relies on: granting an **internal customer-data system** (prod DB, PNR API) is what routes an app to the hardened tier.
 </details>
 
 ---
@@ -261,7 +266,7 @@ oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI 
 <details>
 <summary><b>Backup & DR</b> — tenant data AND platform state</summary>
 
-- **Tenant DBs:** per-tenant Postgres database backups (Coolify-scheduled / cluster WAL to S3) → point-in-time restore, one backup story. (libSQL apps: bottomless S3 replication.)
+- **Tenant DBs:** cluster WAL to S3, one backup story. Honest per-tenant RTO: restore = **restore the cluster elsewhere + extract the one database** (not native per-db PITR). (libSQL apps: bottomless S3 replication.)
 - **Coolify's own state** (domains, envs, tasks, destinations = the deployment state): **data-dir backup + a restore-tested runbook + host provisioning as code.** Retained ZIPs+Dockerfiles only reproduce apps if the engine that deploys them does too.
 - RPO ≈ minutes; RTO = restore engine + data. **A DR drill (measure mean-restore-time) is a Day-0 exercise.**
 </details>
@@ -269,7 +274,8 @@ oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI 
 <details>
 <summary><b>Availability — no fleet-wide SPOF</b></summary>
 
-- **Metadata Postgres** is in the hot path (authz reads manifests per request). So: authz **serves from a local cache with explicit staleness bounds** (invalidated on role change), and the metadata Postgres runs **HA with a stated restore posture**. "Kiosk DB blip" must not mean "every app down."
+- **Metadata Postgres** is in the hot path (authz reads manifests per request). So authz **serves from a local cache with explicit staleness bounds** (invalidated on role change) — "Kiosk DB blip" must not mean "every app down."
+- **Honest HA:** on a single EC2 box everything shares fate with the host — so Day-0 the real mitigations are the **authz cache + fast restore**; genuine Postgres **HA arrives with the second server** (don't claim HA the single-box topology can't deliver).
 - **oauth2-proxy + authz are replicated**, not singletons.
 </details>
 
@@ -299,7 +305,7 @@ Trivy at build time is not enough. **Periodic re-scan of deployed images → reb
 <summary><b>Lifecycle, ownership, audit, storage & email</b></summary>
 
 - **Lifecycle:** owner+team per app; activity → flag → sleep (Coolify stop) → archive → delete; fleet **catalog** for visibility + duplicate detection; **offboarding** transfers or archives.
-- **Roles stay fresh:** brokered to **Google Groups** (or periodic revalidation against the directory) so membership tracks the org chart.
+- **Roles stay fresh:** brokered to **Google Groups** (or periodic revalidation against the directory) so membership tracks the org chart. **Session revocation:** a **short oauth2-proxy session TTL (or directory re-validation on refresh)** so a disabled Google account loses access in minutes, not at cookie expiry.
 - **Audit:** append-only, **actor = Google identity** (Kiosk attributes it — Coolify only sees the token); underpins PDPL/Nusuk.
 - **Storage/email:** per-app object bucket (shared with backups); one governed **email relay** injected as SMTP creds.
 - **Residency (PDPL):** **S3 replication targets and SES pinned to approved regions** — backups' geography is where residency actually bites.
@@ -334,12 +340,12 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 **Reconciliation with Day-0:** Day-0 defines the *scope* (§2–6); this section defines the *build order*. **The Kiosk is several engineer-months** — Coolify removes ~60–70% of plumbing, but the remaining 30–40% (orchestrator + reconciler, build/heal pipeline, detection/probes, authz + manifest, catalog/lifecycle, audit, observability) is the hard, novel part. Stakeholders approve a scope *and* a cost; this makes both explicit.
 
 **Build order (dependency edges → each milestone is shippable):**
-1. **Walking skeleton:** ZIP → LLM Dockerfile (redacted→LiteLLM) → build+scan → deploy behind oauth2-proxy. *No RBAC/DB/lifecycle.* Proves the core loop + two-plane.
+1. **Walking skeleton:** ZIP → LLM Dockerfile (redacted→LiteLLM) → build+scan → deploy behind oauth2-proxy. *No RBAC/DB/lifecycle.* Proves the core loop + two-plane. **Includes a minimal escalation surface (a Slack channel + a table)** — the heal loop can produce escalations from day one, so this can't wait for M6.
 2. **+ Data & secrets:** per-tenant Postgres + Coolify secret store. → **Pilot 1: Leaderboard.**
 3. **+ RBAC & machine access:** authz service + manifest + webhook/machine-token escape hatch + server-action downgrade detection.
 4. **+ AI governance:** LiteLLM per-tenant keys (Kiosk already routes through it from step 1).
 5. **+ Day-0 ops:** backup/DR (+drill), HA/authz-cache, disk GC/quotas, reconciler, classification, audit, lifecycle. → **Pilot 2: ADM Tracker** (RBAC+email+classification+hardened-tier gate).
-6. **+ Polish:** cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation queue.
+6. **+ Polish:** cron semantics, email, storage, preview-before-promote, rebuild cadence, escalation **queue UI** (the escalation surface itself shipped in M1).
 
 **Success metrics:** apps migrated off off-platform hosting · **time-to-first-deploy** (ZIP→live) · **% builds healed without human** · self-serve completion rate (no escalation) · platform uptime · **mean restore time** (from the DR drill).
 
@@ -421,7 +427,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 - **Kiosk** — user-facing control plane; creators' only surface; drives Coolify's API.
 - **Coolify** — open-source PaaS used as engine + **admin/ops console** for operators.
 - **Destination** — a Coolify Docker-network deployment target; one per tenant = network isolation.
-- **Manifest** — confirmed per-app record: routes, role→path rules, **public/webhook paths**, port, secrets, cron.
+- **Manifest** — confirmed per-app record: routes, role→path rules, **public/webhook paths**, **outbound domain allowlist**, port, secrets, cron.
 - **Reconciler** — background control loop diffing desired (metadata) vs actual (Coolify), GC-ing orphans.
 - **Machine token** — platform-issued credential for non-browser service-to-service calls.
 - **db-per-tenant** — one database per tenant on a shared Postgres cluster (cheap, mainstream, RLS-native).
