@@ -2,241 +2,308 @@
 
 > **One-line:** a self-serve platform where non-engineers **drop a ZIP and get a hosted internal app** — with database, cron, Google login, per-app RBAC, and optional LLM access — built on **Coolify** as the engine, running the same on a laptop (Colima) and an internal EC2 box.
 
-**Status:** planning / design (docs only, no implementation yet) · **Trust model:** trusted-internal, accident-hardened · **Purpose of this doc:** alignment, stakeholder buy-in, discovery.
+**Status:** planning / design (docs only) · **Trust model:** trusted-internal, accident-hardened · **Purpose:** alignment, stakeholder buy-in, discovery.
 
-Detailed per-topic decision records live in [`legacy/`](./legacy) — this document supersedes and combines them.
+**Two planes (core principle):** **Creators (non-engineers) only ever use the Kiosk** (user-facing). **Operators (engineers) use the Coolify dashboard as the admin/ops console.** The Kiosk drives Coolify through its API on the creator's behalf; nobody non-technical touches Coolify.
+
+Everything here is **Day-0 scope** (including backups, observability, audit, lifecycle). Superseded per-topic records are in [`legacy/`](./legacy).
 
 ---
 
-## TL;DR (read this first)
+## TL;DR
 
-People keep vibe-coding useful internal tools (often with an LLM) and hit the same wall: **nowhere proper to run something that has a backend, a database, or per-user access.** This platform removes that wall with a self-serve kiosk on top of Coolify.
+People keep vibe-coding useful internal tools and hit the same wall: **nowhere proper to run something with a backend, a database, or per-user access.** This removes that wall.
 
-| A creator does | The platform does (automatically) |
+| A creator does | The platform does automatically |
 |---|---|
 | Sign in with company Google | Authenticates via oauth2-proxy (company domain only) |
-| Name the app, **drop a ZIP** | Detects the stack (Node/Python), generates a hardened **Dockerfile** via LLM, builds + scans the image |
-| Flip toggles (DB / Cron / Auth / RBAC / LLM) | Provisions a per-tenant DB, mints a scoped LLM key, wires cron, sets up RBAC roles |
-| Paste any API keys, confirm roles | Stores secrets encrypted, deploys via Coolify, assigns a URL + TLS |
-| — | Gives back a **live URL + invite link + logs** |
-
-**Everything the creator doesn't do, the platform does.** No infra knowledge required.
+| Name app, **drop a ZIP** | Detects stack, LLM-generates a **Dockerfile**, builds + scans, **classifies data** |
+| Flip toggles (DB/Cron/Auth/RBAC/LLM/Storage/Email) | Provisions per-tenant DB, LLM key, bucket, mail creds; wires cron + RBAC |
+| Paste keys, confirm roles | Stores secrets encrypted, deploys via Coolify, assigns URL + TLS, **backs up** |
+| — | Live URL + invite link + **logs/health in the Kiosk** |
 
 ---
 
-## 1. Why — the problem & the workloads
+## High-level diagram — two planes, three audiences
 
-Real internal apps people have already built or are trying to ship (what matters is the *shape*, not the app):
+```
+                          PEOPLE
+  Creators (non-eng)        Operators (eng)          End users
+        │ use                    │ admin                 │ use apps
+        ▼                        ▼                        ▼
+ ┌───────────────┐       ┌────────────────┐      ┌──────────────────┐
+ │   KIOSK       │       │ COOLIFY         │      │  Tenant apps     │
+ │ (USER PLANE)  │──API─▶│ dashboard       │      │  (behind auth)   │
+ │ ZIP → app,    │       │ (ADMIN PLANE)   │      │                  │
+ │ logs, catalog │       │ infra/ops/debug │      └────────▲─────────┘
+ └──────┬────────┘       └───────┬─────────┘               │
+        │  drives                 │ is the engine           │ serves
+        └─────────────┬───────────┴─────────────────────────┘
+                      ▼
+             COOLIFY ENGINE  (builds, deploys, routes everything)
+```
+Creators see **only** the Kiosk. Operators use **only** Coolify (admin). End users see **only** their app URL.
 
-| App | Shape / needs |
+---
+
+## System diagram — how the pieces compose
+
+```
+── INGRESS (Coolify-managed Traefik) ───────────────────────────────────────
+   https://<app>.apps.internal
+        └▶ oauth2-proxy  (Google login, company domain only; inject identity)
+             └▶ authz service  (per-app manifest rules, default-deny)
+                  └▶ tenant app container
+
+── CONTROL PLANE :: KIOSK  (itself a Coolify app, behind oauth2-proxy) ──────
+   Web UI ─ Orchestrator/API ─ Build workers(+allowlist+Trivy) ─ Detect/LLM
+          ─ Catalog ─ Lifecycle ─ Audit ─ Observability aggregator
+                              │ drives (least-priv token)
+                              ▼  Coolify REST API
+
+── COOLIFY ENGINE ───────────────────────────────────────────────────────────
+   build/deploy-from-image · cron (Scheduled Tasks) · env/secret store ·
+   per-app CPU/mem limits · rollback · TLS/domains · multi-server placement ·
+   scheduled DB backups · deploy notifications · ADMIN DASHBOARD (operators)
+
+── SHARED SERVICES (Coolify-deployed, governed, per-tenant-scoped) ───────────
+   LiteLLM ───▶ OpenRouter        sqld/libSQL (DB namespaces) ──▶ S3 replication
+   Postgres (metadata + audit)    Redis (cache/limits)
+   MinIO / S3  (DB backups + per-app buckets)     Email relay ──▶ SES / Postal
+   Observability: Uptime-Kuma · Grafana+Loki · GlitchTip (errors)
+
+── PER TENANT (provisioned by the Kiosk) ────────────────────────────────────
+   Coolify Destination (isolated network) · DB namespace · LLM virtual key ·
+   object bucket · SMTP creds · confirmed manifest (roles→routes) · owner+team
+```
+
+---
+
+## 1. Why — problem & workloads
+
+Real internal apps, by *shape*:
+
+| App | Needs |
 |---|---|
 | AI Literacy Learning Hub | frontend+API, DB, SSO, custom domain |
-| ADM Tracker (debit-memo) | DB, **per-user RBAC**, self-deploy, ⚠️ booking/PNR (customer) data |
+| ADM Tracker | DB, **per-user RBAC**, **email reports**, ⚠️ booking/PNR (customer) data |
 | AI Engineering Leaderboard | DB, cron, internal-network access |
-| hbow agent (Claude Agent SDK) | long-running **agent/container**, process forking |
-| Wego Translation Manager | DB, SSO, scaling |
-| EnzoBot & self-hosts | a **blessed home** to end off-platform hosting; data governance |
+| hbow agent | long-running **agent/container**, process forking |
+| Translation Manager | DB, SSO, scaling |
+| EnzoBot & self-hosts | a **blessed home**; data governance/visibility |
 
-The gap is **structural, not one-off** (e.g. a crisis-time app that stalled because it needed an engineer to deploy). This platform is the blessed path.
-
-**Use cases** (by persona): platform operators define templates & policy; **non-engineer creators** self-serve provision, deploy, invite users, schedule jobs, manage secrets; **end users** log in with Google and see only what their role permits.
+The gap is **structural** (apps stall waiting for an engineer). This is the blessed path, self-serve.
 
 ---
 
 ## 2. What we support
 
-- **Runtimes:** Node.js and Python.
-- **App shapes:** static client · fullstack (Next.js, FastAPI/Streamlit, …) · backend API · worker/agent (long-running, forking — a strength of the container model).
-- **Add-ons (toggles):** per-tenant Database · Cron · Google auth · per-app RBAC · LLM access.
-- **Delivery:** drop a ZIP (or connect a git repo). A **Dockerfile is always the contract** — generated for the creator, never hand-written.
+- **Runtimes:** Node.js, Python. **Shapes:** static · fullstack · backend API · worker/agent.
+- **Add-ons (toggles):** Database · Cron · Google auth · per-app RBAC · LLM · **Object storage** · **Email**.
+- **Contract:** a **Dockerfile is always the artifact** — LLM-generated for the creator, never hand-written.
 
 <details>
 <summary><b>Feature → component map</b></summary>
 
 | Feature | Delivered by |
 |---|---|
-| Host a Node/Python app | generated Dockerfile → image → Coolify deploy-from-image |
+| Host Node/Python app | generated Dockerfile → image → Coolify deploy-from-image |
 | Database | libSQL/sqld namespace + injected `DATABASE_URL` |
 | Cron | Coolify Scheduled Task |
 | Google login | oauth2-proxy (company domain only) |
-| End-user RBAC | oauth2-proxy (authN) + manifest-driven authz service (authZ) |
-| LLM app | LiteLLM per-tenant virtual key + injected `OPENAI_/ANTHROPIC_` env |
+| End-user RBAC | oauth2-proxy (authN) + manifest-driven authz (authZ) |
+| LLM | LiteLLM per-tenant virtual key + injected env |
+| Object storage | per-app MinIO/S3 bucket (or Coolify volume) |
+| Email | shared relay, injected SMTP creds |
 | Secrets | Coolify encrypted env store |
 | Custom domain + TLS | Coolify (Traefik) |
-| Isolation | per-app limits + Destination-per-tenant + default-deny RBAC + LLM budgets |
+| Backups | sqld→S3 replication + Coolify DB backups |
+| Isolation | Destination-per-tenant + per-app limits + default-deny RBAC + budgets |
 </details>
 
 ---
 
-## 3. Architecture at a glance
+## 3. Deviations & extensions from native Coolify (and why)
 
-```
-┌─ Kiosk (ours) ── ZIP-drop · detect+probe · LLM Dockerfile+heal · build+scan image
-│                   · mint LLM key · provision DB · drive Coolify API
-├─ Coolify (engine) ── ingress/TLS/domains · deploy-from-image · CRON · env/secrets
-│                       · resource limits · rollback · multi-server placement
-├─ Platform services (run on Coolify) ── LiteLLM · oauth2-proxy · authz · sqld · Postgres · Redis
-└─ Tenant apps ── deployed FROM image · 1 Coolify Destination per tenant · auth mw via labels
-```
+We lean on Coolify for everything it does well, and **only build what it genuinely lacks.**
 
-**Division of labor:** Coolify owns the undifferentiated plumbing (~60–70%); the **kiosk + LLM + RBAC** layer is our differentiator. The kiosk drives Coolify entirely through its **REST API**; we build tenant images ourselves and Coolify deploys them (immutable).
+| Coolify provides natively (we use as-is) | We extend / add (and why) |
+|---|---|
+| Ingress, TLS, custom domains | **Kiosk** — self-serve, non-technical ZIP→app UX (Coolify's UI is engineer-facing) |
+| Build + deploy-from-image, rollback | **LLM Dockerfile generation + heal + probe detection** (Coolify won't author a Dockerfile for you) |
+| Cron (Scheduled Tasks) | **LiteLLM gateway + per-tenant virtual keys** (multi-tenant LLM cost/governance — not a Coolify concept) |
+| Env/secret store | **oauth2-proxy + manifest-driven authz** (Coolify RBAC gates *its dashboard*, not *end-users of apps*) |
+| Per-app CPU/mem limits | **Per-tenant sqld namespaces + RLS wiring** (Coolify provisions whole DB instances; namespaces are ~50–100× cheaper) |
+| Multi-server placement | **Destination-per-tenant orchestration** for network isolation |
+| Scheduled DB backups (managed DBs) | **sqld→S3 replication + per-app buckets** (backup for the cheap DB + app file storage) |
+| Deploy notifications | **Shared email relay** for apps (governed outbound mail) |
+| **Admin dashboard (operators use it)** | **Governance layer** — data classification, lifecycle/sprawl control, actor-attributed audit, creator-facing observability |
+
+**Rule:** native Coolify = the admin/infra plane and the deploy engine; our extensions = the **user plane (Kiosk)** + **multi-tenant governance** Coolify doesn't do.
+
+---
+
+## 4. The Kiosk — design, deployment, monitoring
+
+The Kiosk is the **user plane**. It's the only thing creators see, and it's the brain that turns a ZIP into a governed, hosted app.
+
+### Design (components)
+```
+Kiosk
+ ├─ Web UI ............ ZIP-drop, toggles, catalog, per-app logs/health, invites
+ ├─ Orchestrator/API .. idempotent provisioning saga; drives Coolify API
+ ├─ Build workers ..... build image + base-image allowlist + Trivy scan; queue+pool
+ ├─ Detect + LLM ...... stack detection, LLM Dockerfile gen + heal, probe scripts,
+ │                      data-classification pass
+ ├─ Catalog + Lifecycle activity tracking, sleep/archive, owner+team, transfer
+ ├─ Audit ............. append-only, actor = Google identity
+ └─ Observability agg .. surfaces Coolify logs/health; tracks builds, LLM spend
+```
+State lives in the **metadata Postgres** (tenant↔app↔db, manifests, roles, audit, catalog); UI/API/workers are otherwise stateless.
+
+### Deployment (dogfooded)
+- The Kiosk is **itself a Coolify Dockerfile app**, deployed the same way tenant apps are — behind **oauth2-proxy** (company Google), with a **least-privilege Coolify token**.
+- **Build workers run isolated** from the token-holding API process (so a bad build can't reach the master tokens).
+- **HA:** stateless UI/API scale as replicas behind Coolify's proxy; state is in Postgres.
+- Operators manage/troubleshoot the Kiosk (and everything) from the **Coolify admin dashboard**.
+
+### Monitoring — the Kiosk monitors everything
+- **Creator-facing:** surfaces each app's Coolify **logs, health, deploy history** in the Kiosk (via API) — creators never open Coolify.
+- **Signals it aggregates:** build status, **LLM spend** (LiteLLM), **app activity** (proxy logs → lifecycle), health/uptime, **audit** events.
+- **Operator-facing:** Coolify's built-in **deploy-failure notifications** + **Uptime-Kuma** (uptime/alerts) + **Grafana/Loki** (fleet metrics/logs) + **GlitchTip** (app errors). Operators watch these + the Coolify dashboard.
+
+---
+
+## 5. User journey
+
+**Create:** Google sign-in → name → **drop ZIP** → detect + LLM Dockerfile + build-verify-heal + **data-classification** → plain-English summary + toggles (LLM-proposed roles) → **Deploy**.
+**Provision (saga):** build+scan → push → DB namespace → LLM key → bucket + SMTP creds → set env/domain/limits/cron via Coolify API → attach auth middleware chain → deploy in tenant Destination → enable backup → record owner + manifest + audit.
+**Use:** `Traefik → oauth2-proxy → authz → app → its DB + LLM gateway`. **Maintain:** new ZIP → rebuild → health-checked swap; rollback = redeploy prior image.
 
 <details>
-<summary><b>Component roles</b></summary>
+<summary><b>Deployments, rollback & migration caveat</b></summary>
 
-| Component | Role | Ours / Coolify |
-|---|---|---|
-| **Kiosk** | self-serve UI, detection, LLM Dockerfile gen + heal, drives Coolify API | ours |
-| **Coolify** | proxy/TLS, build, lifecycle, cron, env, limits, rollback, multi-server | engine |
-| **LiteLLM** | LLM gateway: per-tenant virtual keys, budgets, tenant-scoped cache, one OpenRouter master key | ours (on Coolify) |
-| **oauth2-proxy** | authN — Google login restricted to company domain, forward-auth | ours (on Coolify) |
-| **authz service** | authZ — per-app role→path/method from the manifest, default-deny | ours (on Coolify) |
-| **sqld (libSQL)** | per-tenant DB namespaces (cheap) | ours (on Coolify) |
-| **Postgres** | platform metadata (tenant↔app↔db, manifests, roles) + RLS for row-level apps | ours (on Coolify) |
-| **Registry** | immutable tenant images | ours |
+Update = new ZIP/git push → new image tag → allowlist + Trivy scan → manifest **delta** re-check → Coolify **health-checked zero-downtime rollout**. Rollback = redeploy a prior immutable tag. Config change = Coolify env API + redeploy. **DB migrations are the app's job** (startup or Scheduled Task); image rollback reverts compute, **not schema** → forward-fix.
 </details>
 
 ---
 
-## 4. How it works — user journey
-
-**Create:** sign in (Google) → name app → **drop ZIP** → kiosk detects stack, generates Dockerfile, runs a **build-verify-heal** loop → shows a plain-English summary + toggles (DB/LLM/Auth/RBAC/Cron) with LLM-proposed roles → **Deploy**.
-
-**Provision (invisible saga):** build+scan image → push to registry → create DB namespace → mint LiteLLM key → set env/domain/limits/cron via Coolify API → attach auth middleware chain via custom labels → deploy in the tenant's Destination → record mapping + manifest.
-
-**Use:** end users hit `Traefik → oauth2-proxy (Google) → authz (role check) → app → its own DB + LLM gateway`. **Maintain:** update = new ZIP → rebuild → health-checked swap; rollback = redeploy prior image.
+## 6. Operations (Day-0)
 
 <details>
-<summary><b>Deployments, rollback & the migration caveat</b> (coding-agent detail)</summary>
+<summary><b>Backup & DR</b> — per-tenant data, sqld SPOF</summary>
 
-- **Update:** new ZIP (or git push) → kiosk rebuilds a **new image tag** (`:build-id`) → base-image allowlist + Trivy scan → push → kiosk re-checks the RBAC manifest **delta** → Coolify API points the app at the new tag and does a **health-checked, zero-downtime rollout** (old container keeps serving if health fails).
-- **Rollback:** redeploy a **prior immutable image tag** — instant, no rebuild.
-- **Config/secret change:** update via Coolify env API → redeploy.
-- **DB migrations:** platform does **not** auto-migrate — app runs them on startup or via a Scheduled Task. Asymmetry: image rollback reverts **compute**, not **schema** → forward-fix migrations.
-- Updates traverse the **same** build→scan→manifest-recheck→deploy pipeline, so no control is bypassed on update.
+**sqld → continuous S3 replication** (libSQL "bottomless") gives per-namespace point-in-time restore *and* turns sqld from a data-loss SPOF into a fast-restore one. **Coolify scheduled backups** cover the metadata Postgres; **source ZIPs + Dockerfiles retained** so images are reproducible. RPO ≈ minutes, RTO = restore-to-new-sqld. (Confirm bottomless + namespaces on the pinned sqld.)
+</details>
+
+<details>
+<summary><b>Data-classification enforcement</b> — undeclared PII/PNR</summary>
+
+**Attestation + ingest detection:** the Kiosk's analysis pass (LLM/regex over code, schema, `.env`, sample data) scans for customer-data signals; **egress/source signals** flag apps reaching prod/customer systems. **Undeclared-but-detected → block/escalate** to the hardened-tier policy. Catches accidents (the actual threat), not determined evaders. Real enforcement = **tier separation** the flag triggers.
+</details>
+
+<details>
+<summary><b>Lifecycle, ownership & sprawl</b></summary>
+
+Every app has **owner + team**. **Activity tracking** (proxy logs) drives **flag → sleep (Coolify stop, reclaim resources) → archive (keep data backup) → delete (retention)**. A **fleet catalog** in the Kiosk gives visibility + duplicate detection (the brief's concern). **Offboarding** (Google account disabled) → ownership transfer or archive.
+</details>
+
+<details>
+<summary><b>Observability</b></summary>
+
+MVP: surface Coolify per-app logs/health in the Kiosk + Coolify's built-in failure alerts. Add **Uptime-Kuma** (uptime/alerts), **Grafana+Loki** (fleet metrics/logs), **GlitchTip** (app error tracking). All self-hosted, lightweight, Coolify-deployed.
+</details>
+
+<details>
+<summary><b>Audit</b></summary>
+
+Kiosk writes an **append-only, actor-attributed** log (actor = Google identity — Coolify only sees the Kiosk's token, so attribution must happen in the Kiosk) for provision/deploy/role/secret/offboard actions; proxy + authz record access decisions. Retained in Postgres + optionally shipped to object storage (WORM). Underpins PDPL/Nusuk.
+</details>
+
+<details>
+<summary><b>Object storage & email</b></summary>
+
+**Object storage** (MinIO/S3 — also used for backups): per-app **scoped bucket** via injected env; Coolify volume as zero-config fallback for local-file apps. **Email:** one **shared, governed relay** (SES/Resend or self-hosted Postal), injected as SMTP creds — deliverability (SPF/DKIM on one domain), per-tenant rate limits, outbound audit. Same "central governed gateway" pattern as LiteLLM.
+</details>
+
+<details>
+<summary><b>Multi-container apps & build UX</b></summary>
+
+**Multi-service:** default single image; genuine multi-service → **multiple linked Coolify apps in one project** (images-not-compose preserved for RBAC labels); permit **compose** when only app-level (not per-path) auth is needed. **Build UX:** queue + scalable worker pool; on heal-failure show a **plain-English diagnosis + suggested fix + escalate-to-human + save-as-draft** — never a raw stack trace.
 </details>
 
 ---
 
-## 5. Key decisions & rationale (for buy-in)
+## 7. Key decisions & rationale
 
 | Decision | Why |
 |---|---|
-| **Coolify as the engine** (Apache-2.0, self-hosted) | Removes ~60–70% of plumbing (ingress, build, cron, lifecycle, env, scaling). Verified: full REST API, per-tenant network isolation via Destinations, deploy-from-image, custom labels. **No blocker.** |
-| **Mandated Dockerfile, LLM-generated** | One uniform contract → simple, reproducible, portable hosting. Creator never writes it. |
-| **Trust model: trusted-internal, accident-hardened** | Threat is *mistakes*, not malice → keep blast-radius controls, drop expensive anti-malice hardening (gVisor). Standard `runc` → trivial parity, Coolify stays simple. |
-| **Auth: oauth2-proxy + company Google** | Yes, users log in with their **company Google account**. Not Clerk (SaaS-only, SDK-shaped, breaks the proxy model + residency). Not Authelia (can't broker Google). |
-| **DB: libSQL/sqld namespaces (default)** | ~**50–100× cheaper RAM** than a Postgres instance per tenant. Postgres only for apps needing it (e.g. row-level security). |
-| **No source modification (no codemods)** | Detection uses static + LLM-generated **probe scripts** + a confirmed manifest; the creator's code is never rewritten. |
-| **RBAC = authN split from authZ** | oauth2-proxy authenticates; a small **manifest-driven authz service** does per-app authorization (dynamic, no per-app config reloads). |
+| Coolify as engine (Apache-2.0) | Removes ~60–70% of plumbing; verified no blocker; **admin plane for operators** |
+| Kiosk as user plane | Non-engineers can't use Coolify; the Kiosk is the only surface they see |
+| Mandated LLM-generated Dockerfile | One reproducible contract; creator writes nothing |
+| Trusted-internal, accident-hardened | Threat is mistakes → keep blast-radius controls, drop gVisor → Coolify stays simple |
+| oauth2-proxy + company Google | Users log in with company Google. Not Clerk (SaaS/SDK/residency); not Authelia (can't broker Google) |
+| libSQL/sqld namespaces default | ~50–100× cheaper than Postgres-per-tenant; Postgres only when needed (RLS) |
+| No source modification | Detection = static + LLM probes + confirmed manifest; code never rewritten |
+| Shared governed gateways | LiteLLM (LLM), email relay, object storage — central, per-tenant-scoped, audited |
 
 <details>
-<summary><b>Per-app RBAC internals</b> (authN/authZ split, middleware chain, row-level)</summary>
+<summary><b>Per-app RBAC internals</b></summary>
 
-**Chain (attached per app via Coolify custom labels):**
-```
-request → oauth2-proxy (Google, company-only; inject X-Auth-Request-Email)
-        → platform-authz (host → manifest rules → email→role → allow/deny; default-deny)
-        → app
-```
-- **Roles** (Admin/Editor/Viewer) LLM-proposed from the route map, creator-confirmed into the **manifest** (source of truth in Postgres). Deterministic lookup — **LLM is offline**, never in the request path.
-- **Coarse (path/method/role) = zero app code**, proxy-enforced, fail-closed. A missed route is denied.
-- **Row-level ("only my own rows") — as no-code as possible:** opt-in per app; **Postgres RLS** enforces at the DB (no filter code, can't leak even if buggy); creator **declares** ownership (toggle + confirm owner column); identity reaches the DB via an **identity-aware gateway** (zero code) or a confirmed one-liner; **fail-closed** (no rows if user unset). Requires non-owner role + `FORCE ROW LEVEL SECURITY`.
-</details>
-
-<details>
-<summary><b>Detection & app contract</b> (how RBAC is applied without restricting authoring)</summary>
-
-- **Guarantee = fail-closed default-deny**, not perfect detection — a missed route is denied, not exposed.
-- **Multi-signal detection:** static route parsing + **LLM-generated ephemeral probe scripts** run against a throwaway instance + LLM semantic classification, reconciled; low-confidence items flagged for confirmation.
-- **Conventions recommended, not mandated** (12-factor, conventional router, read identity headers, no self-auth); non-conformers still deploy with lower auto-confidence. **No codemods.**
-- **Confirmed manifest** = source of truth; re-checked as a **delta** on each redeploy.
-</details>
-
-<details>
-<summary><b>Secrets & LLM specifics</b></summary>
-
-- **Secrets:** detected by name (never value), pasted in the kiosk, stored in **Coolify's encrypted env store**, injected at deploy. Hard-coded keys are **detected + flagged** (not rewritten). Kiosk config keys: `COOLIFY_*`, `REGISTRY_*`, `OPENROUTER_API_KEY`, `LITELLM_MASTER_KEY`.
-- **LLM:** one OpenRouter master key lives only in LiteLLM; each tenant gets a **scoped virtual key** (budget + rate limit + model allowlist + `tenant_id`), injected as `OPENAI_/ANTHROPIC_` env so any SDK routes through governance. **Tenant-scoped cache** (verify the namespace hook, else disable on tenant keys). OpenRouter provider-filtering + ZDR for data governance.
-</details>
-
-<details>
-<summary><b>Scaling & parity</b></summary>
-
-- **More powerful app:** raise per-app CPU/mem limits and/or place it on a **beefier server** in the Coolify fleet (per-resource placement). No replicas needed.
-- **Spread load:** add servers to the fleet.
-- **Ceiling:** single-app **replica-HA** isn't native until Coolify v5 → that one app graduates to Cloud Run/Fly/K8s (a re-point via the Dockerfile contract).
-- **Cheap-DB scale:** more sqld nodes → Turso Cloud. **Parity:** same Coolify on Colima (laptop) and EC2; only config differs.
+Chain via Coolify custom labels: `oauth2-proxy (Google, company-only) → authz (host→manifest rules→email→role→allow/deny, default-deny) → app`. Roles LLM-proposed, creator-confirmed into the **manifest** (Postgres). Coarse (path/method) = zero app code, fail-closed. **Row-level** = opt-in Postgres **RLS** (no filter code; non-owner role + `FORCE RLS`; deny-when-unset), identity reaches the DB via an identity-aware gateway (zero code) or a confirmed one-liner.
 </details>
 
 ---
 
-## 6. Security posture
+## 8. Security posture
 
-**Verdict:** secure *for the trusted-internal, accident-hardened model* once the fixes below land — with two "arbitrary code on the shared host" risks **contained, not eliminated** (gVisor excluded to keep Coolify simple), and **customer-data apps kept off this tier by policy.**
+**Verdict:** secure *for the trusted-internal, accident-hardened model* with the fixes below — two "arbitrary code on the shared host" risks **contained, not eliminated** (gVisor excluded), and **customer-data apps kept off this tier by policy**.
 
-**Central tension:** the pipeline feeds **untrusted, LLM-interpreted input** (the ZIP) **into privileged operations** (build). So fixes apply regardless of trusting authors.
-
-**Highest-leverage fixes (do first, all Coolify-friendly):**
-1. **Base-image allowlist + Trivy scan** — mitigates the worst hole (build-time RCE).
-2. **Network segmentation** — expose LLM gateway + each app's DB as **Traefik hostnames** so tenant Destinations hold no datastores; default-deny egress.
-3. **Hardened ingress** — strip inbound `X-Auth-*`, fail-closed authz, path canonicalization.
+**Top fixes (all Coolify-friendly):** base-image allowlist + Trivy scan (build-RCE); network segmentation via **Traefik-hostname platform access** (tenant Destinations hold no datastores); strip inbound `X-Auth-*` + fail-closed authz + path canonicalization.
 
 <details>
-<summary><b>Full findings → fixes table</b> (by where the fix lives)</summary>
-
-🟦 Coolify-native · 🟩 config on a service we run · 🟨 kiosk logic · 🟥 accepted/contained
+<summary><b>Full findings → fixes</b> (🟦 Coolify · 🟩 service config · 🟨 kiosk · 🟥 accepted)</summary>
 
 | Finding | Fix | Where |
 |---|---|---|
-| Build-time RCE (LLM Dockerfile, unsandboxed build) | base-image allowlist + Trivy scan; full sandbox is bespoke (deferred) | 🟨 + 🟥 |
-| sqld admin unauth/reachable → cross-tenant DB | admin auth key + per-namespace-scoped tokens + internal net | 🟩 + 🟦 |
-| Kiosk holds master tokens | least-priv Coolify token; behind oauth2-proxy; per-user quotas | 🟦 + 🟨 |
-| Relaxed egress → lateral movement | Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress | 🟦 + 🟩 |
-| `X-Auth-*` header spoofing | Traefik strips inbound auth headers; ports unpublished | 🟦 |
-| authz fail-open / path bypass / stale | fail-closed; canonicalize paths; invalidate cache on role change | 🟨 |
-| Postgres RLS owner bypass | non-owner role + `FORCE ROW LEVEL SECURITY`; deny when unset | 🟨 |
-| Over-permissive manifest (rubber-stamp) | most-restrictive default; explicit opt-in; loud "public" warning | 🟨 |
-| Cross-tenant LLM cache leak | verify namespace hook (two-tenant test); else disable tenant cache | 🟩 |
-| Customer data → OpenRouter / wrong tier | provider filtering + ZDR; **policy: not hosted here** | 🟩 + 🟥 |
-| Zip-slip / zip-bomb | safe extract (reject `../`, cap size/ratio/count) | 🟨 |
-| Secrets blast radius | least-priv token; block deploy on hard-coded secret; no build args | 🟦 + 🟨 |
-| Probe scripts mutate/leak | disposable verify instance + throwaway DB | 🟨 |
+| Build-time RCE | base-image allowlist + Trivy scan; full sandbox bespoke (deferred) | 🟨+🟥 |
+| sqld admin unauth/reachable | admin auth key + per-namespace tokens + internal net | 🟩+🟦 |
+| Kiosk master tokens | least-priv token; behind oauth2-proxy; isolate build workers; per-user quotas | 🟦+🟨 |
+| Lateral movement | Destination-per-tenant; platform svcs via Traefik hostnames; default-deny egress | 🟦+🟩 |
+| Header spoofing | strip inbound `X-Auth-*`; ports unpublished | 🟦 |
+| authz fail-open/path bypass | fail-closed; canonicalize; invalidate cache on role change | 🟨 |
+| Postgres RLS bypass | non-owner role + `FORCE ROW LEVEL SECURITY` | 🟨 |
+| Over-permissive manifest | most-restrictive default; explicit opt-in; loud "public" warning | 🟨 |
+| Cross-tenant LLM cache | verify namespace hook; else disable tenant cache | 🟩 |
+| Customer data → OpenRouter | provider filtering + ZDR; **policy: not hosted here** | 🟩+🟥 |
+| Zip-slip / bomb | safe extract (reject `../`, cap size/ratio/count) | 🟨 |
+| Secrets blast radius | least-priv token; block on hard-coded secret; no build args | 🟦+🟨 |
 
-**Nothing needs new infrastructure** — Coolify features, config on services we already run, or kiosk logic.
-</details>
-
-<details>
-<summary><b>Accepted / contained risks</b></summary>
-
-- **Container escape** (shared kernel, no gVisor) → contained by network segmentation; eliminate only with gVisor (reopens the Coolify-simplicity trade).
-- **Build-time RCE on the build host** → mitigated by allowlist + scan; same class as escape.
-- **Customer/regulated-data apps** (PNR) → **not hosted on this tier** (policy); kiosk flags & blocks/escalates. They stay off-platform or move to a hardened tier.
-- **Single-box availability** → mitigated by snapshots + fast declarative rebuild.
+**Accepted/contained (no gVisor):** container escape (contained by segmentation) · build-RCE residual · customer-data apps off-tier (policy).
 </details>
 
 ---
 
-## 7. Open items & decisions needed
+## 9. Open items (genuinely still open)
 
 | Item | Status |
 |---|---|
-| Custom Traefik labels settable via API (RBAC attach) | ✅ confirmed (`custom_labels`) — verify persistence on the pinned version |
-| Creating a Coolify **Destination per tenant** via API | ⚠️ assignment confirmed + immutable; **creation path** needs a spike (pre-create pool / register network / MCP client) |
-| Tenant-scoped LLM **cache** hook | ⚠️ verify with two-tenant identical-prompt test |
-| **Auth smoke test** (unauth request must not 200) | to add when built |
-| **Fine-grained row-level** RBAC | designed as-no-code-as-possible; the one app-cooperative edge |
-| **gVisor / build sandbox** | excluded for simplicity → the two contained risks; reopen only for adversarial/customer-data/internet-facing apps |
-| **Customer-data policy** | decided: not on this tier |
+| Coolify Destination **creation** via API | assignment confirmed + immutable; **creation path** = spike (pool / register / MCP) |
+| Tenant-scoped LLM cache hook | verify (two-tenant identical-prompt test) |
+| Auth smoke test | add when built (unauth request must not 200) |
+| sqld bottomless + namespaces | confirm on pinned version |
+| Fine-grained row-level | designed as-no-code-as-possible; the app-cooperative edge |
+| gVisor / build sandbox | excluded for simplicity → contained risks; reopen for adversarial/internet-facing |
 
 ---
 
 ## Glossary
 
-- **Kiosk** — the self-serve control-plane app creators use; drives Coolify's API.
-- **Coolify** — open-source PaaS used as the deployment engine.
+- **Kiosk** — user-facing control plane; creators' only surface; drives Coolify's API.
+- **Coolify** — open-source PaaS used as the engine + **admin/ops console** for operators.
 - **Destination** — a Coolify Docker-network deployment target; one per tenant = network isolation.
-- **Manifest** — the confirmed per-app record of routes, role→path rules, port, secrets, cron.
-- **forward-auth** — a proxy middleware that authenticates/authorizes a request before it reaches the app (zero app code).
-- **Virtual key** — a per-tenant, budgeted LiteLLM key mapped to the OpenRouter master key.
+- **Manifest** — confirmed per-app record: routes, role→path rules, port, secrets, cron.
+- **forward-auth** — proxy middleware that authN/authZ a request before it reaches the app (zero app code).
+- **Virtual key** — per-tenant, budgeted LiteLLM key mapped to the OpenRouter master key.
 - **RLS** — Postgres Row-Level Security; row-level access enforced by the database.
+- **Bottomless** — libSQL continuous replication to S3 for backup/PITR.
