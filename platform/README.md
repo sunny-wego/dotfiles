@@ -21,6 +21,8 @@ See `docs/coolify-evaluation.md` for the verified architecture + operating rules
 | `docs/secrets.md` | App env/secrets: define → store (Coolify) → inject. |
 | `docs/app-contract-and-detection.md` | How RBAC is applied without restricting authoring: fail-closed default-deny + multi-signal detection (incl. LLM-generated probe scripts). |
 | `docs/user-journey.md` | End-to-end walkthrough for a stock Next.js app using every feature. |
+| `docs/security-audit.md` | Surface-by-surface audit, per-item fixes (by where they live), what's contained-not-fixed, leverage plan. |
+| `docs/deployments.md` | App update / rollback / config-change flow (immutable images, Coolify health-checked rollout). |
 
 ## Operating rules (from the Coolify verification)
 

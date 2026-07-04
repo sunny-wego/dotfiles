@@ -75,15 +75,26 @@ to confirm the app boots and serves before going live.
 | Accidental secret leak | Move 5 (encryption at rest) |
 | Shared-service SPOF/saturation | Move 4 + Move 5 (caps, backups) |
 
+### Policy: customer-data apps do NOT run here
+Because gVisor + a build sandbox are deliberately excluded (to keep Coolify simple),
+the "arbitrary code on the shared host" risks (build-RCE, container escape) are
+*contained, not eliminated*. Therefore **apps handling customer/regulated data (e.g.
+booking/PNR) are not hosted on this tier** — they stay off-platform or move to a
+separate hardened tier (gVisor + rootless build + strict egress). The kiosk flags
+apps that declare customer data and blocks/escalates them. See `security-audit.md`.
+
 ### Accepted residual risks
 1. **Compromise, not just mistakes, can escalate.** Without gVisor/build-sandbox/
    strict-network, an *externally compromised* app (dependency supply-chain, an RCE
    bug in tenant code) could reach the kernel, other tenants, or IMDS. Acceptable
-   because apps are internal-only / behind VPN / low-sensitivity. **Trigger to
-   re-add gVisor for a specific app:** it becomes internet-facing or handles
-   sensitive data.
-2. Single-box availability (mitigated by fast rebuild + snapshots, not eliminated).
-3. sqld per-namespace CPU not hard-capped (monitor; graduate heavy tenants).
+   because apps are internal-only / behind VPN / low-sensitivity, and customer-data
+   apps are excluded (above). Contained by network segmentation (see
+   `security-audit.md` #4). **Trigger to harden a specific app** (gVisor + sandbox):
+   internet-facing or handles sensitive data.
+2. **Build-RCE on the build host** — mitigated by base-image allowlist + Trivy scan,
+   not eliminated (real sandbox is bespoke). Same class as container escape.
+3. Single-box availability (mitigated by fast rebuild + snapshots, not eliminated).
+4. sqld per-namespace CPU not hard-capped (monitor; graduate heavy tenants).
 
 ### Deliberately NOT built (anti-over-engineering)
 No gVisor/Firecracker/Kata, rootless-build sandbox, strict egress firewall,
