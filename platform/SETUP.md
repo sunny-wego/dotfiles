@@ -32,7 +32,8 @@ it comes back as a private URL behind login.
 
 Everyday targets: `make logs` (tail kiosk), `make down` (stop, keep data),
 `make clean` (stop **and delete volumes** — destructive), `make check`
-(no-Docker syntax + compose validation).
+(no-Docker syntax + compose validation), `make test` (fast behaviour/contract
+unit tests — no Docker; `pip install -r kiosk/requirements-dev.txt` once).
 
 ## What differs by target
 

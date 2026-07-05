@@ -48,3 +48,7 @@ smoke: ## Run the M1 done-when checks against a running platform
 check: ## Syntax-check the kiosk Python (no Docker needed)
 	python3 -m compileall -q kiosk/app authstub && echo "python ok"
 	@$(COMPOSE) config >/dev/null && echo "compose ok"
+
+.PHONY: test
+test: ## Run the fast unit tests — behavior/contract, no Docker/Postgres
+	python3 -m pytest kiosk/tests -q
