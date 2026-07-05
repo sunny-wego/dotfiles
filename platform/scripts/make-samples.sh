@@ -6,8 +6,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dist="$here/dist"
 mkdir -p "$dist"
 
-for app in node-hello python-hello leaderboard; do
-  src="$here/samples/$app"
+# Every directory under samples/ is a candidate tenant app.
+for src in "$here"/samples/*/; do
+  app="$(basename "$src")"
   out="$dist/$app.zip"
   rm -f "$out"
   ( cd "$src" && zip -qr "$out" . -x '*/node_modules/*' '*/__pycache__/*' )
