@@ -111,9 +111,13 @@ class CoolifyBackend:
         return fields
 
     def redeploy(self, slug: str) -> tuple[bool, str, str]:
+        # Any app that has been built (has an image + port) can be redeployed —
+        # including one still "deploying" or "failed" — so a secret/egress edit
+        # mid-deploy isn't silently dropped. Nothing to do only before the first
+        # successful build.
         rec = db.get_app(slug)
-        if not rec or not rec.get("image") or rec.get("status") != "running":
-            return False, "", "app is not currently running; nothing to redeploy"
+        if not rec or not rec.get("image") or not rec.get("port"):
+            return False, "", "app has no build yet; nothing to redeploy"
         env = tenant_env.build_env(slug)
         return self.deploy(slug, rec["image"], rec["port"], env=env)
 

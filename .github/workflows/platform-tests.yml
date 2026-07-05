@@ -16,6 +16,24 @@ jobs:
     defaults:
       run:
         working-directory: platform
+    services:
+      # The behaviour/contract tests are no-infra; the deploy-lifecycle tests
+      # (test_deploy_flow.py) need a Postgres and skip themselves when one isn't
+      # reachable, so this service just lets them actually run in CI.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kiosk
+          POSTGRES_PASSWORD: kiosk
+          POSTGRES_DB: kiosk
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U kiosk -d kiosk"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://kiosk:kiosk@localhost:55432/kiosk
+      PG_ADMIN_URL: postgresql://kiosk:kiosk@localhost:55432/kiosk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

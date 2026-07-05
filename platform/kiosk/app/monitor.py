@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import threading
 import time
+from datetime import datetime, timezone
 
 from . import db, deployer, provision_db, slack
 from .config import config
@@ -56,11 +57,27 @@ def _reconcile_deploys() -> None:
         slug = row["slug"]
         state = deployer.deploy_status(slug)
         if state == "deploying":
+            # Still pending — give up only if it has been stuck past the timeout,
+            # so an unmapped status or an unreachable Coolify can't hang forever.
+            if _deploying_too_long(row):
+                db.set_app_status(slug, "failed")
+                slack.escalate("monitor", slug,
+                               f"Deploy stuck 'deploying' for over "
+                               f"{config.DEPLOY_TIMEOUT_S}s — marking failed")
             continue
         db.set_app_status(slug, state)
         if state == "failed":
             slack.escalate("monitor", slug,
                            "Coolify deploy did not become healthy")
+
+
+def _deploying_too_long(row: dict) -> bool:
+    updated = row.get("updated_at")
+    if not isinstance(updated, datetime):
+        return False
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - updated).total_seconds() > config.DEPLOY_TIMEOUT_S
 
 
 def _check_disk() -> None:

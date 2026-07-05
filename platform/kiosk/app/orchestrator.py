@@ -110,14 +110,6 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
             "reason": outcome.reason, "tokens": llm.tokens_used,
             "pushed": outcome.pushed,
         })
-        if outcome.ok and outcome.push_error:
-            slack.escalate(
-                job.actor, slug,
-                "Registry push FAILED (not a benign 'registry down' error). App "
-                "deploys from the local image but won't be pullable on a "
-                "recreate/remote deploy.",
-                {"detail": outcome.push_error})
-
         if not outcome.ok:
             job.status = "failed"
             db.set_app_status(slug, "failed")
@@ -127,6 +119,22 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
                 f"Build could not be healed: {outcome.reason}",
                 {"attempts": outcome.attempts},
             )
+            return
+
+        # Coolify deploys the image by PULLING it from the registry, so a failed
+        # push is fatal here (unlike the old local-daemon deploy, which could run
+        # a not-pushed image). Fail the provision with a clear reason rather than
+        # triggering a Coolify deploy that can only fail to pull.
+        if outcome.push_error:
+            job.status = "failed"
+            db.set_app_status(slug, "failed")
+            job.log("BUILD FAILED: registry push failed — Coolify deploys from "
+                    f"the registry, so the image must be pushable. {outcome.push_error}")
+            slack.escalate(
+                job.actor, slug,
+                "Registry push FAILED — Coolify can't pull the image, so the "
+                "deploy can't proceed. Check the registry is reachable + trusted.",
+                {"detail": outcome.push_error})
             return
 
         job.log(f"build ok after {outcome.attempts} attempt(s)")

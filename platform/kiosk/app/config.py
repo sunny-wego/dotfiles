@@ -102,6 +102,10 @@ class Config:
     COOLIFY_MEMORY_LIMIT = os.environ.get("COOLIFY_MEMORY_LIMIT", "")
     # HTTP timeout for Coolify API calls (deploys are async; we only trigger).
     COOLIFY_TIMEOUT_S = _int("COOLIFY_TIMEOUT_S", 30)
+    # How long an app may sit in "deploying" before the reconciler gives up and
+    # marks it failed — so an async deploy that never reports running/failed
+    # (unmapped status, Coolify unreachable) can't hang in "deploying" forever.
+    DEPLOY_TIMEOUT_S = _int("KIOSK_DEPLOY_TIMEOUT_S", 900)
     # Optional docker network for tenant builds (e.g. "host"). Some corporate
     # networks require builds to run on the host network to reach an egress
     # proxy / internal mirrors. Empty = docker's default build network.
