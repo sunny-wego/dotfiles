@@ -44,6 +44,10 @@ logs: ## Tail kiosk logs
 samples: ## Zip the Node + Python sample apps into ./dist
 	./scripts/make-samples.sh
 
+.PHONY: parity
+parity: ## Coolify parity gate — validate the client against the live Coolify
+	./coolify/parity-gate.sh
+
 .PHONY: check
 check: ## Syntax-check the kiosk Python (no Docker needed)
 	python3 -m compileall -q kiosk/app authstub && echo "python ok"

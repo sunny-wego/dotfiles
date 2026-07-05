@@ -54,21 +54,30 @@ per-tenant `pg_dump` backups, and actor-attributed audit.
 ## The auth chain still applies — verify this first
 
 Tenant apps must stay behind `strip-auth-in → slug-<slug> → forwardauth →
-appauthz` (README §9; enforced identically for both engines by
-`kiosk/app/backends/labels.py`). Under Coolify:
+appauthz` (README §9; built by `kiosk/app/backends/labels.py`). Under Coolify:
 
-1. The Kiosk sets the chain as **custom Traefik labels** on each app, and sets
-   `is_container_label_readonly_enabled` so Coolify does **not** auto-generate a
-   second, unauthenticated router.
+1. The Kiosk sets the chain as **custom Traefik labels** on each app. But
+   Coolify's API has **no field to force "readonly labels"**
+   (`is_container_label_readonly_enabled` is read-only in the spec), so custom
+   labels alone do **not** stop Coolify generating its own domain router. Make
+   the chained router the ONLY one: toggle **Readonly labels** on the app in the
+   dashboard, or don't configure a Coolify domain and let the custom labels own
+   routing. This is the parity gate's #1 check.
 2. The `@file` middlewares the labels reference must exist in **Coolify's**
    Traefik. Install [`traefik-dynamic.yml`](./traefik-dynamic.yml) into Coolify's
    proxy dynamic-config directory (see that file's header) and point its
    `forward-auth` / `kiosk` addresses at the reachable service names.
 
-> **Parity gate (do not skip).** The client's request/response shapes were
-> validated against Coolify's published OpenAPI spec (paths, field names, the
-> required `environment_uuid`, `custom_labels`, env-bulk, deploy/logs params),
-> but no live instance has run. On the EC2 box, run the M1/v1 done-when checks
+> **Parity gate (do not skip).** Run it with one command — `make parity` (==
+> `./coolify/parity-gate.sh`). It drives the shipped `CoolifyClient` against the
+> live Coolify (create → env replace/prune → update → deploy → status → logs →
+> scheduled-task lifecycle → cleanup), so any endpoint/payload mismatch on this
+> Coolify version is pinpointed; set `PARITY_APP_HOST=<slug>.$PLATFORM_DOMAIN`
+> (or run the probe with `PARITY_KEEP=1`) to also auto-check the unauthenticated
+> → 403 invariant. The client's shapes were pre-validated against Coolify's
+> published OpenAPI spec (paths, field names, required `environment_uuid`,
+> `custom_labels`, env-bulk, deploy/logs params), but no live instance has run.
+> On the EC2 box, also run the M1/v1 done-when checks
 > end-to-end against Coolify: drop a Node ZIP and a Python ZIP → each reaches a
 > live URL; a per-tenant `DATABASE_URL` is injected; a Scheduled Task runs;
 > egress to a non-allowlisted host is blocked; a restore-from-backup drill passes.
@@ -101,6 +110,9 @@ sudo ./install.sh
 #    COOLIFY_BASE_URL, COOLIFY_API_TOKEN, COOLIFY_PROJECT_UUID,
 #    COOLIFY_ENVIRONMENT + COOLIFY_ENVIRONMENT_UUID, COOLIFY_SERVER_UUID,
 #    COOLIFY_DESTINATION_UUID
+
+# 4. Run the parity gate (one command; see below).
+make parity     # == ./coolify/parity-gate.sh
 ```
 
 The Kiosk and shared services (Postgres, LiteLLM, egress-proxy, oauth2-proxy) can

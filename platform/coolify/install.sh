@@ -31,5 +31,5 @@ Coolify installed. Next (see ./README.md "Bring-up"):
   2. Create a least-privilege API token.
   3. Install ./traefik-dynamic.yml into the proxy dynamic config.
   4. Set the COOLIFY_* vars for the Kiosk (see ../.env.example).
-  5. Run the parity gate (drop a ZIP → live URL; unauth hit → 403).
+  5. Run the parity gate: `make parity` (validates the client against live Coolify).
 EOF
