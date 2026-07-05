@@ -23,6 +23,15 @@ from . import dockercli, db
 from .config import config
 
 
+# The proxy env keys this module injects. Exposed so other layers (e.g. the
+# builder's verify boot, which runs off the tenant network) can identify and
+# strip runtime-only proxy vars without re-listing them and drifting.
+PROXY_ENV_KEYS = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+    "NO_PROXY", "no_proxy",
+})
+
+
 def proxy_env_for(slug: str) -> dict[str, str]:
     """Env to inject so an app can reach ITS allowlisted domains (only)."""
     domains = db.list_egress(slug)

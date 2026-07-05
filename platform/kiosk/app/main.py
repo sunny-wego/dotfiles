@@ -16,7 +16,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import (access, backup, cron, db, deployer, egress, monitor,
+from . import (access, backup, cron, crypto, db, deployer, egress, monitor,
                orchestrator, secrets_store)
 from .auth import identity
 from .config import config
@@ -27,13 +27,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 @app.on_event("startup")
 def _startup() -> None:
-    # Refuse to run in production (real Google auth) with the shipped default
-    # secret key — it would encrypt every secret at rest under a public value.
+    # Fail fast on an insecure key in prod (crypto is the enforcing chokepoint);
+    # warn once in dev where the default is tolerated.
+    crypto.assert_key_secure()
     if config.SECRET_KEY in ("", config.INSECURE_SECRET_KEY):
-        if config.AUTH_MODE == "google":
-            raise RuntimeError(
-                "KIOSK_SECRET_KEY is the insecure default; refusing to start in "
-                "google mode. Set a real key (openssl rand -base64 32).")
         print("[WARN] KIOSK_SECRET_KEY is the insecure dev default — "
               "secrets at rest are NOT protected. Set a real key for real use.",
               flush=True)
@@ -154,8 +151,7 @@ def set_visibility(request: Request, slug: str, visibility: str = Form(...)):
     _owner_guard(slug, who)
     if visibility not in ("invite-only", "all-staff"):
         raise HTTPException(400, "bad visibility")
-    db.set_visibility(slug, visibility)
-    access.invalidate(slug)
+    access.set_visibility(slug, visibility)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -165,10 +161,9 @@ def add_access(request: Request, slug: str, email: str = Form(...),
     who = identity(request)
     _owner_guard(slug, who)
     if remove:
-        db.remove_access(slug, email)
+        access.remove_access(slug, email)
     else:
-        db.add_access(slug, email)
-    access.invalidate(slug)
+        access.add_access(slug, email)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -183,8 +178,9 @@ def set_secret(request: Request, slug: str, key: str = Form(...),
         if not value:
             raise HTTPException(400, "value required")
         secrets_store.set_secret(slug, key, value)
-    # Secrets are injected as env at container start, so apply on the live app.
-    deployer.redeploy(slug)
+    # Secrets are injected as env at container start, so apply on the live app
+    # (off the request path — a recreate takes seconds).
+    deployer.redeploy_async(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -194,9 +190,9 @@ def add_egress(request: Request, slug: str, domain: str = Form(...)):
     _owner_guard(slug, who)
     db.add_egress(slug, domain.strip())
     egress.regenerate_allowlist()
-    # Egress proxy env is injected at start; redeploy so the running app can
-    # actually reach the newly-allowlisted domain (not just squid permitting it).
-    deployer.redeploy(slug)
+    # Egress proxy env is injected at start; redeploy (off the request path) so
+    # the running app can reach the new domain, not just squid permitting it.
+    deployer.redeploy_async(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 

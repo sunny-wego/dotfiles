@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-from . import baseimages, dockercli
+from . import baseimages, dockercli, egress
 from .config import config
 from .detect import Detection
 from .llm import LLMSession, LLMError, TokenBudgetExceeded
@@ -45,10 +45,8 @@ class Builder:
     # Proxy env vars are meaningful only at runtime on the tenant network; the
     # verify boot runs on the backplane (where the egress-proxy isn't), so they
     # are stripped before the probe to avoid a spurious unresolvable-host boot.
-    _VERIFY_ENV_SKIP = frozenset({
-        "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
-        "NO_PROXY", "no_proxy",
-    })
+    # Sourced from egress (the authoritative producer) so the two never drift.
+    _VERIFY_ENV_SKIP = egress.PROXY_ENV_KEYS
 
     def __init__(self, slug: str, project_root: str, detection: Detection,
                  llm: LLMSession, log) -> None:
@@ -118,19 +116,19 @@ class Builder:
             # contract), but is best-effort: on a single box the local daemon
             # already holds the built tag, so a registry that isn't configured
             # as insecure must not fail an otherwise-good provision.
-            pushed, benign, detail = self._push()
+            pushed, push_error = self._push()
             outcome.ok = True
             outcome.pushed = pushed
+            outcome.push_error = push_error
             outcome.dockerfile = dockerfile
             if pushed:
                 outcome.reason = "built, verified and pushed"
-            elif benign:
+            elif not push_error:
                 outcome.reason = "built and verified (registry push skipped)"
             else:
                 # Real push failure — deploy still works from the local tag on
                 # THIS box, but the image won't be pullable on a recreate/remote
-                # deploy. Surface it instead of masking it as benign.
-                outcome.push_error = detail
+                # deploy. Surface it (orchestrator escalates) instead of masking.
                 outcome.reason = "built and verified (REGISTRY PUSH FAILED)"
             return outcome
 
@@ -211,23 +209,23 @@ class Builder:
         "http: server gave",
     )
 
-    def _push(self) -> tuple[bool, bool, str]:
-        """Return (pushed, benign, detail)."""
+    def _push(self) -> tuple[bool, str]:
+        """Return (pushed, push_error). push_error is empty for success and for a
+        benign skip (registry down/insecure on a single box); it is non-empty
+        only for a real failure worth surfacing."""
         self.log("[push] pushing to registry …")
         res = dockercli.run(["push", self.image], timeout=600)
         if res.ok:
             self.log("[push] ok")
-            return True, True, ""
-        low = res.out.lower()
-        benign = any(s in low for s in self._BENIGN_PUSH)
-        if benign:
+            return True, ""
+        if any(s in res.out.lower() for s in self._BENIGN_PUSH):
             self.log("[push] skipped — registry not reachable/insecure; "
                      "deploying the locally-built image instead")
-        else:
-            self.log("[push] FAILED (not a benign 'registry down' error) — the "
-                     "app deploys from the local image on THIS host but will NOT "
-                     f"be pullable elsewhere:\n{res.out[-400:]}")
-        return False, benign, res.out[-400:]
+            return False, ""
+        self.log("[push] FAILED (not a benign 'registry down' error) — the app "
+                 "deploys from the local image on THIS host but will NOT be "
+                 f"pullable elsewhere:\n{res.out[-400:]}")
+        return False, res.out[-400:]
 
     def _heal_or_stop(self, dockerfile: str, error_log: str,
                       outcome: BuildOutcome) -> str | None:

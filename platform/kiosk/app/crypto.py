@@ -20,17 +20,23 @@ from cryptography.fernet import Fernet
 from .config import config
 
 
+def assert_key_secure() -> None:
+    """Refuse the shipped/empty key in production. Enforced HERE — the single
+    path every entrypoint (web, cron, CLI, tests) funnels through — rather than
+    only at web startup, so no side door encrypts secrets under a public key."""
+    if config.AUTH_MODE == "google" and config.SECRET_KEY in ("", config.INSECURE_SECRET_KEY):
+        raise RuntimeError(
+            "KIOSK_SECRET_KEY is the insecure default; refusing to use it in "
+            "google mode. Set a real key (openssl rand -base64 32).")
+
+
 def _fernet() -> Fernet:
-    raw = config.SECRET_KEY
-    if not raw:
-        # Dev fallback only. Production use of this key is blocked at startup
-        # (see main._startup, which refuses google mode with the default key).
-        raw = config.INSECURE_SECRET_KEY
+    assert_key_secure()
+    raw = config.SECRET_KEY or config.INSECURE_SECRET_KEY  # dev fallback only
     # Accept either a proper 44-char urlsafe base64 Fernet key, or any string
     # (which we hash into 32 bytes) so operators can set a human-friendly value.
     try:
         if len(raw) == 44:
-            Fernet(raw.encode())
             return Fernet(raw.encode())
     except Exception:  # noqa: BLE001
         pass

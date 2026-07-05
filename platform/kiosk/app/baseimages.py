@@ -29,10 +29,6 @@ _FROM = re.compile(
     r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?(?P<img>\S+)(?:\s+AS\s+(?P<alias>\S+))?")
 
 
-def from_images(dockerfile: str) -> list[str]:
-    return [m.group("img") for m in _FROM.finditer(dockerfile)]
-
-
 def _parse(dockerfile: str) -> tuple[list[str], set[str]]:
     """Return (all FROM images, set of build-stage aliases declared via `AS`)."""
     imgs: list[str] = []

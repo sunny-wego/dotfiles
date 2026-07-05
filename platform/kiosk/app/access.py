@@ -46,6 +46,24 @@ def invalidate(slug: str | None = None) -> None:
                 _cache.pop(k, None)
 
 
+# Authz-mutating writes go through these wrappers so cache invalidation is bound
+# to the act of changing access data — a caller can't change a decision without
+# invalidating it, and a future mutation path can't forget to.
+def set_visibility(slug: str, visibility: str) -> None:
+    db.set_visibility(slug, visibility)
+    invalidate(slug)
+
+
+def add_access(slug: str, principal: str) -> None:
+    db.add_access(slug, principal)
+    invalidate(slug)
+
+
+def remove_access(slug: str, principal: str) -> None:
+    db.remove_access(slug, principal)
+    invalidate(slug)
+
+
 def can_open(slug: str, email: str) -> bool:
     email = (email or "").lower()
     key = (slug, email)

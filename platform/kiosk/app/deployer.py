@@ -12,6 +12,8 @@ calls "additive, not a migration". Nothing above the image contract changes.
 
 from __future__ import annotations
 
+import threading
+
 from . import db, dockercli, tenant_env
 from .config import config
 
@@ -73,6 +75,13 @@ def redeploy(slug: str) -> tuple[bool, str, str]:
         return False, "", "app is not currently running; nothing to redeploy"
     env = tenant_env.build_env(slug)
     return deploy(slug, rec["image"], rec["port"], env=env)
+
+
+def redeploy_async(slug: str) -> None:
+    """Redeploy off the request path. A secret/egress change shouldn't block the
+    HTTP response on a full container recreate (build_env + docker rm/run); the
+    UI redirects immediately and the container refreshes a moment later."""
+    threading.Thread(target=redeploy, args=(slug,), daemon=True).start()
 
 
 def app_logs(slug: str, tail: int = 200) -> str:

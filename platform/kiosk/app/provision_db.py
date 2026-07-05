@@ -15,6 +15,9 @@ on re-deploy, so a re-provision never drops tenant data.
 
 from __future__ import annotations
 
+from functools import lru_cache
+from urllib.parse import urlsplit
+
 import psycopg
 from psycopg import sql
 
@@ -24,6 +27,30 @@ from .config import config
 
 def _ident(slug: str, prefix: str) -> str:
     return prefix + slug.replace("-", "_")
+
+
+# ── admin credentials (this module is the authority for them) ────────────────
+@lru_cache(maxsize=1)
+def admin_password() -> str:
+    return urlsplit(config.PG_ADMIN_URL).password or ""
+
+
+def admin_url(dbname: str | None = None, *, with_password: bool = True) -> str:
+    """Admin connection URL, optionally targeting `dbname`. Pass
+    with_password=False for callers that interpolate the URL into a shell string
+    (they must supply the password separately via PGPASSWORD) so a `$`/quote in
+    the password can't break or inject into the command."""
+    u = urlsplit(config.PG_ADMIN_URL)
+    host = u.hostname or "postgres"
+    port = f":{u.port}" if u.port else ""
+    if with_password and u.password:
+        userinfo = f"{u.username}:{u.password}@"
+    elif u.username:
+        userinfo = f"{u.username}@"
+    else:
+        userinfo = ""
+    path = f"/{dbname}" if dbname else (u.path or "")
+    return f"{u.scheme}://{userinfo}{host}{port}{path}"
 
 
 def _admin():
@@ -102,9 +129,9 @@ def _create(dbname: str, dbuser: str, password: str, log) -> None:
 
 
 def _admin_db_url(dbname: str) -> str:
-    # Same admin creds, targeting the tenant DB (for schema grants).
-    base = config.PG_ADMIN_URL.rsplit("/", 1)[0]
-    return f"{base}/{dbname}"
+    # Same admin creds, targeting the tenant DB (for schema grants). psycopg
+    # parses the URL (no shell), so the inline password is safe here.
+    return admin_url(dbname)
 
 
 def _q(ident: str) -> str:
