@@ -65,8 +65,9 @@ def test_create_image_app_posts_dockerimage_and_returns_uuid():
 
     uuid = _client(handler).create_image_app(
         project_uuid="p", server_uuid="s", environment_name="production",
-        destination_uuid="d", name="tenant-x", image="registry:5000/tenant-x",
-        tag="1700", port=8000, domain="x.apps.internal")
+        environment_uuid="env-9", destination_uuid="d", name="tenant-x",
+        image="registry:5000/tenant-x", tag="1700", port=8000,
+        domain="x.apps.internal")
 
     assert uuid == "app-123"
     assert seen["method"] == "POST"
@@ -75,6 +76,7 @@ def test_create_image_app_posts_dockerimage_and_returns_uuid():
     assert seen["body"]["docker_registry_image_tag"] == "1700"
     assert seen["body"]["ports_exposes"] == "8000"
     assert seen["body"]["domains"] == "https://x.apps.internal"
+    assert seen["body"]["environment_uuid"] == "env-9"  # required by Coolify
 
 
 def test_replace_envs_uses_bulk_upsert_shape():
@@ -157,12 +159,12 @@ def test_create_image_app_tolerates_wrapped_and_rejects_bad_shapes():
     ok = _client(lambda r: httpx.Response(201, json={"data": {"uuid": "u9"}}))
     assert ok.create_image_app(
         project_uuid="p", server_uuid="s", environment_name="e",
-        destination_uuid="d", name="n", image="i", tag="t", port=8000,
-        domain="h") == "u9"
+        environment_uuid="ev", destination_uuid="d", name="n", image="i",
+        tag="t", port=8000, domain="h") == "u9"
     # A list body (no uuid) → CoolifyError, never AttributeError.
     bad = _client(lambda r: httpx.Response(201, json=[]))
     with pytest.raises(CoolifyError):
         bad.create_image_app(
             project_uuid="p", server_uuid="s", environment_name="e",
-            destination_uuid="d", name="n", image="i", tag="t", port=8000,
-            domain="h")
+            environment_uuid="ev", destination_uuid="d", name="n", image="i",
+            tag="t", port=8000, domain="h")

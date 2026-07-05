@@ -33,7 +33,7 @@ Per README §3 ("native Coolify = deploy engine"):
 | TLS + domains | Coolify-managed Traefik | `domains` field on the app |
 | Env / secret store | Coolify encrypted env store | `client.replace_envs` (upsert + prune) |
 | CPU / mem limits | app resource limits | `limits_cpus` / `limits_memory` |
-| Cron | **Scheduled Tasks** (UTC) | `sync_cron` — two-way reconcile (create/update/delete) |
+| Cron | **Scheduled Tasks** | `sync_cron` — two-way reconcile (create/update/delete) |
 | Rollback | redeploy the retained prior build | `backend.rollback` |
 
 **Async deploys are reconciled, not assumed.** A deploy returns once Coolify
@@ -65,14 +65,24 @@ appauthz` (README §9; enforced identically for both engines by
    proxy dynamic-config directory (see that file's header) and point its
    `forward-auth` / `kiosk` addresses at the reachable service names.
 
-> **Parity gate (do not skip).** The in-repo tests cover the pure logic (auth
-> chain order, API request shapes); they can't exercise a live Coolify. On the
-> EC2 box, run the M1/v1 done-when checks end-to-end against Coolify: drop a Node
-> ZIP and a Python ZIP in the Kiosk → each reaches a live URL; a per-tenant
-> `DATABASE_URL` is injected; a Scheduled Task runs; egress to a non-allowlisted
-> host is blocked; a restore-from-backup drill passes. **Critical:** a tenant URL
-> hit **without** a company session MUST return **403** — that proves the auth
-> chain (the custom labels + `traefik-dynamic.yml` middlewares) is intact.
+> **Parity gate (do not skip).** The client's request/response shapes were
+> validated against Coolify's published OpenAPI spec (paths, field names, the
+> required `environment_uuid`, `custom_labels`, env-bulk, deploy/logs params),
+> but no live instance has run. On the EC2 box, run the M1/v1 done-when checks
+> end-to-end against Coolify: drop a Node ZIP and a Python ZIP → each reaches a
+> live URL; a per-tenant `DATABASE_URL` is injected; a Scheduled Task runs;
+> egress to a non-allowlisted host is blocked; a restore-from-backup drill passes.
+>
+> **#1 check — the auth chain must be the ONLY route.** Coolify's API has **no
+> field to force "readonly labels"** (`is_container_label_readonly_enabled` is
+> read-only in the spec), so setting `custom_labels` does *not* by itself stop
+> Coolify generating its own domain router. Make our chained router the only one
+> — toggle **Readonly labels** on the app in the dashboard, or drop the Coolify
+> domain and let the custom labels own routing — then confirm a tenant URL hit
+> **without** a company session returns **403**. If it 200s, the chain is bypassed.
+>
+> **Also verify:** scheduled tasks have **no timezone field** — Coolify runs them
+> in the container TZ, so confirm the base image is UTC (or accept the offset).
 
 ## Bring-up
 
@@ -88,8 +98,9 @@ sudo ./install.sh
 #    - install ./traefik-dynamic.yml into Coolify's proxy dynamic config
 
 # 3. Point the Kiosk at Coolify (see ../.env.example "Coolify" block):
-#    COOLIFY_BASE_URL, COOLIFY_API_TOKEN,
-#    COOLIFY_PROJECT_UUID, COOLIFY_SERVER_UUID, COOLIFY_DESTINATION_UUID
+#    COOLIFY_BASE_URL, COOLIFY_API_TOKEN, COOLIFY_PROJECT_UUID,
+#    COOLIFY_ENVIRONMENT + COOLIFY_ENVIRONMENT_UUID, COOLIFY_SERVER_UUID,
+#    COOLIFY_DESTINATION_UUID
 ```
 
 The Kiosk and shared services (Postgres, LiteLLM, egress-proxy, oauth2-proxy) can

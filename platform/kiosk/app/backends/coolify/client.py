@@ -81,10 +81,12 @@ class CoolifyClient:
 
     # ── applications ───────────────────────────────────────────────────────────
     def create_image_app(self, *, project_uuid: str, server_uuid: str,
-                          environment_name: str, destination_uuid: str,
-                          name: str, image: str, tag: str, port: int,
-                          domain: str) -> str:
-        """Create a deploy-from-image application. Returns the new app UUID."""
+                          environment_name: str, environment_uuid: str,
+                          destination_uuid: str, name: str, image: str, tag: str,
+                          port: int, domain: str) -> str:
+        """Create a deploy-from-image application. Returns the new app UUID.
+        Coolify requires project_uuid + server_uuid + environment_name +
+        environment_uuid + docker_registry_image_name."""
         body = {
             "project_uuid": project_uuid,
             "server_uuid": server_uuid,
@@ -97,6 +99,8 @@ class CoolifyClient:
             "domains": f"https://{domain}",
             "instant_deploy": False,
         }
+        if environment_uuid:
+            body["environment_uuid"] = environment_uuid
         data = self._request("POST", "/applications/dockerimage", json_body=body)
         uuid = _dig(data, "uuid")
         if not uuid:
@@ -165,19 +169,19 @@ class CoolifyClient:
         return data if isinstance(data, list) else data.get("data", [])
 
     def create_scheduled_task(self, uuid: str, *, name: str, command: str,
-                              frequency: str, timezone: str = "UTC") -> None:
+                              frequency: str) -> None:
+        # No timezone field: Coolify runs scheduled tasks in the container's TZ
+        # (typically UTC on slim base images) — there is no API knob to pin it.
         self._request("POST", f"/applications/{uuid}/scheduled-tasks", json_body={
             "name": name, "command": command, "frequency": frequency,
-            "timezone": timezone,
         })
 
     def update_scheduled_task(self, uuid: str, task_uuid: str, *, name: str,
-                              command: str, frequency: str,
-                              timezone: str = "UTC") -> None:
+                              command: str, frequency: str) -> None:
         self._request("PATCH",
                       f"/applications/{uuid}/scheduled-tasks/{task_uuid}",
                       json_body={"name": name, "command": command,
-                                 "frequency": frequency, "timezone": timezone})
+                                 "frequency": frequency})
 
     def delete_scheduled_task(self, uuid: str, task_uuid: str) -> None:
         self._request("DELETE", f"/applications/{uuid}/scheduled-tasks/{task_uuid}")

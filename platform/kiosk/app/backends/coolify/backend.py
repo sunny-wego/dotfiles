@@ -81,6 +81,7 @@ class CoolifyBackend:
             project_uuid=config.COOLIFY_PROJECT_UUID,
             server_uuid=config.COOLIFY_SERVER_UUID,
             environment_name=config.COOLIFY_ENVIRONMENT,
+            environment_uuid=config.COOLIFY_ENVIRONMENT_UUID,
             destination_uuid=config.COOLIFY_DESTINATION_UUID,
             name=f"tenant-{slug}", image=name, tag=tag, port=port, domain=host)
         db.put_coolify_uuid(slug, uuid)
@@ -100,10 +101,14 @@ class CoolifyBackend:
             "domains": f"https://{host}",
             "ports_exposes": str(port),
             "custom_labels": CoolifyClient.encode_custom_labels(label_map),
-            # Ours are the only labels — don't let Coolify auto-generate a second
-            # (unauthenticated) Traefik router alongside our chained one.
-            "is_container_label_readonly_enabled": True,
         }
+        # SECURITY CAVEAT (verified against Coolify's OpenAPI): there is NO
+        # request-body field to force "readonly labels", so setting custom_labels
+        # does not by itself stop Coolify generating its own domain router. The
+        # auth chain must be made the ONLY route at the parity gate — via the
+        # dashboard's "Readonly labels" toggle, or by not configuring a Coolify
+        # domain and letting these labels own the router. Gate check: an
+        # unauthenticated hit to the app URL must 403.
         if config.COOLIFY_CPU_LIMIT:
             fields["limits_cpus"] = config.COOLIFY_CPU_LIMIT
         if config.COOLIFY_MEMORY_LIMIT:

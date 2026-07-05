@@ -88,6 +88,9 @@ class Config:
     # references their UUIDs.
     COOLIFY_PROJECT_UUID = os.environ.get("COOLIFY_PROJECT_UUID", "")
     COOLIFY_ENVIRONMENT = os.environ.get("COOLIFY_ENVIRONMENT", "production")
+    # Coolify's create-from-image API requires the environment UUID (not just the
+    # name); sent alongside the name when set.
+    COOLIFY_ENVIRONMENT_UUID = os.environ.get("COOLIFY_ENVIRONMENT_UUID", "")
     COOLIFY_SERVER_UUID = os.environ.get("COOLIFY_SERVER_UUID", "")
     COOLIFY_DESTINATION_UUID = os.environ.get("COOLIFY_DESTINATION_UUID", "")
     # The Docker network name that the Coolify Destination is backed by. Tenant
