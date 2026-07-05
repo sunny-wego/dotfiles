@@ -29,6 +29,49 @@ from .config import config
 app = FastAPI(title="Internal App Platform — Kiosk (v1)")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+_CSRF_COOKIE = "kiosk_csrf"
+
+
+@app.middleware("http")
+async def _csrf_cookie(request: Request, call_next):
+    """Issue a double-submit CSRF cookie to browsers. Readable by same-origin JS
+    (SOP still stops a cross-site attacker reading it) so both server-rendered
+    forms and fetch() calls can echo it back. `request.state.csrf` is the value
+    templates embed in hidden fields."""
+    token = request.cookies.get(_CSRF_COOKIE) or secrets.token_urlsafe(24)
+    request.state.csrf = token
+    response = await call_next(request)
+    if _CSRF_COOKIE not in request.cookies:
+        https = (request.headers.get("x-forwarded-proto", "").lower() == "https"
+                 or request.url.scheme == "https")
+        response.set_cookie(_CSRF_COOKIE, token, samesite="strict",
+                            secure=https, path="/")
+    return response
+
+
+def _same_origin_ok(request: Request) -> bool:
+    """Defense-in-depth: if an Origin/Referer is present it must be this host."""
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    if not origin:
+        return True
+    from urllib.parse import urlparse
+    return urlparse(origin).netloc == request.headers.get("host", "")
+
+
+def _enforce_csrf(request: Request, submitted: str = "") -> None:
+    """CSRF guard for state-changing browser requests. Bearer-token (CLI) callers
+    are exempt: a Bearer header is never sent ambiently by a browser, so those
+    requests can't be forged cross-site — and the CLI has no cookie to submit.
+    Browser (cookie) requests must double-submit the token (hidden form field or
+    X-CSRF-Token header must equal the kiosk_csrf cookie) and be same-origin."""
+    if request.headers.get("authorization", "")[:7].lower() == "bearer ":
+        return
+    token = submitted or request.headers.get("x-csrf-token", "")
+    cookie = request.cookies.get(_CSRF_COOKIE, "")
+    if not (token and cookie and secrets.compare_digest(token, cookie)) \
+            or not _same_origin_ok(request):
+        raise HTTPException(403, "CSRF check failed — reload the page and retry")
+
 
 @app.on_event("startup")
 def _startup() -> None:
@@ -78,6 +121,7 @@ def internal_authz(request: Request) -> Response:
 @app.post("/ops/backup")
 def ops_backup(request: Request):
     identity(request)  # any company user may trigger an on-demand backup
+    _enforce_csrf(request)
     return JSONResponse(backup.backup_all(print))
 
 
@@ -96,6 +140,7 @@ def whoami(request: Request):
 @app.post("/tokens")
 def create_token(request: Request, label: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request)
     token = "ksk_" + crypto.random_token(24)
     db.create_api_token(who, token, label.strip())
     audit.record(who, "token.create", detail={"label": label.strip()})
@@ -117,6 +162,7 @@ def list_tokens(request: Request):
 @app.post("/tokens/{token_id}/revoke")
 def revoke_token(request: Request, token_id: int):
     who = identity(request)
+    _enforce_csrf(request)
     ok = db.revoke_api_token(who, token_id)
     if not ok:
         raise HTTPException(404, "no such token")
@@ -131,37 +177,6 @@ def revoke_token(request: Request, token_id: int):
 def _user_code() -> str:
     raw = "".join(secrets.choice(_USER_CODE_ALPHABET) for _ in range(8))
     return f"{raw[:4]}-{raw[4:]}"
-
-
-_CSRF_COOKIE = "kiosk_csrf"
-
-
-def _csrf_ok(request: Request, submitted: str) -> bool:
-    """Double-submit: the form field must equal the cookie set when the page was
-    served. A cross-site attacker can neither read the victim's cookie nor set a
-    matching hidden field, so a forged POST fails."""
-    cookie = request.cookies.get(_CSRF_COOKIE, "")
-    return bool(submitted and cookie and secrets.compare_digest(submitted, cookie))
-
-
-def _same_origin_ok(request: Request) -> bool:
-    """Defense-in-depth: if an Origin/Referer is present it must be this host."""
-    origin = request.headers.get("origin") or request.headers.get("referer") or ""
-    if not origin:
-        return True
-    from urllib.parse import urlparse
-    return urlparse(origin).netloc == request.headers.get("host", "")
-
-
-def _render_device(request: Request, who: str, approved) -> HTMLResponse:
-    csrf = secrets.token_urlsafe(24)
-    resp = templates.TemplateResponse("device.html", {
-        "request": request, "who": who, "csrf": csrf, "approved": approved})
-    https = (request.headers.get("x-forwarded-proto", "").lower() == "https"
-             or request.url.scheme == "https")
-    resp.set_cookie(_CSRF_COOKIE, csrf, max_age=config.DEVICE_CODE_TTL_S,
-                    httponly=True, samesite="strict", secure=https, path="/")
-    return resp
 
 
 @app.post("/device/code")
@@ -199,19 +214,20 @@ def device_token(device_code: str = Form(...)):
 def device_page(request: Request):
     who = identity(request)
     # No code pre-fill: the user types the code from their own terminal.
-    return _render_device(request, who, approved=None)
+    return templates.TemplateResponse("device.html", {
+        "request": request, "who": who, "approved": None})
 
 
 @app.post("/device/approve", response_class=HTMLResponse)
 def device_approve(request: Request, user_code: str = Form(...),
                    csrf: str = Form("")):
     who = identity(request)
-    if not _csrf_ok(request, csrf) or not _same_origin_ok(request):
-        raise HTTPException(403, "invalid or missing CSRF token — reload /device")
+    _enforce_csrf(request, csrf)
     approved = db.approve_device_code(user_code.strip(), who)
     if approved:
         audit.record(who, "device.approve", detail={"user_code": user_code.strip()})
-    return _render_device(request, who, approved=approved)
+    return templates.TemplateResponse("device.html", {
+        "request": request, "who": who, "approved": approved})
 
 
 def _owner_guard(slug: str, who: str) -> dict:
@@ -248,8 +264,9 @@ def list_apps_json(request: Request):
 
 @app.post("/apps")
 async def create_app(request: Request, name: str = Form(...),
-                     zipfile: UploadFile = File(...)):
+                     zipfile: UploadFile = File(...), csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     if not name.strip():
         raise HTTPException(400, "app name is required")
     if not (zipfile.filename or "").lower().endswith(".zip"):
@@ -297,8 +314,10 @@ def app_page(request: Request, slug: str):
 
 # ── management (owner-only) ───────────────────────────────────────────────────
 @app.post("/apps/{slug}/visibility")
-def set_visibility(request: Request, slug: str, visibility: str = Form(...)):
+def set_visibility(request: Request, slug: str, visibility: str = Form(...),
+                   csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     if visibility not in ("invite-only", "all-staff"):
         raise HTTPException(400, "bad visibility")
@@ -308,8 +327,9 @@ def set_visibility(request: Request, slug: str, visibility: str = Form(...)):
 
 @app.post("/apps/{slug}/access")
 def add_access(request: Request, slug: str, email: str = Form(...),
-               remove: str = Form("")):
+               remove: str = Form(""), csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     if remove:
         access.remove_access(slug, email)
@@ -320,8 +340,9 @@ def add_access(request: Request, slug: str, email: str = Form(...),
 
 @app.post("/apps/{slug}/secrets")
 def set_secret(request: Request, slug: str, key: str = Form(...),
-               value: str = Form(""), remove: str = Form("")):
+               value: str = Form(""), remove: str = Form(""), csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     if remove:
         secrets_store.delete_secret(slug, key)
@@ -336,8 +357,10 @@ def set_secret(request: Request, slug: str, key: str = Form(...),
 
 
 @app.post("/apps/{slug}/egress")
-def add_egress(request: Request, slug: str, domain: str = Form(...)):
+def add_egress(request: Request, slug: str, domain: str = Form(...),
+               csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     db.add_egress(slug, domain.strip())
     egress.regenerate_allowlist()
@@ -349,8 +372,10 @@ def add_egress(request: Request, slug: str, domain: str = Form(...)):
 
 @app.post("/apps/{slug}/cron")
 def add_cron(request: Request, slug: str, name: str = Form(...),
-             schedule: str = Form(...), command: str = Form(...)):
+             schedule: str = Form(...), command: str = Form(...),
+             csrf: str = Form("")):
     who = identity(request)
+    _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
     # Reconcile Coolify Scheduled Tasks off the request path (the round-trips
@@ -363,6 +388,7 @@ def add_cron(request: Request, slug: str, name: str = Form(...),
 @app.post("/apps/{slug}/rollback")
 def rollback_app(request: Request, slug: str):
     who = identity(request)
+    _enforce_csrf(request)
     _owner_guard(slug, who)
     ok, url, msg = deployer.rollback(slug)
     audit.record(who, "rollback", app=slug, detail={"ok": ok, "msg": msg})

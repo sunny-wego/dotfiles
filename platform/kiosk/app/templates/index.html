@@ -6,6 +6,7 @@
   <p class="muted">We redact secrets, detect your stack, generate a Dockerfile,
      build + verify + heal, scan, and deploy behind company Google login.</p>
   <form action="/apps" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label for="name">App name</label>
     <input type="text" id="name" name="name" placeholder="ai-leaderboard" required>
     <label for="zipfile">Project ZIP</label>
@@ -54,8 +55,9 @@
   </table>
   {% endif %}
   <script>
+    function csrf() { return (document.cookie.match(/(?:^|; )kiosk_csrf=([^;]+)/) || [])[1] || ''; }
     async function mintToken() {
-      const r = await fetch('/tokens', { method: 'POST' });
+      const r = await fetch('/tokens', { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
       const d = await r.json();
       const el = document.getElementById('new-token');
       el.textContent = d.token
@@ -63,7 +65,7 @@
         : (d.detail || 'could not create token');
     }
     async function revokeToken(id) {
-      await fetch(`/tokens/${id}/revoke`, { method: 'POST' });
+      await fetch(`/tokens/${id}/revoke`, { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
       location.reload();
     }
   </script>

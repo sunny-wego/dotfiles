@@ -21,6 +21,7 @@
 <div class="panel">
   <h2>Access — who can open this app</h2>
   <form action="/apps/{{ slug }}/visibility" method="post" style="margin-bottom:10px">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label>Visibility</label>
     <select name="visibility" onchange="this.form.submit()">
       <option value="invite-only" {{ 'selected' if record.visibility=='invite-only' }}>invite-only</option>
@@ -30,12 +31,14 @@
   <p class="muted">Owner ({{ record.owner }}) always has access.</p>
   {% for p in access %}
     <form action="/apps/{{ slug }}/access" method="post" style="display:inline-block;margin:2px">
+      <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
       <input type="hidden" name="email" value="{{ p }}">
       <input type="hidden" name="remove" value="1">
       <span class="badge running">{{ p }} ✕</span><button style="display:none"></button>
     </form>
   {% endfor %}
   <form action="/apps/{{ slug }}/access" method="post">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label>Add person (email)</label>
     <input type="text" name="email" placeholder="teammate@{{ config_domain }}">
     <button type="submit">Add</button>
@@ -46,6 +49,7 @@
   <h2>Secrets (encrypted, injected as env)</h2>
   {% for k in secret_keys %}<span class="badge building">{{ k }}</span> {% endfor %}
   <form action="/apps/{{ slug }}/secrets" method="post">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label>Key</label><input type="text" name="key" placeholder="STRIPE_KEY">
     <label>Value</label><input type="text" name="value" placeholder="(stored encrypted)">
     <button type="submit">Save secret</button>
@@ -57,6 +61,7 @@
   {% for d in egress %}<span class="badge running">{{ d }}</span> {% endfor %}
   {% if not egress %}<p class="muted">No outbound access — this app cannot reach the internet.</p>{% endif %}
   <form action="/apps/{{ slug }}/egress" method="post">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label>Allow domain</label><input type="text" name="domain" placeholder="api.stripe.com">
     <button type="submit">Allow</button>
   </form>
@@ -68,6 +73,7 @@
     <p class="muted"><b>{{ c.name }}</b> — <code>{{ c.schedule }}</code> (UTC) — <code>{{ c.command }}</code></p>
   {% endfor %}
   <form action="/apps/{{ slug }}/cron" method="post">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label>Name</label><input type="text" name="name" placeholder="nightly-report">
     <label>Schedule (5-field cron, UTC)</label><input type="text" name="schedule" placeholder="0 9 * * *">
     <label>Command</label><input type="text" name="command" placeholder="python report.py">
@@ -106,11 +112,12 @@ async function poll() {
 }
 poll();
 
+function csrf() { return (document.cookie.match(/(?:^|; )kiosk_csrf=([^;]+)/) || [])[1] || ''; }
 async function rollback() {
   const msg = document.getElementById('rollback-msg');
   msg.textContent = 'rolling back …';
   try {
-    const r = await fetch(`/apps/${slug}/rollback`, { method: 'POST' });
+    const r = await fetch(`/apps/${slug}/rollback`, { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
     const d = await r.json();
     msg.textContent = d.message || (d.ok ? 'rolled back' : 'rollback failed');
   } catch (e) { msg.textContent = 'rollback request failed'; }

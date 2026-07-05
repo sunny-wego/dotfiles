@@ -18,7 +18,7 @@
 
   {% if approved is none or not approved %}
   <form action="/device/approve" method="post">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
     <label for="user_code">Type the code shown in your terminal</label>
     <input type="text" id="user_code" name="user_code"
            placeholder="ABCD-EFGH" autocomplete="off" autofocus required>

@@ -1,9 +1,13 @@
-"""CSRF + same-origin defenses on the device-approval endpoint.
+"""CSRF + same-origin defense on state-changing browser requests.
 
-Approving a device code mints a token that acts as the approver, so a forged or
-cross-site POST to /device/approve would be token theft. These pin the guards.
-No infrastructure needed — the helpers are pure request checks.
+State-changing POSTs (device approval, deploy, secrets, tokens, …) that mint or
+mutate under the caller's identity must resist forged cross-site requests. The
+guard is Bearer-exempt (CLI tokens aren't sent ambiently, so aren't CSRF-able)
+and double-submit for browsers. No infrastructure needed — pure request checks.
 """
+import pytest
+from fastapi import HTTPException
+
 from app import main
 
 
@@ -13,29 +17,53 @@ class _Req:
         self.headers = headers or {}
 
 
-# ── double-submit CSRF token ──────────────────────────────────────────────────
-def test_csrf_matches_cookie():
-    assert main._csrf_ok(_Req(cookies={"kiosk_csrf": "abc"}), "abc") is True
+def _raises(req, submitted=""):
+    try:
+        main._enforce_csrf(req, submitted)
+        return False
+    except HTTPException as e:
+        assert e.status_code == 403
+        return True
 
 
-def test_csrf_rejects_mismatch_missing_cookie_and_empty_field():
-    assert main._csrf_ok(_Req(cookies={"kiosk_csrf": "abc"}), "xyz") is False
-    assert main._csrf_ok(_Req(cookies={}), "abc") is False          # no cookie
-    assert main._csrf_ok(_Req(cookies={"kiosk_csrf": "abc"}), "") is False  # no field
+# ── Bearer (CLI) is exempt — a token isn't a CSRF vector ──────────────────────
+def test_bearer_token_requests_are_exempt():
+    # No cookie, no field, but a Bearer header → allowed (CLI path).
+    assert _raises(_Req(headers={"authorization": "Bearer ksk_x"})) is False
 
 
-# ── same-origin check ─────────────────────────────────────────────────────────
-def test_same_origin_allows_absent_and_matching_origin():
-    assert main._same_origin_ok(_Req()) is True  # no Origin/Referer → allowed
+# ── browser double-submit ─────────────────────────────────────────────────────
+def test_browser_matching_field_ok():
+    assert _raises(_Req(cookies={"kiosk_csrf": "t"}), submitted="t") is False
+
+
+def test_browser_matching_header_ok():
+    assert _raises(_Req(cookies={"kiosk_csrf": "t"},
+                        headers={"x-csrf-token": "t"})) is False
+
+
+def test_browser_missing_or_mismatched_token_rejected():
+    assert _raises(_Req(cookies={"kiosk_csrf": "t"}), submitted="") is True   # no field
+    assert _raises(_Req(cookies={"kiosk_csrf": "t"}), submitted="x") is True  # mismatch
+    assert _raises(_Req(cookies={}), submitted="t") is True                   # no cookie
+
+
+def test_foreign_origin_rejected_even_with_valid_token():
+    assert _raises(_Req(cookies={"kiosk_csrf": "t"},
+                        headers={"origin": "https://evil.example",
+                                 "host": "kiosk.apps.internal"}),
+                   submitted="t") is True
+
+
+# ── same-origin helper ────────────────────────────────────────────────────────
+def test_same_origin_allows_absent_and_matching():
+    assert main._same_origin_ok(_Req()) is True
     assert main._same_origin_ok(_Req(headers={
         "origin": "https://kiosk.apps.internal", "host": "kiosk.apps.internal"})) is True
 
 
-def test_same_origin_rejects_foreign_origin():
+def test_same_origin_rejects_foreign_and_uses_referer_fallback():
     assert main._same_origin_ok(_Req(headers={
         "origin": "https://evil.example", "host": "kiosk.apps.internal"})) is False
-
-
-def test_same_origin_uses_referer_when_origin_absent():
     assert main._same_origin_ok(_Req(headers={
         "referer": "https://evil.example/x", "host": "kiosk.apps.internal"})) is False
