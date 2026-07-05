@@ -111,6 +111,12 @@ async def create_app(request: Request, name: str = Form(...),
         raise HTTPException(400, "please upload a .zip")
 
     slug = orchestrator.slugify(name)
+    # Re-uploading an existing app replaces its code in place; only the owner may
+    # do that. (First upload of a new slug is open to any company user.)
+    existing = db.get_app(slug)
+    if existing and (existing.get("owner") or "").lower() != who.lower():
+        raise HTTPException(
+            403, f"'{slug}' is owned by {existing.get('owner')}; only the owner can redeploy it")
     work_root = os.path.join(config.WORK_DIR, f"{slug}-{int(time.time())}")
     os.makedirs(work_root, exist_ok=True)
     zip_path = os.path.join(work_root, "upload.zip")

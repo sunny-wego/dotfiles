@@ -77,17 +77,33 @@ def redeploy(slug: str) -> tuple[bool, str, str]:
     return deploy(slug, rec["image"], rec["port"], env=env)
 
 
+# How many recent builds of each app to keep locally. The live one plus one
+# previous, so a redeploy can be rolled back to the prior image; older builds are
+# pruned so /var/lib/docker doesn't fill up.
+IMAGE_RETAIN = 2
+
+
 def prune_old_images(slug: str, keep: str) -> None:
-    """Remove older locally-built images for this slug, keeping `keep` (the live
-    one). Each deploy tags tenant-<slug>:<ts>; without this they accumulate and
-    fill the box's disk. Best-effort — an in-use or missing tag is skipped."""
+    """Keep the newest IMAGE_RETAIN builds of this slug (always including `keep`,
+    the just-deployed live image); remove older ones. Tags are unix timestamps,
+    so newest = numerically largest. Best-effort — missing/in-use tags skipped."""
     repo = f"{config.REGISTRY_HOST}/tenant-{slug}"
-    res = dockercli.run(["images", repo, "--format", "{{.Repository}}:{{.Tag}}"], timeout=30)
+    res = dockercli.run(["images", repo, "--format", "{{.Tag}}"], timeout=30)
     if not res.ok:
         return
-    for tag in res.out.split():
-        if tag and tag != keep and not tag.endswith(":<none>"):
-            dockercli.run(["rmi", "-f", tag], timeout=30)
+    tags = [t for t in res.out.split() if t and t != "<none>"]
+
+    def ts(t: str) -> int:
+        try:
+            return int(t)
+        except ValueError:
+            return -1
+
+    live = keep.rsplit(":", 1)[-1]
+    retain = set(sorted(tags, key=ts, reverse=True)[:IMAGE_RETAIN]) | {live}
+    for t in tags:
+        if t not in retain:
+            dockercli.run(["rmi", "-f", f"{repo}:{t}"], timeout=30)
 
 
 def redeploy_async(slug: str) -> None:
