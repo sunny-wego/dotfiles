@@ -34,6 +34,42 @@
 </div>
 
 <div class="panel">
+  <h2>API tokens</h2>
+  <p class="muted">For the <code>kiosk</code> CLI + agent skill. A token acts as
+     you; shown once at creation.</p>
+  <button type="button" onclick="mintToken()">Create token</button>
+  <p id="new-token" class="muted"></p>
+  {% if tokens %}
+  <table>
+    <tr><th>ID</th><th>Label</th><th>Created</th><th>Last used</th><th></th></tr>
+    {% for t in tokens %}
+    <tr>
+      <td class="muted">{{ t.id }}</td>
+      <td>{{ t.label or '—' }}</td>
+      <td class="muted">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td class="muted">{% if t.last_used_at %}{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') }}{% else %}never{% endif %}</td>
+      <td><button type="button" onclick="revokeToken({{ t.id }})">Revoke</button></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <script>
+    async function mintToken() {
+      const r = await fetch('/tokens', { method: 'POST' });
+      const d = await r.json();
+      const el = document.getElementById('new-token');
+      el.textContent = d.token
+        ? `${d.token} — copy it now, it won't be shown again`
+        : (d.detail || 'could not create token');
+    }
+    async function revokeToken(id) {
+      await fetch(`/tokens/${id}/revoke`, { method: 'POST' });
+      location.reload();
+    }
+  </script>
+</div>
+
+<div class="panel">
   <h2>Recent activity (audit)</h2>
   <table>
     {% for e in audit %}

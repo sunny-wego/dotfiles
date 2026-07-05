@@ -8,6 +8,7 @@ Two tables in M1:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from contextlib import contextmanager
@@ -84,6 +85,19 @@ CREATE TABLE IF NOT EXISTS coolify_app (
     slug        TEXT PRIMARY KEY,
     app_uuid    TEXT NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Personal API tokens for non-browser surfaces (the `kiosk` CLI + agent skill).
+-- Only the SHA-256 of each token is stored; the plaintext is shown once at mint.
+-- A token carries its owner's company identity, so CLI actions attribute + RBAC
+-- exactly like the web UI.
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email         TEXT NOT NULL,
+    token_sha256  TEXT NOT NULL UNIQUE,
+    label         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at  TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS audit (
@@ -329,3 +343,42 @@ def put_coolify_uuid(slug: str, app_uuid: str) -> None:
             "INSERT INTO coolify_app (slug, app_uuid) VALUES (%s, %s) "
             "ON CONFLICT (slug) DO UPDATE SET app_uuid=EXCLUDED.app_uuid",
             (slug, app_uuid))
+
+
+# ── personal API tokens (CLI / agent surface) ────────────────────────────────
+def _token_hash(token: str) -> str:
+    # Tokens are high-entropy random strings, so a plain SHA-256 is sufficient
+    # (no need for a slow password hash) and lets us look up by hash directly.
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_api_token(email: str, token: str, label: str = "") -> None:
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO api_tokens (email, token_sha256, label) VALUES (%s,%s,%s)",
+            (email.lower(), _token_hash(token), label or None))
+
+
+def email_for_token(token: str) -> str | None:
+    """Return the token owner's email (and stamp last_used), or None if unknown."""
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE api_tokens SET last_used_at = now() WHERE token_sha256 = %s "
+            "RETURNING email", (_token_hash(token),))
+        row = cur.fetchone()
+        return row["email"] if row else None
+
+
+def list_api_tokens(email: str) -> list[dict]:
+    with cursor() as cur:
+        cur.execute(
+            "SELECT id, label, created_at, last_used_at FROM api_tokens "
+            "WHERE email=%s ORDER BY created_at DESC", (email.lower(),))
+        return cur.fetchall()
+
+
+def revoke_api_token(email: str, token_id: int) -> bool:
+    with cursor() as cur:
+        cur.execute("DELETE FROM api_tokens WHERE email=%s AND id=%s",
+                    (email.lower(), token_id))
+        return cur.rowcount > 0

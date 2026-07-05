@@ -83,6 +83,43 @@ def ops_restore_drill(request: Request):
     return JSONResponse(backup.restore_drill(log=print))
 
 
+# ── identity + personal API tokens (the CLI / agent surface) ──────────────────
+@app.get("/me")
+def whoami(request: Request):
+    return JSONResponse({"email": identity(request)})
+
+
+@app.post("/tokens")
+def create_token(request: Request, label: str = Form("")):
+    who = identity(request)
+    token = "ksk_" + crypto.random_token(24)
+    db.create_api_token(who, token, label.strip())
+    audit.record(who, "token.create", detail={"label": label.strip()})
+    # Shown once — the server stores only its hash.
+    return JSONResponse({"token": token, "label": label.strip(),
+                         "note": "store this now; it will not be shown again"})
+
+
+@app.get("/tokens")
+def list_tokens(request: Request):
+    who = identity(request)
+    return JSONResponse({"tokens": [
+        {"id": t["id"], "label": t["label"],
+         "created_at": t["created_at"].isoformat() if t["created_at"] else None,
+         "last_used_at": t["last_used_at"].isoformat() if t["last_used_at"] else None}
+        for t in db.list_api_tokens(who)]})
+
+
+@app.post("/tokens/{token_id}/revoke")
+def revoke_token(request: Request, token_id: int):
+    who = identity(request)
+    ok = db.revoke_api_token(who, token_id)
+    if not ok:
+        raise HTTPException(404, "no such token")
+    audit.record(who, "token.revoke", detail={"id": token_id})
+    return JSONResponse({"ok": True})
+
+
 def _owner_guard(slug: str, who: str) -> dict:
     record = db.get_app(slug)
     if record is None:
@@ -101,7 +138,18 @@ def index(request: Request):
         "apps": db.list_apps(),
         "audit": db.recent_audit(20),
         "domain": config.PLATFORM_DOMAIN,
+        "tokens": db.list_api_tokens(who),
     })
+
+
+@app.get("/apps")
+def list_apps_json(request: Request):
+    """Machine-readable catalog for the CLI / agent skill."""
+    identity(request)
+    return JSONResponse({"apps": [
+        {"slug": a["slug"], "name": a["name"], "owner": a.get("owner"),
+         "status": a.get("status"), "url": a.get("url")}
+        for a in db.list_apps()]})
 
 
 @app.post("/apps")
@@ -257,6 +305,8 @@ async def app_logs(request: Request, slug: str):
     # slow/hung Coolify can't tie up FastAPI's shared sync-route worker pool.
     loop = asyncio.get_running_loop()
     logs = await loop.run_in_executor(deployer.pool(), deployer.app_logs, slug, 300)
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"slug": slug, "logs": logs})
     return templates.TemplateResponse("logs.html", {
         "request": request, "slug": slug, "logs": logs,
     })
