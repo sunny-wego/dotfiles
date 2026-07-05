@@ -2,7 +2,7 @@
 
 > **One-line:** a self-serve platform where non-engineers **drop a ZIP and get a hosted internal app** — with database, cron, Google login, per-app RBAC, and optional LLM access — built on **Coolify** as the engine, running the same on a laptop (Colima) and an internal EC2 box.
 
-**Status:** design doc + **implemented M1 & Lean v1** (plain-Docker variant — see [`M1.md`](./M1.md) and [`v1.md`](./v1.md); run with `docker compose up`) · **Trust model:** trusted-internal, accident-hardened · **Purpose:** alignment, stakeholder buy-in, discovery.
+**Status:** design doc + **implemented M1 & Lean v1** (plain-Docker variant — see [`M1.md`](./M1.md) and [`v1.md`](./v1.md); set up local or remote with [`SETUP.md`](./SETUP.md)) · **Trust model:** trusted-internal, accident-hardened · **Purpose:** alignment, stakeholder buy-in, discovery.
 
 **Two planes (core principle):** **Creators (non-engineers) only ever use the Kiosk** (user-facing). **Operators (engineers) use the Coolify dashboard as the admin/ops console.** The Kiosk drives Coolify through its API on the creator's behalf; nobody non-technical touches Coolify.
 
