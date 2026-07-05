@@ -78,6 +78,40 @@ class Config:
 
     REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "registry:5000")
     PROXY_NETWORK = os.environ.get("PROXY_NETWORK", "platform_proxy")
+
+    # ── Deploy backend (README §3: native Coolify = deploy engine) ────────────
+    # "docker"  — the README's sanctioned plain-Docker variant (default): the
+    #             kiosk drives the host Docker daemon directly. The local/dev
+    #             path; no external engine to install.
+    # "coolify" — the README's headline architecture: the kiosk drives Coolify
+    #             through its REST API (deploy-from-image, env store, cron as
+    #             Scheduled Tasks, CPU/mem limits, TLS/domains, rollback), and
+    #             operators get the Coolify dashboard as the admin plane.
+    DEPLOY_BACKEND = os.environ.get("KIOSK_DEPLOY_BACKEND", "docker").strip().lower()
+
+    # Coolify connection + placement (only read when DEPLOY_BACKEND == coolify).
+    COOLIFY_BASE_URL = os.environ.get("COOLIFY_BASE_URL", "").rstrip("/")
+    COOLIFY_API_TOKEN = os.environ.get("COOLIFY_API_TOKEN", "")
+    # Where tenant apps are created: a project + environment + server, and a
+    # Destination = the isolated tenant Docker network (README: "Destination
+    # (isolated net)"). These are created once by an operator; the kiosk only
+    # references their UUIDs.
+    COOLIFY_PROJECT_UUID = os.environ.get("COOLIFY_PROJECT_UUID", "")
+    COOLIFY_ENVIRONMENT = os.environ.get("COOLIFY_ENVIRONMENT", "production")
+    COOLIFY_SERVER_UUID = os.environ.get("COOLIFY_SERVER_UUID", "")
+    COOLIFY_DESTINATION_UUID = os.environ.get("COOLIFY_DESTINATION_UUID", "")
+    # The Docker network name that the Coolify Destination is backed by. Tenant
+    # app Traefik labels reference it, and the kiosk / postgres / litellm /
+    # egress-proxy must be reachable on it. Defaults to the same tenant network
+    # name as the plain-Docker variant so the auth chain + DB wiring are shared.
+    COOLIFY_TENANT_NETWORK = os.environ.get(
+        "COOLIFY_TENANT_NETWORK", os.environ.get("TENANT_NETWORK", "platform_tenant"))
+    # Per-app resource ceilings Coolify enforces (README: "per-app CPU/mem
+    # limits"). Empty = don't set (Coolify default / unlimited).
+    COOLIFY_CPU_LIMIT = os.environ.get("COOLIFY_CPU_LIMIT", "")
+    COOLIFY_MEMORY_LIMIT = os.environ.get("COOLIFY_MEMORY_LIMIT", "")
+    # HTTP timeout for Coolify API calls (deploys are async; we only trigger).
+    COOLIFY_TIMEOUT_S = _int("COOLIFY_TIMEOUT_S", 30)
     # Optional docker network for tenant builds (e.g. "host"). Some corporate
     # networks require builds to run on the host network to reach an egress
     # proxy / internal mirrors. Empty = docker's default build network.

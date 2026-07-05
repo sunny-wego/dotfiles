@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS app_cron (
     PRIMARY KEY (slug, name)
 );
 
+-- Coolify application identity per app (only used when the Coolify deploy
+-- backend is active). Maps our slug to the Coolify application UUID so
+-- re-deploys, env/cron sync, rollback and teardown target the same resource.
+CREATE TABLE IF NOT EXISTS coolify_app (
+    slug        TEXT PRIMARY KEY,
+    app_uuid    TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit (
     id        BIGGENERATED_PLACEHOLDER,
     ts        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -316,3 +325,24 @@ def mark_cron_run(slug: str, name: str, ok: bool) -> None:
     with cursor() as cur:
         cur.execute("UPDATE app_cron SET last_run=now(), last_ok=%s "
                     "WHERE slug=%s AND name=%s", (ok, slug, name))
+
+
+# ── Coolify application identity ──────────────────────────────────────────────
+def get_coolify_uuid(slug: str) -> str | None:
+    with cursor() as cur:
+        cur.execute("SELECT app_uuid FROM coolify_app WHERE slug=%s", (slug,))
+        row = cur.fetchone()
+        return row["app_uuid"] if row else None
+
+
+def put_coolify_uuid(slug: str, app_uuid: str) -> None:
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO coolify_app (slug, app_uuid) VALUES (%s, %s) "
+            "ON CONFLICT (slug) DO UPDATE SET app_uuid=EXCLUDED.app_uuid",
+            (slug, app_uuid))
+
+
+def delete_coolify_uuid(slug: str) -> None:
+    with cursor() as cur:
+        cur.execute("DELETE FROM coolify_app WHERE slug=%s", (slug,))

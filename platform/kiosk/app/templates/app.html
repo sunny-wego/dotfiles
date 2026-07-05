@@ -75,6 +75,13 @@
     <button type="submit">Add task</button>
   </form>
 </div>
+
+<div class="panel">
+  <h2>Rollback</h2>
+  <p class="muted">Re-point this app at its previous good build.</p>
+  <button type="button" onclick="rollback()">Roll back to previous build</button>
+  <p id="rollback-msg" class="muted"></p>
+</div>
 {% endif %}
 
 <script>
@@ -98,5 +105,15 @@ async function poll() {
   setTimeout(poll, 1500);
 }
 poll();
+
+async function rollback() {
+  const msg = document.getElementById('rollback-msg');
+  msg.textContent = 'rolling back …';
+  try {
+    const r = await fetch(`/apps/${slug}/rollback`, { method: 'POST' });
+    const d = await r.json();
+    msg.textContent = d.message || (d.ok ? 'rolled back' : 'rollback failed');
+  } catch (e) { msg.textContent = 'rollback request failed'; }
+}
 </script>
 {% endblock %}

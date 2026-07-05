@@ -1,0 +1,48 @@
+# Auth-chain middlewares for COOLIFY's Traefik.
+#
+# The plain-Docker variant defines these in ../traefik/dynamic.yml; the Coolify
+# variant needs the SAME middlewares in Coolify's own proxy, because tenant apps
+# reference them by name (`strip-auth-in@file`, `forwardauth@file`,
+# `appauthz@file`) via the custom labels the Kiosk sets.
+#
+# INSTALL: drop this file into Coolify's proxy dynamic-config directory
+# (Coolify → Server → Proxy → Dynamic Configuration, or
+# /data/coolify/proxy/dynamic/). It is loaded by the Traefik file provider, so
+# `@file` resolves exactly as in the compose variant.
+#
+# ADDRESSES: replace the hostnames below with names reachable FROM Coolify's
+# Traefik on COOLIFY_TENANT_NETWORK:
+#   * forward-auth : the oauth2-proxy (google) / authstub (dev) service
+#   * kiosk        : the Kiosk service (its /internal/authz endpoint)
+# If the Kiosk + oauth2-proxy run as Coolify resources, use their service names;
+# if they run from the compose stack on the same network, keep these defaults.
+http:
+  middlewares:
+    # authN + company domain; forwards identity headers to the app.
+    forwardauth:
+      forwardAuth:
+        address: "http://forward-auth:4180/oauth2/auth"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-Auth-Request-Email
+          - X-Auth-Request-User
+          - X-Auth-Request-Preferred-Username
+
+    # authZ: whole-app allow-list, decided by the Kiosk. Fail-closed. Keyed off
+    # the server-set X-App-Slug, NOT X-Forwarded-Host (trustForwardHeader stays
+    # false), so a client can't be authorized against A while routed to B.
+    appauthz:
+      forwardAuth:
+        address: "http://kiosk:8000/internal/authz"
+
+    # Strip client-supplied identity + routing headers at ingress so nothing
+    # downstream can be spoofed. X-App-Slug is cleared here and then Set
+    # authoritatively per tenant app by the Kiosk's custom label.
+    strip-auth-in:
+      headers:
+        customRequestHeaders:
+          X-Auth-Request-Email: ""
+          X-Auth-Request-User: ""
+          X-Auth-Request-Preferred-Username: ""
+          X-App-Slug: ""
+          X-Forwarded-Host: ""

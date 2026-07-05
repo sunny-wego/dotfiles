@@ -27,6 +27,14 @@ _next_fire: dict[str, float] = {}
 
 
 def start() -> None:
+    # When the deploy engine runs scheduled tasks itself (Coolify), the kiosk
+    # does NOT also run them — it only syncs the schedule to the engine at
+    # deploy time. Starting the in-process loop then would double-fire jobs.
+    from .backends import get_backend
+    if get_backend().manages_cron:
+        print("[cron] deploy backend manages scheduled tasks; "
+              "in-process loop not started", flush=True)
+        return
     threading.Thread(target=_loop, daemon=True).start()
     print("[cron] scheduler started", flush=True)
 

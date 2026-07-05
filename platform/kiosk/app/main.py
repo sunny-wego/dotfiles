@@ -16,8 +16,8 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import (access, backup, cron, crypto, db, deployer, egress, monitor,
-               orchestrator, secrets_store)
+from . import (access, audit, backup, cron, crypto, db, deployer, egress,
+               monitor, orchestrator, secrets_store)
 from .auth import identity
 from .config import config
 
@@ -36,9 +36,15 @@ def _startup() -> None:
               flush=True)
     db.init()
     egress.regenerate_allowlist()
-    cron.start()
-    backup.start_nightly()
+    cron.start()  # no-op when the deploy backend runs scheduled tasks itself
+    # The kiosk's nightly per-tenant pg_dump is an extension the README keeps in
+    # both variants; only step aside if a backend owns tenant-DB backups.
+    from .backends import get_backend
+    backend = get_backend()
+    if not backend.manages_backups:
+        backup.start_nightly()
     monitor.start()
+    print(f"[startup] deploy backend = {backend.name}", flush=True)
 
 
 @app.get("/healthz")
@@ -208,7 +214,20 @@ def add_cron(request: Request, slug: str, name: str = Form(...),
     who = identity(request)
     _owner_guard(slug, who)
     db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
+    # If the deploy backend runs scheduled tasks itself (Coolify), register the
+    # new job with it now. No-op for the in-process (docker) scheduler, which
+    # reads the cron rows directly.
+    deployer.sync_cron(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
+
+
+@app.post("/apps/{slug}/rollback")
+def rollback_app(request: Request, slug: str):
+    who = identity(request)
+    _owner_guard(slug, who)
+    ok, url, msg = deployer.rollback(slug)
+    audit.record(who, "rollback", app=slug, detail={"ok": ok, "msg": msg})
+    return JSONResponse({"ok": ok, "url": url, "message": msg})
 
 
 @app.get("/apps/{slug}/status")
