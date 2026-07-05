@@ -32,8 +32,8 @@ def middleware_chain(slug: str) -> list[str]:
     strip spoofed headers first, set authoritative slug, then authN, then authZ.
 
     The per-app slug middleware is referenced by bare name: it is defined by the
-    same (docker) provider as the router, so Traefik resolves it in-provider —
-    matching the M1-verified routing exactly."""
+    same (docker-label) provider as the router, so Traefik resolves it
+    in-provider."""
     return [STRIP_AUTH_IN, slug_middleware(slug), FORWARD_AUTH, APP_AUTHZ]
 
 

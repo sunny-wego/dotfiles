@@ -14,23 +14,35 @@ from __future__ import annotations
 import threading
 
 from . import dockercli
-from .backends import get_backend
 from .config import config
 
 # Keep the newest N local builds per app (the live one + one previous for a quick
 # local rebuild); older tags are pruned so the build box's disk doesn't fill up.
 IMAGE_RETAIN = 2
 
+_backend = None
+
+
+def _b():
+    """The process-wide Coolify backend, built lazily so importing this module
+    (or `backends.labels`) doesn't construct the Coolify client — which requires
+    credentials — until a deploy actually needs it."""
+    global _backend
+    if _backend is None:
+        from .backends.coolify.backend import CoolifyBackend
+        _backend = CoolifyBackend()
+    return _backend
+
 
 def deploy(slug: str, image: str, port: int,
            env: dict[str, str] | None = None) -> tuple[bool, str, str]:
-    return get_backend().deploy(slug, image, port, env=env)
+    return _b().deploy(slug, image, port, env=env)
 
 
 def redeploy(slug: str) -> tuple[bool, str, str]:
     """Re-apply an already-built app with a freshly-built env bundle, so changes
     to secrets / egress allowlist take effect on the live app. No rebuild."""
-    return get_backend().redeploy(slug)
+    return _b().redeploy(slug)
 
 
 def redeploy_async(slug: str) -> None:
@@ -40,19 +52,15 @@ def redeploy_async(slug: str) -> None:
 
 
 def rollback(slug: str) -> tuple[bool, str, str]:
-    return get_backend().rollback(slug)
+    return _b().rollback(slug)
 
 
 def app_logs(slug: str, tail: int = 200) -> str:
-    return get_backend().app_logs(slug, tail=tail)
-
-
-def teardown(slug: str) -> None:
-    get_backend().teardown(slug)
+    return _b().app_logs(slug, tail=tail)
 
 
 def sync_cron(slug: str) -> None:
-    get_backend().sync_cron(slug)
+    _b().sync_cron(slug)
 
 
 def prune_old_images(slug: str, keep: str) -> None:

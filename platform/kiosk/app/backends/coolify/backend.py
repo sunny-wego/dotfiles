@@ -9,8 +9,7 @@ Maps the platform's deploy contract onto Coolify resources:
                          an (async) deploy.
   * cron               → Coolify Scheduled Tasks (the kiosk has no in-process
                          scheduler; it only syncs each app's schedule to Coolify).
-  * admin plane        → the Coolify dashboard (operators), surfaced to the kiosk
-                         via `admin_dashboard_url`.
+  * admin plane        → the Coolify dashboard (operators), at COOLIFY_BASE_URL.
 
 The auth chain (strip-auth-in → slug → forwardauth → appauthz) is applied via the
 `labels` builder as Coolify application custom labels. The `@file` middlewares it
@@ -25,20 +24,10 @@ called out in the runbook.
 
 from __future__ import annotations
 
-from ... import db, tenant_env
+from ... import db, dockercli, tenant_env
 from ...config import config
 from .. import labels
 from .client import CoolifyClient, CoolifyError
-
-
-def _split_image(image: str) -> tuple[str, str]:
-    """'registry:5000/tenant-foo:1700000000' → ('registry:5000/tenant-foo',
-    '1700000000'). Splits on the LAST colon, so the registry host's own port is
-    preserved in the name."""
-    name, _, tag = image.rpartition(":")
-    if not name:  # no tag present
-        return image, "latest"
-    return name, tag
 
 
 class CoolifyBackend:
@@ -57,27 +46,30 @@ class CoolifyBackend:
     def deploy(self, slug: str, image: str, port: int,
                env: dict[str, str] | None = None) -> tuple[bool, str, str]:
         host = config.app_host(slug)
-        name, tag = _split_image(image)
+        name, tag = dockercli.split_image_ref(image)
         full_env = {"PORT": str(port), **(env or {})}
         try:
             uuid = self._ensure_app(slug, name, tag, port, host)
             self._client.set_envs(uuid, full_env)
-            self._client.update_app(uuid, self._app_fields(slug, port, host))
+            # One PATCH carries the whole desired state — image, FQDN, port,
+            # limits and the auth-chain labels — then we trigger the deploy.
+            self._client.update_app(uuid, self._app_fields(slug, name, tag, port, host))
             self._client.deploy(uuid, force=True)
         except CoolifyError as e:
             return False, "", f"Coolify deploy failed: {e}"
-        # Best-effort: sync scheduled tasks now that the app exists.
-        self.sync_cron(slug)
+        # Best-effort: sync scheduled tasks (reuse the uuid we already resolved).
+        self.sync_cron(slug, uuid=uuid)
         return (True, f"https://{host}",
                 "deploy triggered on Coolify (async) behind Google login + allow-list")
 
     def _ensure_app(self, slug: str, name: str, tag: str, port: int,
                     host: str) -> str:
-        """Return the Coolify app UUID for this slug, creating it on first deploy
-        and reusing it (updating the image tag) thereafter. Idempotent."""
+        """Return the Coolify app UUID for this slug, creating the record on
+        first deploy and reusing it thereafter. On reuse, the image tag and every
+        other setting are (re)applied by the `update_app` that follows — so there
+        is no separate image PATCH. Idempotent."""
         uuid = db.get_coolify_uuid(slug)
         if uuid:
-            self._client.set_image(uuid, name, tag)
             return uuid
         uuid = self._client.create_image_app(
             project_uuid=config.COOLIFY_PROJECT_UUID,
@@ -88,13 +80,17 @@ class CoolifyBackend:
         db.put_coolify_uuid(slug, uuid)
         return uuid
 
-    def _app_fields(self, slug: str, port: int, host: str) -> dict:
-        """The application settings the kiosk owns on every deploy: the FQDN,
-        exposed port, per-app resource ceilings, and the auth-chain custom
-        labels. Coolify enforces the limits and its Traefik honours the labels."""
+    def _app_fields(self, slug: str, image: str, tag: str, port: int,
+                    host: str) -> dict:
+        """The full desired app state the kiosk owns on every deploy: the image
+        ref, FQDN, exposed port, per-app resource ceilings, and the auth-chain
+        custom labels. Coolify enforces the limits and its Traefik honours the
+        labels."""
         label_map = labels.tenant_label_map(
             slug, host, port, config.COOLIFY_TENANT_NETWORK)
         fields: dict = {
+            "docker_registry_image_name": image,
+            "docker_registry_image_tag": tag,
             "domains": f"https://{host}",
             "ports_exposes": str(port),
             "custom_labels": CoolifyClient.encode_custom_labels(label_map),
@@ -118,7 +114,7 @@ class CoolifyBackend:
     def rollback(self, slug: str) -> tuple[bool, str, str]:
         # Coolify retains deployment history; rolling back is a first-class
         # dashboard action (the README's "rollback" under Coolify-provided).
-        url = self.admin_dashboard_url() or config.COOLIFY_BASE_URL
+        url = config.COOLIFY_BASE_URL
         return (False, url,
                 f"roll back from the Coolify deployment history for '{slug}' at {url}")
 
@@ -142,16 +138,20 @@ class CoolifyBackend:
         db.delete_coolify_uuid(slug)
 
     # ── cron → Coolify Scheduled Tasks ──────────────────────────────────────────
-    def sync_cron(self, slug: str) -> None:
+    def sync_cron(self, slug: str, uuid: str | None = None) -> None:
         """Reconcile Coolify Scheduled Tasks with the kiosk's cron rows: create
         any missing, leave the rest. Best-effort — a Coolify version without the
-        scheduled-task API logs and skips rather than failing a deploy."""
-        uuid = db.get_coolify_uuid(slug)
+        scheduled-task API logs and skips rather than failing a deploy. `uuid` is
+        passed by `deploy` (already resolved); the standalone cron route omits it."""
+        rows = db.list_cron(slug)
+        if not rows:  # nothing to sync — skip the Coolify round-trip entirely
+            return
+        uuid = uuid or db.get_coolify_uuid(slug)
         if not uuid:
             return
         try:
             existing = {t.get("name") for t in self._client.list_scheduled_tasks(uuid)}
-            for row in db.list_cron(slug):
+            for row in rows:
                 if row["name"] in existing:
                     continue
                 self._client.create_scheduled_task(
@@ -159,6 +159,3 @@ class CoolifyBackend:
                     frequency=row["schedule"])
         except CoolifyError as e:
             print(f"[coolify] scheduled-task sync for {slug} skipped: {e}", flush=True)
-
-    def admin_dashboard_url(self) -> str | None:
-        return config.COOLIFY_BASE_URL or None

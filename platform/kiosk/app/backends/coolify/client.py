@@ -84,17 +84,8 @@ class CoolifyClient:
             raise CoolifyError(f"create app: no uuid in response: {data}")
         return uuid
 
-    def get_app(self, uuid: str) -> dict:
-        return self._request("GET", f"/applications/{uuid}")
-
     def update_app(self, uuid: str, fields: dict) -> dict:
         return self._request("PATCH", f"/applications/{uuid}", json_body=fields)
-
-    def set_image(self, uuid: str, image: str, tag: str) -> None:
-        self.update_app(uuid, {
-            "docker_registry_image_name": image,
-            "docker_registry_image_tag": tag,
-        })
 
     def delete_app(self, uuid: str) -> None:
         self._request("DELETE", f"/applications/{uuid}",
@@ -131,9 +122,6 @@ class CoolifyClient:
         self._request("POST", f"/applications/{uuid}/scheduled-tasks", json_body={
             "name": name, "command": command, "frequency": frequency,
         })
-
-    def delete_scheduled_task(self, uuid: str, task_uuid: str) -> None:
-        self._request("DELETE", f"/applications/{uuid}/scheduled-tasks/{task_uuid}")
 
     # ── helpers ────────────────────────────────────────────────────────────────
     @staticmethod

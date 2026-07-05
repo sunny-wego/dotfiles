@@ -59,8 +59,6 @@ class Config:
         "KIOSK_TENANT_DB_STATEMENT_TIMEOUT", "30s")
     TENANT_DB_QUOTA_MB = _int("KIOSK_TENANT_DB_QUOTA_MB", 1024)
 
-    # Networks the kiosk attaches tenant containers to.
-    TENANT_NETWORK = os.environ.get("TENANT_NETWORK", "platform_tenant")
     # Egress proxy (squid) tenants use for allowlisted outbound; empty disables.
     EGRESS_PROXY = os.environ.get("EGRESS_PROXY", "egress-proxy:3128")
     # File the kiosk regenerates with the union of app outbound allowlists.
@@ -77,7 +75,6 @@ class Config:
     MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "platform-backups")
 
     REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "registry:5000")
-    PROXY_NETWORK = os.environ.get("PROXY_NETWORK", "platform_proxy")
 
     # ── Coolify — the deploy engine (README §3) ───────────────────────────────
     # The kiosk drives Coolify through its REST API (deploy-from-image, encrypted

@@ -43,6 +43,15 @@ def build(tag: str, context: str, dockerfile: str = "Dockerfile",
     return run(args, timeout=timeout)
 
 
+def split_image_ref(image: str) -> tuple[str, str]:
+    """'registry:5000/tenant-foo:1700' -> ('registry:5000/tenant-foo', '1700').
+
+    Splits on the LAST colon so the registry host's own port stays in the name;
+    an untagged ref returns ('<image>', 'latest'). One place owns this rule."""
+    name, _, tag = image.rpartition(":")
+    return (name, tag) if name else (image, "latest")
+
+
 def rm_force(name: str) -> None:
     run(["rm", "-f", name], timeout=30)
 

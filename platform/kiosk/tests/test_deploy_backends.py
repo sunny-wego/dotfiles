@@ -111,7 +111,7 @@ def test_http_error_becomes_coolify_error():
         return httpx.Response(422, text="unprocessable")
 
     with pytest.raises(CoolifyError):
-        _client(handler).get_app("nope")
+        _client(handler).update_app("nope", {})
 
 
 def test_missing_credentials_fail_loudly():
