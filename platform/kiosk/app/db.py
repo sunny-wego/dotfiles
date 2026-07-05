@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     last_used_at  TIMESTAMPTZ
 );
 
+-- Device-authorization flow: a CLI with no token gets a device_code + a short
+-- user_code, the human approves the user_code in the authenticated browser
+-- (binding their email), then the CLI trades the device_code for an API token.
+CREATE TABLE IF NOT EXISTS device_codes (
+    device_code  TEXT PRIMARY KEY,
+    user_code    TEXT NOT NULL UNIQUE,
+    email        TEXT,
+    consumed     BOOLEAN NOT NULL DEFAULT false,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit (
     id        BIGGENERATED_PLACEHOLDER,
     ts        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -382,3 +394,51 @@ def revoke_api_token(email: str, token_id: int) -> bool:
         cur.execute("DELETE FROM api_tokens WHERE email=%s AND id=%s",
                     (email.lower(), token_id))
         return cur.rowcount > 0
+
+
+# ── device-authorization flow ────────────────────────────────────────────────
+def create_device_code(device_code: str, user_code: str, ttl_s: int) -> None:
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO device_codes (device_code, user_code, expires_at) "
+            "VALUES (%s, %s, now() + make_interval(secs => %s))",
+            (device_code, user_code, ttl_s))
+
+
+def approve_device_code(user_code: str, email: str) -> bool:
+    """Bind a verified company email to a pending, unexpired user_code."""
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE device_codes SET email=%s "
+            "WHERE upper(user_code)=upper(%s) AND email IS NULL "
+            "AND NOT consumed AND expires_at > now() RETURNING device_code",
+            (email.lower(), user_code))
+        return cur.fetchone() is not None
+
+
+def device_state(device_code: str) -> str:
+    """One of: unknown | expired | consumed | pending | approved."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT email, consumed, (expires_at <= now()) AS expired "
+            "FROM device_codes WHERE device_code=%s", (device_code,))
+        row = cur.fetchone()
+    if not row:
+        return "unknown"
+    if row["consumed"]:
+        return "consumed"
+    if row["expired"]:
+        return "expired"
+    return "approved" if row["email"] else "pending"
+
+
+def consume_device_code(device_code: str) -> str | None:
+    """Atomically mark an approved, unexpired, unconsumed code consumed and
+    return its email (single-use). None if it isn't consumable."""
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE device_codes SET consumed=true "
+            "WHERE device_code=%s AND email IS NOT NULL AND NOT consumed "
+            "AND expires_at > now() RETURNING email", (device_code,))
+        row = cur.fetchone()
+        return row["email"] if row else None

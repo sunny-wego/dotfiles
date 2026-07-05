@@ -23,10 +23,11 @@ plain language. Never invent a slug or URL; read it from the CLI output.
 ```
 kiosk whoami --json
 ```
-If it errors with "not logged in" / 401: the user must mint a token in the Kiosk
-web UI (their profile → API tokens), then run
-`kiosk login --url <kiosk-url> --token <ksk_…>` once. Don't try to create the
-first token from the CLI — that needs a browser session.
+If it errors with "not logged in" / 401: run `kiosk login --url <kiosk-api-url>`.
+That starts a browser device-authorization flow — it prints a URL + code for the
+user to approve in their browser (where they're signed in with company Google),
+then the CLI gets its token. Tell the user to complete that approval; don't try
+to fabricate a token.
 
 ## 1. Deploy (or redeploy) an app
 Zip the project (exclude junk), then deploy and wait for the result:

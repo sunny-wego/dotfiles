@@ -72,6 +72,13 @@ link_file "$DOTFILES_DIR/lazygit/config.yml" "$HOME/.config/lazygit/config.yml"
 link_file "$DOTFILES_DIR/herdr/config.toml" "$HOME/.config/herdr/config.toml"
 # Zeus moved to its own repo (github.com/wego/zeus); it manages its own symlink there.
 
+# Internal App Platform: link the agent skill + put the `kiosk` CLI on PATH
+# (present only on branches that carry platform/).
+if [ -d "$DOTFILES_DIR/platform/cli" ]; then
+  link_file "$DOTFILES_DIR/platform/cli" "$HOME/.claude/skills/deploy-internal-app"
+  link_file "$DOTFILES_DIR/platform/cli/kiosk" "$HOME/.local/bin/kiosk"
+fi
+
 # 3. Create Local Config Templates
 echo -e "\n--- Checking Local Configs ---"
 if [ ! -f "$HOME/.zshrc_local" ]; then

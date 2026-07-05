@@ -109,6 +109,10 @@ class Config:
     # marks it failed — so an async deploy that never reports running/failed
     # (unmapped status, Coolify unreachable) can't hang in "deploying" forever.
     DEPLOY_TIMEOUT_S = _int("KIOSK_DEPLOY_TIMEOUT_S", 900)
+
+    # Device-authorization flow (the `kiosk login` browserless path).
+    DEVICE_CODE_TTL_S = _int("KIOSK_DEVICE_CODE_TTL_S", 600)
+    DEVICE_POLL_INTERVAL_S = _int("KIOSK_DEVICE_POLL_INTERVAL_S", 5)
     # Optional docker network for tenant builds (e.g. "host"). Some corporate
     # networks require builds to run on the host network to reach an egress
     # proxy / internal mirrors. Empty = docker's default build network.

@@ -79,14 +79,42 @@ def _emit(args, obj, human: str = "") -> None:
 
 # ── commands ────────────────────────────────────────────────────────────────
 def cmd_login(args) -> None:
-    url = args.url or os.environ.get("KIOSK_URL")
+    url = (args.url or os.environ.get("KIOSK_URL") or "").rstrip("/")
+    if not url:
+        sys.exit("kiosk login: --url is required")
     token = args.token or os.environ.get("KIOSK_TOKEN")
-    if not url or not token:
-        sys.exit("kiosk login: --url and --token are required")
+    if not token:
+        # No token supplied → browser device-authorization flow (like `gh`).
+        token = _device_login(url)
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps({"url": url.rstrip("/"), "token": token}))
+    CONFIG.write_text(json.dumps({"url": url, "token": token}))
     CONFIG.chmod(0o600)
     print(f"saved credentials to {CONFIG}")
+
+
+def _device_login(url: str) -> str:
+    """Ask the Kiosk for a device code, tell the user to approve it in the
+    browser, and poll until a token is issued. No token needed to start."""
+    with httpx.Client(base_url=url, timeout=30) as c:
+        start = _ok(c.post("/device/code")).json()
+        verify = start.get("verification_uri_complete") or start["verification_uri"]
+        print(f"\n  Open this URL and confirm the code:\n\n    {verify}\n"
+              f"    code: {start['user_code']}\n\n  Waiting for approval… (Ctrl-C to cancel)")
+        interval = start.get("interval", 5)
+        deadline = time.monotonic() + start.get("expires_in", 600)
+        while time.monotonic() < deadline:
+            time.sleep(interval)
+            resp = c.post("/device/token", data={"device_code": start["device_code"]})
+            if resp.status_code >= 400:
+                _die(resp)
+            body = resp.json()
+            if body.get("token"):
+                print("  authorized ✓")
+                return body["token"]
+            if body.get("status") in ("expired", "consumed", "unknown"):
+                sys.exit(f"kiosk login: device authorization {body['status']}")
+            # status == pending → keep polling
+        sys.exit("kiosk login: timed out waiting for approval")
 
 
 def cmd_whoami(args) -> None:

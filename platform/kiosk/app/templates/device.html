@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Authorize a device{% endblock %}
+{% block body %}
+<div class="panel">
+  <h1>Authorize the kiosk CLI</h1>
+  <p class="muted">Signed in as <b>{{ who }}</b>. Confirm the code shown in your
+     terminal to grant the CLI a token that acts as you.</p>
+
+  {% if approved is not none %}
+    {% if approved %}
+      <p><span class="badge running">Approved</span> — return to your terminal;
+         the CLI will pick up its token.</p>
+    {% else %}
+      <p><span class="badge failed">Invalid or expired code</span> — run
+         <code>kiosk login</code> again to get a fresh one.</p>
+    {% endif %}
+  {% endif %}
+
+  {% if approved is none or not approved %}
+  <form action="/device/approve" method="post">
+    <label for="user_code">Device code</label>
+    <input type="text" id="user_code" name="user_code" value="{{ code }}"
+           placeholder="ABCD-EFGH" autocomplete="off" required>
+    <button type="submit">Authorize</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

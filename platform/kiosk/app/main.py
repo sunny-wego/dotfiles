@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import shutil
 import time
 from pathlib import Path
+
+# Unambiguous alphabet for the human-entered device code (no 0/O/1/I).
+_USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -118,6 +122,62 @@ def revoke_token(request: Request, token_id: int):
         raise HTTPException(404, "no such token")
     audit.record(who, "token.revoke", detail={"id": token_id})
     return JSONResponse({"ok": True})
+
+
+# ── device-authorization flow (browserless `kiosk login`) ─────────────────────
+# /device/code and /device/token are pre-auth (the CLI has no token yet); the
+# approval (/device, /device/approve) requires a verified browser identity, so it
+# must sit behind oauth2-proxy. See cli/README.md for the ingress split.
+def _user_code() -> str:
+    raw = "".join(secrets.choice(_USER_CODE_ALPHABET) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+@app.post("/device/code")
+def device_code():
+    dc = "dev_" + crypto.random_token(24)
+    uc = _user_code()
+    db.create_device_code(dc, uc, config.DEVICE_CODE_TTL_S)
+    base = f"https://{config.PLATFORM_DOMAIN}"
+    return JSONResponse({
+        "device_code": dc,
+        "user_code": uc,
+        "verification_uri": f"{base}/device",
+        "verification_uri_complete": f"{base}/device?code={uc}",
+        "interval": config.DEVICE_POLL_INTERVAL_S,
+        "expires_in": config.DEVICE_CODE_TTL_S,
+    })
+
+
+@app.post("/device/token")
+def device_token(device_code: str = Form(...)):
+    state = db.device_state(device_code)
+    if state == "approved":
+        email = db.consume_device_code(device_code)
+        if not email:  # lost a race with another poll
+            return JSONResponse({"status": "consumed"})
+        token = "ksk_" + crypto.random_token(24)
+        db.create_api_token(email, token, "cli (device login)")
+        audit.record(email, "token.create", detail={"via": "device"})
+        return JSONResponse({"token": token})
+    return JSONResponse({"status": state})  # pending | expired | consumed | unknown
+
+
+@app.get("/device", response_class=HTMLResponse)
+def device_page(request: Request, code: str = ""):
+    who = identity(request)
+    return templates.TemplateResponse("device.html", {
+        "request": request, "who": who, "code": code, "approved": None})
+
+
+@app.post("/device/approve", response_class=HTMLResponse)
+def device_approve(request: Request, user_code: str = Form(...)):
+    who = identity(request)
+    approved = db.approve_device_code(user_code.strip(), who)
+    if approved:
+        audit.record(who, "device.approve", detail={"user_code": user_code.strip()})
+    return templates.TemplateResponse("device.html", {
+        "request": request, "who": who, "code": user_code, "approved": approved})
 
 
 def _owner_guard(slug: str, who: str) -> dict:

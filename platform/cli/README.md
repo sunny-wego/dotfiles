@@ -11,11 +11,24 @@ personal API token, from the machine where your app's code lives.
   at it (e.g. symlink into your skills dir).
 
 ## Setup
-1. In the Kiosk web UI, open **API tokens → Create token**, copy the `ksk_…`.
-2. `kiosk login --url https://kiosk.<your-domain> --token ksk_…`
-   (or set `KIOSK_URL` / `KIOSK_TOKEN` env vars; config lives at
-   `~/.config/kiosk/config.json`).
-3. `kiosk whoami` to confirm.
+```
+kiosk login --url https://api.kiosk.<your-domain>
+```
+This runs a browser device-authorization flow (like `gh auth login`): it prints
+a URL + short code, you open it in your browser (where you're already signed in
+with company Google), confirm the code, and the CLI receives a token — no
+copy-paste. `kiosk whoami` to confirm.
+
+Alternatives: paste a token minted in the web UI (**API tokens → Create token**)
+with `kiosk login --url … --token ksk_…`, or set `KIOSK_URL` / `KIOSK_TOKEN` env
+vars. Config lives at `~/.config/kiosk/config.json`.
+
+> **Ingress note (operators).** The token/device endpoints are Bearer-authed (or
+> pre-auth), not cookie-authed, so they must reach the Kiosk *past* oauth2-proxy:
+> expose an API route with only `strip-auth-in` (no `forwardauth`) — e.g.
+> `api.kiosk.<domain>` — and point the CLI's `--url` there. `strip-auth-in` is
+> required so nobody can spoof identity headers on the un-cookied route. The
+> browser approval page (`/device`) and the web UI keep the full auth chain.
 
 ## Common commands
 ```
