@@ -111,10 +111,6 @@ class CoolifyClient:
         'degraded'). Empty string if Coolify doesn't report one."""
         return str(_dig(self._request("GET", f"/applications/{uuid}"), "status") or "")
 
-    def delete_app(self, uuid: str) -> None:
-        self._request("DELETE", f"/applications/{uuid}",
-                      params={"delete_volumes": "true"})
-
     def deploy(self, uuid: str, force: bool) -> dict:
         """Trigger a (re)deploy. Coolify runs it asynchronously; we only kick it."""
         return self._request("GET", "/deploy",

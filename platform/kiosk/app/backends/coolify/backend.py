@@ -164,16 +164,6 @@ class CoolifyBackend:
         except CoolifyError as e:
             return f"(could not fetch logs from Coolify: {e})"
 
-    def teardown(self, slug: str) -> None:
-        uuid = db.get_coolify_uuid(slug)
-        if not uuid:
-            return
-        try:
-            self._client.delete_app(uuid)
-        except CoolifyError as e:
-            print(f"[coolify] teardown {slug}: {e}", flush=True)
-        db.delete_coolify_uuid(slug)
-
     # ── cron → Coolify Scheduled Tasks ──────────────────────────────────────────
     def sync_cron(self, slug: str, uuid: str | None = None) -> None:
         """Reconcile Coolify Scheduled Tasks with the kiosk's cron rows in BOTH
