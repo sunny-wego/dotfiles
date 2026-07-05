@@ -81,8 +81,11 @@ def test_reconcile_fails_a_stuck_deploying_app(monkeypatch):
 
 # ── #7: redeploy proceeds while an app is still "deploying" ──────────────────
 class _FakeClient:
-    def __init__(self):
+    def __init__(self, existing_tasks=None):
         self.calls = []
+        self.existing_tasks = existing_tasks or []
+        self.deleted_tasks = []
+        self.created_tasks = []
 
     def _rec(self, name):
         self.calls.append(name)
@@ -100,7 +103,16 @@ class _FakeClient:
         self._rec("deploy")
 
     def list_scheduled_tasks(self, uuid):
-        return []
+        return self.existing_tasks
+
+    def create_scheduled_task(self, uuid, *, name, command, frequency):
+        self.created_tasks.append(name)
+
+    def update_scheduled_task(self, uuid, task_uuid, *, name, command, frequency):
+        self._rec("update_task")
+
+    def delete_scheduled_task(self, uuid, task_uuid):
+        self.deleted_tasks.append(task_uuid)
 
 
 def _backend_with_fake_client():
@@ -187,3 +199,25 @@ def test_push_failure_fails_provision_and_skips_deploy(monkeypatch, tmp_path):
     assert job.status == "failed"
     assert db.get_app("pushfail")["status"] == "failed"
     assert deployed == [], "deploy must not be triggered when the push failed"
+
+
+# ── cron removal propagates (db + Coolify reconcile) ─────────────────────────
+def test_delete_cron_removes_row():
+    _seed("cronapp")
+    db.add_cron("cronapp", "nightly", "0 9 * * *", "python x.py")
+    assert any(c["name"] == "nightly" for c in db.list_cron("cronapp"))
+    db.delete_cron("cronapp", "nightly")
+    assert db.list_cron("cronapp") == []
+
+
+def test_sync_cron_creates_missing_and_deletes_removed():
+    from app.backends.coolify.backend import CoolifyBackend
+    _seed("recon")
+    db.put_coolify_uuid("recon", "uuid-1")
+    db.add_cron("recon", "keep", "0 1 * * *", "cmd-keep")
+    b = CoolifyBackend.__new__(CoolifyBackend)
+    # Coolify has a stale "old" task (its kiosk row is gone) but not "keep".
+    b._client = _FakeClient(existing_tasks=[{"name": "old", "uuid": "t-old"}])
+    b.sync_cron("recon")
+    assert "keep" in b._client.created_tasks    # kiosk row with no task → created
+    assert "t-old" in b._client.deleted_tasks   # task with no kiosk row → deleted

@@ -372,15 +372,19 @@ def add_egress(request: Request, slug: str, domain: str = Form(...),
 
 @app.post("/apps/{slug}/cron")
 def add_cron(request: Request, slug: str, name: str = Form(...),
-             schedule: str = Form(...), command: str = Form(...),
-             csrf: str = Form("")):
+             schedule: str = Form(""), command: str = Form(""),
+             remove: str = Form(""), csrf: str = Form("")):
     who = identity(request)
     _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
-    db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
-    # Reconcile Coolify Scheduled Tasks off the request path (the round-trips
-    # shouldn't block the redirect); no-op until the app has been deployed, when
-    # deploy() re-syncs.
+    if remove:
+        db.delete_cron(slug, name.strip())
+    else:
+        if not schedule.strip() or not command.strip():
+            raise HTTPException(400, "schedule and command are required")
+        db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
+    # Reconcile Coolify Scheduled Tasks off the request path — sync_cron creates,
+    # updates AND deletes to match the kiosk's cron rows, so a removal propagates.
     deployer.sync_cron_async(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 

@@ -70,7 +70,13 @@
 <div class="panel">
   <h2>Scheduled tasks (cron)</h2>
   {% for c in crons %}
-    <p class="muted"><b>{{ c.name }}</b> — <code>{{ c.schedule }}</code> (UTC) — <code>{{ c.command }}</code></p>
+    <p class="muted"><b>{{ c.name }}</b> — <code>{{ c.schedule }}</code> (UTC) — <code>{{ c.command }}</code>
+      <form action="/apps/{{ slug }}/cron" method="post" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
+        <input type="hidden" name="name" value="{{ c.name }}">
+        <input type="hidden" name="remove" value="1">
+        <button type="submit">remove</button>
+      </form></p>
   {% endfor %}
   <form action="/apps/{{ slug }}/cron" method="post">
     <input type="hidden" name="csrf" value="{{ request.state.csrf }}">

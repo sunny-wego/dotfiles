@@ -341,6 +341,11 @@ def list_cron(slug: str) -> list[dict]:
         return cur.fetchall()
 
 
+def delete_cron(slug: str, name: str) -> None:
+    with cursor() as cur:
+        cur.execute("DELETE FROM app_cron WHERE slug=%s AND name=%s", (slug, name))
+
+
 # ── Coolify application identity ──────────────────────────────────────────────
 def get_coolify_uuid(slug: str) -> str | None:
     with cursor() as cur:
