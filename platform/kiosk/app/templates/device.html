@@ -18,9 +18,14 @@
 
   {% if approved is none or not approved %}
   <form action="/device/approve" method="post">
-    <label for="user_code">Device code</label>
-    <input type="text" id="user_code" name="user_code" value="{{ code }}"
-           placeholder="ABCD-EFGH" autocomplete="off" required>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="user_code">Type the code shown in your terminal</label>
+    <input type="text" id="user_code" name="user_code"
+           placeholder="ABCD-EFGH" autocomplete="off" autofocus required>
+    <p class="muted"><b>Only authorize a code you started yourself.</b> Approving
+       grants that device a token that acts as <b>you</b>. If you didn't just run
+       <code>kiosk login</code>, or the code doesn't match your terminal, close
+       this page — never enter a code someone sent you.</p>
     <button type="submit">Authorize</button>
   </form>
   {% endif %}

@@ -97,9 +97,10 @@ def _device_login(url: str) -> str:
     browser, and poll until a token is issued. No token needed to start."""
     with httpx.Client(base_url=url, timeout=30) as c:
         start = _ok(c.post("/device/code")).json()
-        verify = start.get("verification_uri_complete") or start["verification_uri"]
-        print(f"\n  Open this URL and confirm the code:\n\n    {verify}\n"
-              f"    code: {start['user_code']}\n\n  Waiting for approval… (Ctrl-C to cancel)")
+        print(f"\n  1. Open:  {start['verification_uri']}\n"
+              f"  2. Enter this code:  {start['user_code']}\n\n"
+              "  (type the code yourself — don't approve a code anyone sent you)\n\n"
+              "  Waiting for approval… (Ctrl-C to cancel)")
         interval = start.get("interval", 5)
         deadline = time.monotonic() + start.get("expires_in", 600)
         while time.monotonic() < deadline:

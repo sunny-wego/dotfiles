@@ -133,17 +133,49 @@ def _user_code() -> str:
     return f"{raw[:4]}-{raw[4:]}"
 
 
+_CSRF_COOKIE = "kiosk_csrf"
+
+
+def _csrf_ok(request: Request, submitted: str) -> bool:
+    """Double-submit: the form field must equal the cookie set when the page was
+    served. A cross-site attacker can neither read the victim's cookie nor set a
+    matching hidden field, so a forged POST fails."""
+    cookie = request.cookies.get(_CSRF_COOKIE, "")
+    return bool(submitted and cookie and secrets.compare_digest(submitted, cookie))
+
+
+def _same_origin_ok(request: Request) -> bool:
+    """Defense-in-depth: if an Origin/Referer is present it must be this host."""
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    if not origin:
+        return True
+    from urllib.parse import urlparse
+    return urlparse(origin).netloc == request.headers.get("host", "")
+
+
+def _render_device(request: Request, who: str, approved) -> HTMLResponse:
+    csrf = secrets.token_urlsafe(24)
+    resp = templates.TemplateResponse("device.html", {
+        "request": request, "who": who, "csrf": csrf, "approved": approved})
+    https = (request.headers.get("x-forwarded-proto", "").lower() == "https"
+             or request.url.scheme == "https")
+    resp.set_cookie(_CSRF_COOKIE, csrf, max_age=config.DEVICE_CODE_TTL_S,
+                    httponly=True, samesite="strict", secure=https, path="/")
+    return resp
+
+
 @app.post("/device/code")
 def device_code():
     dc = "dev_" + crypto.random_token(24)
     uc = _user_code()
     db.create_device_code(dc, uc, config.DEVICE_CODE_TTL_S)
-    base = f"https://{config.PLATFORM_DOMAIN}"
+    # Deliberately NO verification_uri_complete: the user must type the code they
+    # see in their OWN terminal, so a crafted link can't one-click-approve an
+    # attacker's device against the victim's identity.
     return JSONResponse({
         "device_code": dc,
         "user_code": uc,
-        "verification_uri": f"{base}/device",
-        "verification_uri_complete": f"{base}/device?code={uc}",
+        "verification_uri": f"https://{config.PLATFORM_DOMAIN}/device",
         "interval": config.DEVICE_POLL_INTERVAL_S,
         "expires_in": config.DEVICE_CODE_TTL_S,
     })
@@ -164,20 +196,22 @@ def device_token(device_code: str = Form(...)):
 
 
 @app.get("/device", response_class=HTMLResponse)
-def device_page(request: Request, code: str = ""):
+def device_page(request: Request):
     who = identity(request)
-    return templates.TemplateResponse("device.html", {
-        "request": request, "who": who, "code": code, "approved": None})
+    # No code pre-fill: the user types the code from their own terminal.
+    return _render_device(request, who, approved=None)
 
 
 @app.post("/device/approve", response_class=HTMLResponse)
-def device_approve(request: Request, user_code: str = Form(...)):
+def device_approve(request: Request, user_code: str = Form(...),
+                   csrf: str = Form("")):
     who = identity(request)
+    if not _csrf_ok(request, csrf) or not _same_origin_ok(request):
+        raise HTTPException(403, "invalid or missing CSRF token — reload /device")
     approved = db.approve_device_code(user_code.strip(), who)
     if approved:
         audit.record(who, "device.approve", detail={"user_code": user_code.strip()})
-    return templates.TemplateResponse("device.html", {
-        "request": request, "who": who, "code": user_code, "approved": approved})
+    return _render_device(request, who, approved=approved)
 
 
 def _owner_guard(slug: str, who: str) -> dict:
