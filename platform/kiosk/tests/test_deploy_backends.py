@@ -1,9 +1,8 @@
-"""Deploy-backend guarantees that hold regardless of engine.
+"""Deploy-backend guarantees.
 
 These pin the parts a person is promised: an app is ALWAYS behind the full auth
-chain (no engine may drop a hop), the Coolify client talks to the documented API
-with the right shapes, and an unknown backend name fails loudly instead of
-silently deploying nothing. No Docker, no Postgres, no live Coolify.
+chain (a deploy can't drop a hop), and the Coolify client talks to the documented
+API with the right shapes. No Docker, no Postgres, no live Coolify.
 """
 import base64
 
@@ -37,13 +36,6 @@ def test_tenant_labels_set_authoritative_slug_and_private_router():
         "strip-auth-in@file,slug-myapp,forwardauth@file,appauthz@file"
     assert m["traefik.http.services.app-myapp.loadbalancer.server.port"] == "8000"
     assert m["traefik.http.routers.app-myapp.tls"] == "true"
-
-
-def test_docker_label_args_flatten_to_pairs():
-    args = labels.docker_label_args("a", "a.apps.localhost", 3000, "net")
-    assert args.count("--label") == len(labels.tenant_label_map("a", "a.apps.localhost", 3000, "net"))
-    # Every value follows a --label flag.
-    assert all(args[i] == "--label" for i in range(0, len(args), 2))
 
 
 def test_coolify_custom_labels_roundtrip_preserves_chain():
@@ -125,10 +117,3 @@ def test_http_error_becomes_coolify_error():
 def test_missing_credentials_fail_loudly():
     with pytest.raises(CoolifyError):
         CoolifyClient("", "")
-
-
-# ── backend selection ─────────────────────────────────────────────────────────
-def test_unknown_backend_name_raises():
-    from app.backends import _build
-    with pytest.raises(RuntimeError):
-        _build("kubernetes")

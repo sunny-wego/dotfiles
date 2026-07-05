@@ -2,5 +2,5 @@
 
 The kiosk drives Coolify through its REST API on the creator's behalf; operators
 use the Coolify dashboard as the admin plane. See `client.py` (the REST wrapper)
-and `backend.py` (the DeployBackend implementation).
+and `backend.py` (`CoolifyBackend`).
 """

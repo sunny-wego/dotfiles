@@ -9,31 +9,37 @@ See also: [`docs/AUTH.md`](./docs/AUTH.md) (dev stub vs Google), [`M1.md`](./M1.
 
 ## Prerequisites
 
-- **Docker** with the Compose plugin (`docker compose`). Docker Engine 29 is
-  supported (routing uses `traefik:v3.6`, which negotiates the API version).
+- **Coolify** — the deploy engine + ingress. Install it first via
+  [`coolify/install.sh`](./coolify/install.sh) and do the one-time dashboard
+  setup (project / environment / destination / API token) per
+  [`coolify/README.md`](./coolify/README.md).
+- **Docker** with the Compose plugin (`docker compose`) for the shared services.
 - **Make** (optional — every `make` target below maps to a plain
   `docker compose` command if you'd rather run it directly).
 - The kiosk builds tenant images via the mounted host Docker socket
-  (docker-out-of-docker), so it needs access to a Docker daemon on the box.
+  (docker-out-of-docker), then hands the image to Coolify to deploy.
 
 ## Core steps (identical local & remote)
 
 ```bash
+sudo coolify/install.sh     # 0. install Coolify; then set it up (coolify/README.md)
 cp .env.example .env        # 1. create config (see the delta blocks below)
-#                             2. edit .env — a few values differ by target
-make up                     # 3. start everything  (== docker compose --profile dev up -d --build)
+#                             2. edit .env — COOLIFY_* + a few values by target
+make up                     # 3. start shared services (== docker compose --profile dev up -d --build)
 make samples                # 4. build the Node + Python sample zips into ./dist
-make smoke                  # 5. assert the done-when checks against the running platform
+#                             5. run the parity gate (coolify/README.md)
 ```
 
-`make up` prints the kiosk URL: `https://kiosk.<PLATFORM_DOMAIN>`. Open it,
-sign in, and **upload a sample zip from `./dist`** to deploy your first app —
-it comes back as a private URL behind login.
+The Kiosk is exposed through Coolify's proxy at `https://kiosk.<PLATFORM_DOMAIN>`.
+Open it, sign in, and **upload a sample zip from `./dist`** to deploy your first
+app — the Kiosk builds + pushes the image, Coolify deploys it, and it comes back
+as a private URL behind login.
 
-`make up` first runs **`make preflight`** — a readiness check (Docker up, ports
-80/443 free, `.env` present, disk headroom, LLM mode vs key, and — in google
-mode — a real secret key + OAuth creds). Run it standalone any time with
-`make preflight`; it blocks `up` only on genuine blockers, not warnings.
+`make up` first runs **`make preflight`** — a readiness check (Docker up, `.env`
+present, disk headroom, LLM mode vs key, and — in google mode — a real secret key
++ OAuth creds). Ports 80/443 belong to Coolify's proxy, not this stack. Run it
+standalone any time with `make preflight`; it blocks `up` only on genuine
+blockers, not warnings.
 
 Everyday targets: `make logs` (tail kiosk), `make down` (stop, keep data),
 `make clean` (stop **and delete volumes** — destructive), `make check`
@@ -104,7 +110,7 @@ The kiosk's own Dockerfile generation + self-heal call an LLM through LiteLLM.
   or front the registry with TLS. A skipped push never fails a provision.
 - **Build can't reach the network.** If tenant image builds must use the host
   network (e.g. to reach an internal mirror/proxy), set `KIOSK_BUILD_NETWORK=host`.
-- **`make smoke` fails on auth.** Confirm `COMPANY_EMAIL_DOMAIN` matches the
+- **Parity gate fails on auth.** Confirm `COMPANY_EMAIL_DOMAIN` matches the
   identity (`DEV_USER_EMAIL` in dev mode); a non-company address is denied by
   design.
 - **Docker Engine 29 label routing.** Already handled — the committed compose

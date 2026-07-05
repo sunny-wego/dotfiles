@@ -1,18 +1,25 @@
-"""Deploy facade — dispatches to the active deploy backend.
+"""Deploy facade — delegates to Coolify.
 
-The deploy engine is swappable behind a small interface (README: "additive, not
-a migration"). That interface + its implementations now live in `backends/`
-(plain-Docker default, Coolify optional); this module keeps the original
-function-level API (`deploy`, `redeploy`, `app_logs`, `teardown`,
-`prune_old_images`) so the orchestrator and web layer don't care which engine is
-underneath. The backend is chosen once from `KIOSK_DEPLOY_BACKEND`.
+The kiosk builds + pushes an image, then hands off hosting to Coolify (deploy,
+env, cron, TLS, rollback, logs). This module keeps the function-level API the
+orchestrator and web layer call, so they don't reach into the backend directly.
+
+`prune_old_images` is the exception: it reclaims disk from *locally built* images
+(the kiosk builds every app here before Coolify deploys from the registry), so it
+runs against the local Docker daemon regardless of the hosting engine.
 """
 
 from __future__ import annotations
 
 import threading
 
+from . import dockercli
 from .backends import get_backend
+from .config import config
+
+# Keep the newest N local builds per app (the live one + one previous for a quick
+# local rebuild); older tags are pruned so the build box's disk doesn't fill up.
+IMAGE_RETAIN = 2
 
 
 def deploy(slug: str, image: str, port: int,
@@ -21,15 +28,14 @@ def deploy(slug: str, image: str, port: int,
 
 
 def redeploy(slug: str) -> tuple[bool, str, str]:
-    """Re-run an already-built app with a freshly-built env bundle, so changes to
-    secrets / egress allowlist take effect on the live app. No rebuild."""
+    """Re-apply an already-built app with a freshly-built env bundle, so changes
+    to secrets / egress allowlist take effect on the live app. No rebuild."""
     return get_backend().redeploy(slug)
 
 
 def redeploy_async(slug: str) -> None:
-    """Redeploy off the request path. A secret/egress change shouldn't block the
-    HTTP response on a full recreate; the UI redirects immediately and the app
-    refreshes a moment later."""
+    """Redeploy off the request path so a secret/egress change doesn't block the
+    HTTP response; the UI redirects immediately and the app refreshes shortly."""
     threading.Thread(target=redeploy, args=(slug,), daemon=True).start()
 
 
@@ -45,9 +51,29 @@ def teardown(slug: str) -> None:
     get_backend().teardown(slug)
 
 
-def prune_old_images(slug: str, keep: str) -> None:
-    get_backend().prune_old_images(slug, keep)
-
-
 def sync_cron(slug: str) -> None:
     get_backend().sync_cron(slug)
+
+
+def prune_old_images(slug: str, keep: str) -> None:
+    """Keep the newest IMAGE_RETAIN local builds of this slug (always including
+    `keep`, the just-deployed image); remove older ones. Tags are unix
+    timestamps, so newest = numerically largest. Best-effort — missing / in-use
+    tags skipped."""
+    repo = f"{config.REGISTRY_HOST}/tenant-{slug}"
+    res = dockercli.run(["images", repo, "--format", "{{.Tag}}"], timeout=30)
+    if not res.ok:
+        return
+    tags = [t for t in res.out.split() if t and t != "<none>"]
+
+    def ts(t: str) -> int:
+        try:
+            return int(t)
+        except ValueError:
+            return -1
+
+    live = keep.rsplit(":", 1)[-1]
+    retain = set(sorted(tags, key=ts, reverse=True)[:IMAGE_RETAIN]) | {live}
+    for t in tags:
+        if t not in retain:
+            dockercli.run(["rmi", "-f", f"{repo}:{t}"], timeout=30)

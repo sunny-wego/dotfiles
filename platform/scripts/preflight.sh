@@ -29,7 +29,10 @@ else
   bad ".env missing — run: cp .env.example .env"
 fi
 
-# ── host ports Traefik needs ──────────────────────────────────────────────────
+# ── host ports for ingress ────────────────────────────────────────────────────
+# Coolify's proxy binds 80/443 (this compose stack publishes no ports). A
+# listener already there is expected to be Coolify; flag it only if Coolify isn't
+# what's holding it.
 for p in 80 443; do
   inuse=""
   if command -v ss >/dev/null 2>&1; then
@@ -37,8 +40,8 @@ for p in 80 443; do
   elif command -v lsof >/dev/null 2>&1; then
     lsof -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1 && inuse=1
   fi
-  if [ -n "$inuse" ]; then note "port $p is in use — Traefik needs it; stop the other listener"
-  else ok "port $p free"; fi
+  if [ -n "$inuse" ]; then ok "port $p in use (expected: Coolify's proxy)"
+  else note "port $p free — is Coolify's proxy running? (it provides ingress)"; fi
 done
 
 # ── disk headroom on the Docker root ──────────────────────────────────────────

@@ -21,8 +21,9 @@ reachable — with a socket check, rather than pulling a driver.
 | **Translation Manager** | `translation-manager` | Python | **DB**, **SSO** | **scaling/HA** → target-arch (v1 is one box) |
 | **EnzoBot & self-hosts** | `enzobot` | Python | **secret** (`BOT_TOKEN`), **egress** allow-list, governance (catalog + owner + audit) | — |
 
-Two trivial smoke apps also ship: `node-hello`, `python-hello` — used by
-`scripts/smoke-test.sh` to prove the raw Node/Python build→verify→deploy path.
+Two trivial smoke apps also ship: `node-hello`, `python-hello` — used by the
+Coolify parity gate (see [`../coolify/README.md`](../coolify/README.md)) to prove
+the raw Node/Python build→verify→deploy path.
 
 ## How each was verified (stub LLM mode, real Docker)
 

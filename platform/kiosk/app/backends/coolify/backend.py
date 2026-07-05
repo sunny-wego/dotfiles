@@ -7,16 +7,15 @@ Maps the platform's deploy contract onto Coolify resources:
                          (Coolify-managed Traefik does TLS), set CPU/mem limits,
                          attach the auth-chain via custom Traefik labels, trigger
                          an (async) deploy.
-  * cron               → Coolify Scheduled Tasks (`manages_cron=True`, so the
-                         kiosk's in-process cron loop stays OFF; we only sync the
-                         schedule to Coolify).
+  * cron               → Coolify Scheduled Tasks (the kiosk has no in-process
+                         scheduler; it only syncs each app's schedule to Coolify).
   * admin plane        → the Coolify dashboard (operators), surfaced to the kiosk
                          via `admin_dashboard_url`.
 
-The auth chain (strip-auth-in → slug → forwardauth → appauthz) is applied via
-the *same* `labels` builder the Docker backend uses, so neither engine can drop
-a hop. The `@file` middlewares it references must exist in Coolify's proxy — see
-`platform/coolify/traefik-dynamic.yml` and the runbook.
+The auth chain (strip-auth-in → slug → forwardauth → appauthz) is applied via the
+`labels` builder as Coolify application custom labels. The `@file` middlewares it
+references must exist in Coolify's proxy — see `platform/coolify/traefik-dynamic.yml`
+and the runbook.
 
 Deploys on Coolify are asynchronous: we return success once the deploy is
 *accepted*, not once the container is live (unlike the Docker backend, which
@@ -29,7 +28,6 @@ from __future__ import annotations
 from ... import db, tenant_env
 from ...config import config
 from .. import labels
-from ..base import DeployBackend
 from .client import CoolifyClient, CoolifyError
 
 
@@ -43,10 +41,12 @@ def _split_image(image: str) -> tuple[str, str]:
     return name, tag
 
 
-class CoolifyBackend(DeployBackend):
+class CoolifyBackend:
+    """Drives Coolify for all deploy/cron/rollback/logs operations. Cron runs as
+    Coolify Scheduled Tasks (no kiosk-side scheduler); per-tenant pg_dump backups
+    stay in the kiosk (README §3)."""
+
     name = "coolify"
-    manages_cron = True       # Coolify Scheduled Tasks run the jobs
-    manages_backups = False   # per-tenant pg_dump stays in the kiosk (README §3)
 
     def __init__(self) -> None:
         self._client = CoolifyClient(

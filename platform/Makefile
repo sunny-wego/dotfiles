@@ -24,9 +24,9 @@ preflight: ## Check the box is ready before `make up` (Docker, ports, .env, disk
 	@./scripts/preflight.sh
 
 .PHONY: up
-up: .env preflight ## Start the platform (PROFILE=dev|google)
+up: .env preflight ## Start the shared services (PROFILE=dev|google); Coolify is the engine
 	$(COMPOSE) --profile $(PROFILE) up -d --build
-	@echo "kiosk → https://kiosk.$$(grep -E '^PLATFORM_DOMAIN' .env | cut -d= -f2)"
+	@echo "shared services up. Ingress + deploys are Coolify's — see coolify/README.md"
 
 .PHONY: down
 down: ## Stop the platform (keep volumes)
@@ -43,10 +43,6 @@ logs: ## Tail kiosk logs
 .PHONY: samples
 samples: ## Zip the Node + Python sample apps into ./dist
 	./scripts/make-samples.sh
-
-.PHONY: smoke
-smoke: ## Run the M1 done-when checks against a running platform
-	./scripts/smoke-test.sh
 
 .PHONY: check
 check: ## Syntax-check the kiosk Python (no Docker needed)

@@ -30,6 +30,6 @@ Coolify installed. Next (see ./README.md "Bring-up"):
   1. Open the dashboard, create the tenant Project + Environment + Destination.
   2. Create a least-privilege API token.
   3. Install ./traefik-dynamic.yml into the proxy dynamic config.
-  4. Set KIOSK_DEPLOY_BACKEND=coolify + the COOLIFY_* vars for the Kiosk.
-  5. Run the parity gate: `make smoke` against the Coolify backend.
+  4. Set the COOLIFY_* vars for the Kiosk (see ../.env.example).
+  5. Run the parity gate (drop a ZIP → live URL; unauth hit → 403).
 EOF

@@ -1,16 +1,15 @@
-# Coolify variant — operator runbook
+# Coolify — operator runbook
 
-This realizes the README's **headline architecture**: Coolify is the deploy
-engine and the operator admin plane; the Kiosk drives it through its REST API on
-the creator's behalf. It is the counterpart to the plain-Docker variant
-([`../M1.md`](../M1.md) / [`../v1.md`](../v1.md)) — same Kiosk, same build/heal
-pipeline, same auth chain, **different engine underneath**.
+This is the README's **headline architecture** and the platform's only deploy
+engine: Coolify builds/deploys tenant apps and is the operator admin plane; the
+Kiosk drives it through its REST API on the creator's behalf. Same Kiosk, same
+build/heal pipeline ([`../M1.md`](../M1.md) / [`../v1.md`](../v1.md)), same auth
+chain — Coolify underneath.
 
-> **Why two variants?** The deploy engine sits behind a small interface
-> (`kiosk/app/backends/base.py`). `KIOSK_DEPLOY_BACKEND=docker` drives the host
-> Docker daemon (default, zero-install, the local/dev path); `=coolify` drives
-> Coolify. Nothing above the image + auth-chain contract changes — the README's
-> "additive, not a migration".
+> **Where the code lives.** `kiosk/app/deployer.py` hands off to
+> `kiosk/app/backends/coolify/` (`client.py` = the REST wrapper, `backend.py` =
+> the operations). The kiosk still builds + pushes the image; Coolify deploys it
+> from the registry. There is no plain-Docker deploy path.
 
 ## Two planes, mapped onto Coolify
 
@@ -24,7 +23,7 @@ The Kiosk holds a **least-privilege Coolify API token** and creates one Coolify
 the Kiosk to debug — they use Coolify's dashboard, which shows every tenant app
 because the Kiosk created them all in one project.
 
-## What Coolify now owns (was bespoke in the plain-Docker variant)
+## What Coolify owns
 
 Per README §3 ("native Coolify = deploy engine"):
 
@@ -34,7 +33,7 @@ Per README §3 ("native Coolify = deploy engine"):
 | TLS + domains | Coolify-managed Traefik | `domains` field on the app |
 | Env / secret store | Coolify encrypted env store | `client.set_envs` (bulk upsert) |
 | CPU / mem limits | app resource limits | `limits_cpus` / `limits_memory` |
-| Cron | **Scheduled Tasks** | `client.*_scheduled_task` (kiosk cron loop OFF) |
+| Cron | **Scheduled Tasks** | `client.*_scheduled_task` (no kiosk scheduler) |
 | Rollback | deployment history | dashboard (surfaced via the Kiosk's rollback action) |
 
 **Still the Kiosk's job** (README's extensions): the LLM Dockerfile + build /
@@ -57,11 +56,13 @@ appauthz` (README §9; enforced identically for both engines by
    `forward-auth` / `kiosk` addresses at the reachable service names.
 
 > **Parity gate (do not skip).** The in-repo tests cover the pure logic (auth
-> chain order, API request shapes) but this sandbox cannot run Coolify. On the
-> EC2 box, re-run the plain-Docker done-when checks against the Coolify backend:
-> `make smoke` (T1–T4) and the v1 checks (DB, cron, egress-deny, unauthorized
-> denied, restore drill). A tenant URL hit **without** a company session MUST
-> return 403 — that proves the chain survived the engine swap.
+> chain order, API request shapes); they can't exercise a live Coolify. On the
+> EC2 box, run the M1/v1 done-when checks end-to-end against Coolify: drop a Node
+> ZIP and a Python ZIP in the Kiosk → each reaches a live URL; a per-tenant
+> `DATABASE_URL` is injected; a Scheduled Task runs; egress to a non-allowlisted
+> host is blocked; a restore-from-backup drill passes. **Critical:** a tenant URL
+> hit **without** a company session MUST return **403** — that proves the auth
+> chain (the custom labels + `traefik-dynamic.yml` middlewares) is intact.
 
 ## Bring-up
 
@@ -76,8 +77,8 @@ sudo ./install.sh
 #    - create an API token (Keys & Tokens) scoped to that project
 #    - install ./traefik-dynamic.yml into Coolify's proxy dynamic config
 
-# 3. Point the Kiosk at Coolify (see ../.env.example "Deploy engine" block):
-#    KIOSK_DEPLOY_BACKEND=coolify, COOLIFY_BASE_URL, COOLIFY_API_TOKEN,
+# 3. Point the Kiosk at Coolify (see ../.env.example "Coolify" block):
+#    COOLIFY_BASE_URL, COOLIFY_API_TOKEN,
 #    COOLIFY_PROJECT_UUID, COOLIFY_SERVER_UUID, COOLIFY_DESTINATION_UUID
 ```
 

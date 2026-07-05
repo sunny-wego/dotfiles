@@ -19,8 +19,8 @@ auth modes never touches Traefik or the tenant labels.
 It does **not** weaken the company-domain guarantee: the kiosk
 ([`auth.py`](../kiosk/app/auth.py)) re-checks the domain on every request. Point
 `DEV_USER_EMAIL` at a non-company address (e.g. `intruder@gmail.com`) and the
-kiosk returns `403` — exactly the denial Google would trigger. `make smoke`
-automates this check.
+kiosk returns `403` — exactly the denial Google would trigger (the Coolify
+parity gate in [`../coolify/README.md`](../coolify/README.md) checks this).
 
 ## Company Google (`AUTH_MODE=google`)
 

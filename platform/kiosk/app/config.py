@@ -79,17 +79,10 @@ class Config:
     REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "registry:5000")
     PROXY_NETWORK = os.environ.get("PROXY_NETWORK", "platform_proxy")
 
-    # ── Deploy backend (README §3: native Coolify = deploy engine) ────────────
-    # "docker"  — the README's sanctioned plain-Docker variant (default): the
-    #             kiosk drives the host Docker daemon directly. The local/dev
-    #             path; no external engine to install.
-    # "coolify" — the README's headline architecture: the kiosk drives Coolify
-    #             through its REST API (deploy-from-image, env store, cron as
-    #             Scheduled Tasks, CPU/mem limits, TLS/domains, rollback), and
-    #             operators get the Coolify dashboard as the admin plane.
-    DEPLOY_BACKEND = os.environ.get("KIOSK_DEPLOY_BACKEND", "docker").strip().lower()
-
-    # Coolify connection + placement (only read when DEPLOY_BACKEND == coolify).
+    # ── Coolify — the deploy engine (README §3) ───────────────────────────────
+    # The kiosk drives Coolify through its REST API (deploy-from-image, encrypted
+    # env store, cron as Scheduled Tasks, CPU/mem limits, TLS/domains, rollback);
+    # operators use the Coolify dashboard as the admin plane.
     COOLIFY_BASE_URL = os.environ.get("COOLIFY_BASE_URL", "").rstrip("/")
     COOLIFY_API_TOKEN = os.environ.get("COOLIFY_API_TOKEN", "")
     # Where tenant apps are created: a project + environment + server, and a

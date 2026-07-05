@@ -1,8 +1,7 @@
-"""Traefik labels — the auth chain, defined once for every engine.
+"""Traefik labels — the auth chain, defined once.
 
-Both the plain-Docker deployer (container labels) and the Coolify deployer
-(application custom labels) must put a tenant app behind the *identical* chain,
-because that chain is a load-bearing security boundary (README §9):
+A tenant app must sit behind the *complete* chain, because that chain is a
+load-bearing security boundary (README §9):
 
     strip-auth-in  → clear client-supplied identity/routing headers at ingress
     slug-<slug>    → Set X-App-Slug authoritatively (server-side; the kiosk
@@ -10,15 +9,14 @@ because that chain is a load-bearing security boundary (README §9):
     forwardauth    → company Google (authN + domain)
     appauthz       → kiosk /internal/authz (whole-app allow-list, fail-closed)
 
-Defining the chain in one module means an engine can't silently drop a hop: the
-docker backend and the coolify backend build from the same functions, and a
-single test pins the order.
+The Coolify backend emits this as application custom labels; keeping the chain in
+one module (pinned by a test) means a deploy can't silently drop a hop.
 """
 
 from __future__ import annotations
 
-# The file-provider middlewares (defined in traefik/dynamic.yml for the compose
-# stack, and in coolify/traefik-dynamic.yml for the Coolify proxy).
+# The file-provider middlewares (installed into Coolify's proxy via
+# coolify/traefik-dynamic.yml).
 STRIP_AUTH_IN = "strip-auth-in@file"
 FORWARD_AUTH = "forwardauth@file"
 APP_AUTHZ = "appauthz@file"
@@ -40,10 +38,10 @@ def middleware_chain(slug: str) -> list[str]:
 
 
 def tenant_label_map(slug: str, host: str, port: int, network: str) -> dict[str, str]:
-    """The full Traefik label set for a plain-Docker tenant container: routing,
-    TLS, the authoritative X-App-Slug header, the middleware chain, and the
-    service port. Returned as {label: value} so callers format it however their
-    engine wants (`--label k=v` for docker run; custom-label lines for Coolify)."""
+    """The full Traefik label set for a tenant app: routing, TLS, the
+    authoritative X-App-Slug header, the middleware chain, and the service port.
+    Returned as {label: value}; the Coolify backend base64-encodes it into the
+    application's custom-labels field."""
     router = f"app-{slug}"
     slug_mw = slug_middleware(slug)
     chain = ",".join(middleware_chain(slug))
@@ -60,11 +58,3 @@ def tenant_label_map(slug: str, host: str, port: int, network: str) -> dict[str,
         f"traefik.http.routers.{router}.middlewares": chain,
         f"traefik.http.services.{router}.loadbalancer.server.port": str(port),
     }
-
-
-def docker_label_args(slug: str, host: str, port: int, network: str) -> list[str]:
-    """Flatten tenant_label_map into `--label k=v` argv for `docker run`."""
-    args: list[str] = []
-    for key, val in tenant_label_map(slug, host, port, network).items():
-        args += ["--label", f"{key}={val}"]
-    return args
