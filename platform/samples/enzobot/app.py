@@ -7,16 +7,23 @@ governance — it appears in the Kiosk catalog with an owner + append-only audit
 """
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+
+
+def egress_target():
+    # Show only scheme://host — never render a proxy URL verbatim (it can carry
+    # userinfo/credentials). This just reports whether egress is wired up.
+    p = urlparse(os.environ.get("HTTPS_PROXY", ""))
+    return f"{p.scheme}://{p.hostname}" if p.hostname else "none (no egress allow-list yet)"
 
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         tok = "configured" if os.environ.get("BOT_TOKEN") else "unset"
-        proxy = os.environ.get("HTTPS_PROXY", "none (no egress allow-list yet)")
         body = (
             "EnzoBot (minimal self-host)\n"
             f"BOT_TOKEN secret: {tok}\n"
-            f"egress via: {proxy}\n"
+            f"egress via: {egress_target()}\n"
             "governance: Kiosk catalog + owner + append-only audit\n"
         ).encode()
         self.send_response(200)
