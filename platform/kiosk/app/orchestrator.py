@@ -13,6 +13,7 @@ deployer replaces the container and the audit trail simply appends.
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 from dataclasses import dataclass, field
 
@@ -148,6 +149,12 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
         audit.record(job.actor, "deploy", app=slug, detail={"url": url, "image": outcome.image})
         job.log(f"LIVE: {url}  ({msg})")
 
+        # Reclaim disk: drop older builds of this slug, keeping the live image.
+        try:
+            deployer.prune_old_images(slug, keep=outcome.image)
+        except Exception:  # noqa: BLE001 — housekeeping must never fail a deploy
+            pass
+
     except Exception as e:  # noqa: BLE001 — saga must fail closed, not crash the worker
         job.status = "failed"
         try:
@@ -156,3 +163,8 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
             pass
         job.log(f"ERROR: {e}")
         slack.escalate(job.actor, slug, f"Unhandled provisioning error: {e}")
+    finally:
+        # The built image is the artifact; the extracted source + raw upload are
+        # only build input. Remove them so /work (and any unredacted secrets in
+        # the raw ZIP) don't accumulate on the box.
+        shutil.rmtree(work_root, ignore_errors=True)

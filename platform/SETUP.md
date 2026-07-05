@@ -30,6 +30,11 @@ make smoke                  # 5. assert the done-when checks against the running
 sign in, and **upload a sample zip from `./dist`** to deploy your first app —
 it comes back as a private URL behind login.
 
+`make up` first runs **`make preflight`** — a readiness check (Docker up, ports
+80/443 free, `.env` present, disk headroom, LLM mode vs key, and — in google
+mode — a real secret key + OAuth creds). Run it standalone any time with
+`make preflight`; it blocks `up` only on genuine blockers, not warnings.
+
 Everyday targets: `make logs` (tail kiosk), `make down` (stop, keep data),
 `make clean` (stop **and delete volumes** — destructive), `make check`
 (no-Docker syntax + compose validation), `make test` (fast behaviour/contract

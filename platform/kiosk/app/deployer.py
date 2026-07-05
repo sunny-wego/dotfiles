@@ -77,6 +77,19 @@ def redeploy(slug: str) -> tuple[bool, str, str]:
     return deploy(slug, rec["image"], rec["port"], env=env)
 
 
+def prune_old_images(slug: str, keep: str) -> None:
+    """Remove older locally-built images for this slug, keeping `keep` (the live
+    one). Each deploy tags tenant-<slug>:<ts>; without this they accumulate and
+    fill the box's disk. Best-effort — an in-use or missing tag is skipped."""
+    repo = f"{config.REGISTRY_HOST}/tenant-{slug}"
+    res = dockercli.run(["images", repo, "--format", "{{.Repository}}:{{.Tag}}"], timeout=30)
+    if not res.ok:
+        return
+    for tag in res.out.split():
+        if tag and tag != keep and not tag.endswith(":<none>"):
+            dockercli.run(["rmi", "-f", tag], timeout=30)
+
+
 def redeploy_async(slug: str) -> None:
     """Redeploy off the request path. A secret/egress change shouldn't block the
     HTTP response on a full container recreate (build_env + docker rm/run); the

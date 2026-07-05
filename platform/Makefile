@@ -19,8 +19,12 @@ help: ## Show targets
 build: ## Build the kiosk image
 	$(COMPOSE) build kiosk
 
+.PHONY: preflight
+preflight: ## Check the box is ready before `make up` (Docker, ports, .env, disk, keys)
+	@./scripts/preflight.sh
+
 .PHONY: up
-up: .env ## Start the platform (PROFILE=dev|google)
+up: .env preflight ## Start the platform (PROFILE=dev|google)
 	$(COMPOSE) --profile $(PROFILE) up -d --build
 	@echo "kiosk → https://kiosk.$$(grep -E '^PLATFORM_DOMAIN' .env | cut -d= -f2)"
 
