@@ -65,8 +65,7 @@
 <div class="panel">
   <h2>Scheduled tasks (cron)</h2>
   {% for c in crons %}
-    <p class="muted"><b>{{ c.name }}</b> — <code>{{ c.schedule }}</code> — <code>{{ c.command }}</code>
-       {% if c.last_run %}· last {{ 'ok' if c.last_ok else 'FAILED' }} at {{ c.last_run.strftime('%H:%M') }}{% endif %}</p>
+    <p class="muted"><b>{{ c.name }}</b> — <code>{{ c.schedule }}</code> (UTC) — <code>{{ c.command }}</code></p>
   {% endfor %}
   <form action="/apps/{{ slug }}/cron" method="post">
     <label>Name</label><input type="text" name="name" placeholder="nightly-report">
@@ -74,6 +73,7 @@
     <label>Command</label><input type="text" name="command" placeholder="python report.py">
     <button type="submit">Add task</button>
   </form>
+  <p class="muted">Run history &amp; failure alerts live in the Coolify dashboard.</p>
 </div>
 
 <div class="panel">

@@ -206,8 +206,6 @@ services:
       KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY:-kiosk-insecure-dev-key-change-me}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       REGISTRY_HOST: registry:5000
-      PROXY_NETWORK: platform_proxy
-      TENANT_NETWORK: platform_tenant
       EGRESS_PROXY: egress-proxy:3128
       EGRESS_ALLOWLIST_FILE: /egress/allowlist.txt
       KIOSK_TENANT_DB_QUOTA_MB: ${KIOSK_TENANT_DB_QUOTA_MB:-1024}

@@ -315,18 +315,6 @@ def list_cron(slug: str) -> list[dict]:
         return cur.fetchall()
 
 
-def all_cron_enabled() -> list[dict]:
-    with cursor() as cur:
-        cur.execute("SELECT * FROM app_cron WHERE enabled ORDER BY slug, name")
-        return cur.fetchall()
-
-
-def mark_cron_run(slug: str, name: str, ok: bool) -> None:
-    with cursor() as cur:
-        cur.execute("UPDATE app_cron SET last_run=now(), last_ok=%s "
-                    "WHERE slug=%s AND name=%s", (ok, slug, name))
-
-
 # ── Coolify application identity ──────────────────────────────────────────────
 def get_coolify_uuid(slug: str) -> str | None:
     with cursor() as cur:

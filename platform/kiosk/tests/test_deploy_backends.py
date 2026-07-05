@@ -77,20 +77,22 @@ def test_create_image_app_posts_dockerimage_and_returns_uuid():
     assert seen["body"]["domains"] == "https://x.apps.internal"
 
 
-def test_set_envs_uses_bulk_upsert_shape():
-    seen = {}
+def test_replace_envs_uses_bulk_upsert_shape():
+    bulk = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
-        seen["path"] = request.url.path
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={})
+        if request.method == "PATCH":
+            bulk["path"] = request.url.path
+            bulk["body"] = json.loads(request.content)
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json=[])  # GET list_envs → nothing to prune
 
-    _client(handler).set_envs("app-123", {"DATABASE_URL": "postgres://x", "PORT": "8000"})
-    assert seen["path"] == "/api/v1/applications/app-123/envs/bulk"
-    keys = {e["key"] for e in seen["body"]["data"]}
+    _client(handler).replace_envs("app-123", {"DATABASE_URL": "postgres://x", "PORT": "8000"})
+    assert bulk["path"] == "/api/v1/applications/app-123/envs/bulk"
+    keys = {e["key"] for e in bulk["body"]["data"]}
     assert keys == {"DATABASE_URL", "PORT"}
-    assert all(e["is_preview"] is False for e in seen["body"]["data"])
+    assert all(e["is_preview"] is False for e in bulk["body"]["data"])
 
 
 def test_deploy_triggers_with_uuid_and_force():
@@ -114,6 +116,53 @@ def test_http_error_becomes_coolify_error():
         _client(handler).update_app("nope", {})
 
 
-def test_missing_credentials_fail_loudly():
+def test_unconfigured_client_fails_at_call_not_construction():
+    # Construction must NOT raise (that would 500 web routes that merely build
+    # the backend); the failure surfaces as a clean CoolifyError when a call is
+    # actually made, which the backend catches.
+    c = CoolifyClient("", "")  # no raise
     with pytest.raises(CoolifyError):
-        CoolifyClient("", "")
+        c.update_app("x", {})
+
+
+def test_replace_envs_upserts_then_prunes_removed_nonreserved_keys():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "GET":  # list existing envs
+            return httpx.Response(200, json=[
+                {"key": "DATABASE_URL", "uuid": "e1"},   # still desired — keep
+                {"key": "OLD_SECRET", "uuid": "e2"},     # gone — must delete
+                {"key": "COOLIFY_URL", "uuid": "e3"},    # reserved — never touch
+            ])
+        return httpx.Response(200, json={})
+
+    _client(handler).replace_envs("app-1", {"DATABASE_URL": "x", "PORT": "8000"})
+    assert ("PATCH", "/api/v1/applications/app-1/envs/bulk") in calls
+    # Only the stale, non-reserved key is deleted.
+    assert ("DELETE", "/api/v1/applications/app-1/envs/e2") in calls
+    assert not any(m == "DELETE" and p.endswith(("/e1", "/e3")) for m, p in calls)
+
+
+def test_logs_empty_string_is_not_a_json_dump():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"logs": ""})
+
+    assert _client(handler).logs("app-1") == ""
+
+
+def test_create_image_app_tolerates_wrapped_and_rejects_bad_shapes():
+    # Wrapped in {"data": {...}} → extracted, not crashed.
+    ok = _client(lambda r: httpx.Response(201, json={"data": {"uuid": "u9"}}))
+    assert ok.create_image_app(
+        project_uuid="p", server_uuid="s", environment_name="e",
+        destination_uuid="d", name="n", image="i", tag="t", port=8000,
+        domain="h") == "u9"
+    # A list body (no uuid) → CoolifyError, never AttributeError.
+    bad = _client(lambda r: httpx.Response(201, json=[]))
+    with pytest.raises(CoolifyError):
+        bad.create_image_app(
+            project_uuid="p", server_uuid="s", environment_name="e",
+            destination_uuid="d", name="n", image="i", tag="t", port=8000,
+            domain="h")

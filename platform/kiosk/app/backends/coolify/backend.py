@@ -16,10 +16,11 @@ The auth chain (strip-auth-in → slug → forwardauth → appauthz) is applied 
 references must exist in Coolify's proxy — see `platform/coolify/traefik-dynamic.yml`
 and the runbook.
 
-Deploys on Coolify are asynchronous: we return success once the deploy is
-*accepted*, not once the container is live (unlike the Docker backend, which
-blocks). The app page + Coolify dashboard show progress; this difference is
-called out in the runbook.
+Deploys on Coolify are asynchronous: `deploy` returns once the deploy is
+*accepted*, not once the container is live. The caller therefore leaves the app
+in `deploying`, and `deploy_status` (polled by the monitor reconciler) advances
+it to `running`/`failed` from Coolify's real state — so a failed async deploy
+never shows a false green.
 """
 
 from __future__ import annotations
@@ -28,6 +29,9 @@ from ... import db, dockercli, tenant_env
 from ...config import config
 from .. import labels
 from .client import CoolifyClient, CoolifyError
+
+# Coolify status substrings → the kiosk's app status. Checked in order.
+_FAILED_MARKERS = ("exited", "error", "failed", "degraded", "unhealthy", "stopped")
 
 
 class CoolifyBackend:
@@ -50,7 +54,9 @@ class CoolifyBackend:
         full_env = {"PORT": str(port), **(env or {})}
         try:
             uuid = self._ensure_app(slug, name, tag, port, host)
-            self._client.set_envs(uuid, full_env)
+            # replace_envs (not a bare upsert) so a removed/rotated secret is
+            # actually deleted from Coolify's env store, not just left behind.
+            self._client.replace_envs(uuid, full_env)
             # One PATCH carries the whole desired state — image, FQDN, port,
             # limits and the auth-chain labels — then we trigger the deploy.
             self._client.update_app(uuid, self._app_fields(slug, name, tag, port, host))
@@ -112,11 +118,42 @@ class CoolifyBackend:
         return self.deploy(slug, rec["image"], rec["port"], env=env)
 
     def rollback(self, slug: str) -> tuple[bool, str, str]:
-        # Coolify retains deployment history; rolling back is a first-class
-        # dashboard action (the README's "rollback" under Coolify-provided).
-        url = config.COOLIFY_BASE_URL
-        return (False, url,
-                f"roll back from the Coolify deployment history for '{slug}' at {url}")
+        """Redeploy the previous retained build (the reason prune keeps
+        IMAGE_RETAIN>1). Tags are unix timestamps; pick the newest that isn't the
+        live one and deploy it through the normal path."""
+        rec = db.get_app(slug)
+        if not rec or not rec.get("image") or not rec.get("port"):
+            return False, "", "no recorded build to roll back from"
+        repo = f"{config.REGISTRY_HOST}/tenant-{slug}"
+        res = dockercli.run(["images", repo, "--format", "{{.Tag}}"], timeout=30)
+        tags = sorted((int(t) for t in res.out.split() if t.isdigit()), reverse=True)
+        _, live = dockercli.split_image_ref(rec["image"])
+        prev = next((t for t in tags if str(t) != live), None)
+        if prev is None:
+            return False, "", "no previous build to roll back to"
+        image = f"{repo}:{prev}"
+        ok, url, msg = self.deploy(slug, image, rec["port"], env=tenant_env.build_env(slug))
+        if ok:
+            db.set_app_status(slug, "deploying", image=image)
+        return ok, url, (f"rolling back to build {prev} (async)" if ok else msg)
+
+    def deploy_status(self, slug: str) -> str:
+        """Coolify's real state for a deploying app, mapped to running/failed/
+        deploying. Used by the monitor reconciler to correct the optimistic
+        'deploying' the saga sets after an async trigger. Transient API errors
+        keep it 'deploying' (retried next tick)."""
+        uuid = db.get_coolify_uuid(slug)
+        if not uuid:
+            return "deploying"
+        try:
+            status = self._client.app_status(uuid).lower()
+        except CoolifyError:
+            return "deploying"
+        if "running" in status or "healthy" in status:
+            return "running"
+        if any(marker in status for marker in _FAILED_MARKERS):
+            return "failed"
+        return "deploying"
 
     def app_logs(self, slug: str, tail: int = 200) -> str:
         uuid = db.get_coolify_uuid(slug)
@@ -139,23 +176,37 @@ class CoolifyBackend:
 
     # ── cron → Coolify Scheduled Tasks ──────────────────────────────────────────
     def sync_cron(self, slug: str, uuid: str | None = None) -> None:
-        """Reconcile Coolify Scheduled Tasks with the kiosk's cron rows: create
-        any missing, leave the rest. Best-effort — a Coolify version without the
-        scheduled-task API logs and skips rather than failing a deploy. `uuid` is
-        passed by `deploy` (already resolved); the standalone cron route omits it."""
-        rows = db.list_cron(slug)
-        if not rows:  # nothing to sync — skip the Coolify round-trip entirely
-            return
+        """Reconcile Coolify Scheduled Tasks with the kiosk's cron rows in BOTH
+        directions: create missing tasks, update ones whose schedule/command
+        changed, and delete tasks whose kiosk row is gone. (A one-way create-only
+        sync would leave edits and deletions silently diverging.) Schedules are
+        the kiosk's declared UTC, so tasks are created with timezone=UTC. Called
+        with the resolved `uuid` from `deploy`, or without it from the cron route.
+        Best-effort — a Coolify without the scheduled-task API logs and skips."""
         uuid = uuid or db.get_coolify_uuid(slug)
-        if not uuid:
+        if not uuid:  # not deployed yet — deploy() re-syncs once the app exists
             return
+        desired = {r["name"]: r for r in db.list_cron(slug)}
         try:
-            existing = {t.get("name") for t in self._client.list_scheduled_tasks(uuid)}
-            for row in rows:
-                if row["name"] in existing:
-                    continue
-                self._client.create_scheduled_task(
-                    uuid, name=row["name"], command=row["command"],
-                    frequency=row["schedule"])
+            existing = {t["name"]: t for t in self._client.list_scheduled_tasks(uuid)
+                        if t.get("name")}
+            for name, row in desired.items():
+                task = existing.get(name)
+                if task is None:
+                    self._client.create_scheduled_task(
+                        uuid, name=name, command=row["command"],
+                        frequency=row["schedule"])
+                elif (task.get("command") != row["command"]
+                      or task.get("frequency") != row["schedule"]):
+                    tid = task.get("uuid") or task.get("id")
+                    if tid:
+                        self._client.update_scheduled_task(
+                            uuid, tid, name=name, command=row["command"],
+                            frequency=row["schedule"])
+            for name, task in existing.items():
+                if name not in desired:
+                    tid = task.get("uuid") or task.get("id")
+                    if tid:
+                        self._client.delete_scheduled_task(uuid, tid)
         except CoolifyError as e:
             print(f"[coolify] scheduled-task sync for {slug} skipped: {e}", flush=True)

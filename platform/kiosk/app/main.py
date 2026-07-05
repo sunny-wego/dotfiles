@@ -7,6 +7,7 @@ small catalog. Every request is identified + company-domain-checked via
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import time
@@ -210,9 +211,10 @@ def add_cron(request: Request, slug: str, name: str = Form(...),
     who = identity(request)
     _owner_guard(slug, who)
     db.add_cron(slug, name.strip(), schedule.strip(), command.strip())
-    # Register the job as a Coolify Scheduled Task (once the app has been
-    # deployed; otherwise it syncs on the next deploy).
-    deployer.sync_cron(slug)
+    # Reconcile Coolify Scheduled Tasks off the request path (the round-trips
+    # shouldn't block the redirect); no-op until the app has been deployed, when
+    # deploy() re-syncs.
+    deployer.sync_cron_async(slug)
     return RedirectResponse(url=f"/apps/{slug}", status_code=303)
 
 
@@ -232,20 +234,29 @@ def app_status(request: Request, slug: str):
     record = db.get_app(slug)
     if job is None and record is None:
         raise HTTPException(404, "no such app")
+    # The DB row is the source of truth once it exists — the saga writes it at
+    # every phase AND the monitor reconciler advances "deploying"→running/failed
+    # there. Fall back to the in-memory job only for the pre-detect phase before
+    # a row exists. (Reading job.status would pin the UI at "deploying".)
+    status = (record or {}).get("status") or (job.status if job else None)
+    url = (record or {}).get("url") or (job.url if job else None)
     return JSONResponse({
         "slug": slug,
-        "status": (job.status if job else record.get("status")),
-        "url": (job.url if job and job.url else (record or {}).get("url")),
+        "status": status,
+        "url": url,
         "lines": (job.lines if job else []),
     })
 
 
 @app.get("/apps/{slug}/logs", response_class=HTMLResponse)
-def app_logs(request: Request, slug: str):
+async def app_logs(request: Request, slug: str):
     identity(request)
     if db.get_app(slug) is None:
         raise HTTPException(404, "no such app")
-    logs = deployer.app_logs(slug, tail=300)
+    # Offload the blocking Coolify logs GET to the bounded off-path pool so a
+    # slow/hung Coolify can't tie up FastAPI's shared sync-route worker pool.
+    loop = asyncio.get_running_loop()
+    logs = await loop.run_in_executor(deployer.pool(), deployer.app_logs, slug, 300)
     return templates.TemplateResponse("logs.html", {
         "request": request, "slug": slug, "logs": logs,
     })

@@ -142,12 +142,15 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
             slack.escalate(job.actor, slug, f"Deploy failed: {msg}")
             return
 
-        # 7. Record success.
-        job.status = "running"
+        # 7. Record the deploy. Coolify deploys asynchronously, so the app is
+        #    "deploying" (accepted, not yet live); the monitor reconciler polls
+        #    Coolify's real state and advances it to running/failed. Claiming
+        #    "running" here would show a false green if the async deploy fails.
+        job.status = "deploying"
         job.url = url
-        db.set_app_status(slug, "running", url=url)
+        db.set_app_status(slug, "deploying", url=url)
         audit.record(job.actor, "deploy", app=slug, detail={"url": url, "image": outcome.image})
-        job.log(f"LIVE: {url}  ({msg})")
+        job.log(f"deploy accepted — {url} ({msg}); finishing on Coolify")
 
         # Reclaim disk: drop older builds of this slug, keeping the live image.
         try:

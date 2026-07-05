@@ -11,7 +11,7 @@ runs against the local Docker daemon regardless of the hosting engine.
 
 from __future__ import annotations
 
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from . import dockercli
 from .config import config
@@ -19,6 +19,12 @@ from .config import config
 # Keep the newest N local builds per app (the live one + one previous for a quick
 # local rebuild); older tags are pruned so the build box's disk doesn't fill up.
 IMAGE_RETAIN = 2
+
+# Bounded pool for off-request-path Coolify work (redeploys, cron sync) and for
+# offloading blocking Coolify reads (logs) out of FastAPI's shared worker pool —
+# so a burst of edits or a slow/hung Coolify can't spawn unbounded threads or
+# starve other routes.
+_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="coolify")
 
 _backend = None
 
@@ -32,6 +38,12 @@ def _b():
         from .backends.coolify.backend import CoolifyBackend
         _backend = CoolifyBackend()
     return _backend
+
+
+def pool() -> ThreadPoolExecutor:
+    """The shared off-path executor (used by async routes to offload blocking
+    Coolify calls)."""
+    return _pool
 
 
 def deploy(slug: str, image: str, port: int,
@@ -48,11 +60,15 @@ def redeploy(slug: str) -> tuple[bool, str, str]:
 def redeploy_async(slug: str) -> None:
     """Redeploy off the request path so a secret/egress change doesn't block the
     HTTP response; the UI redirects immediately and the app refreshes shortly."""
-    threading.Thread(target=redeploy, args=(slug,), daemon=True).start()
+    _pool.submit(redeploy, slug)
 
 
 def rollback(slug: str) -> tuple[bool, str, str]:
     return _b().rollback(slug)
+
+
+def deploy_status(slug: str) -> str:
+    return _b().deploy_status(slug)
 
 
 def app_logs(slug: str, tail: int = 200) -> str:
@@ -61,6 +77,11 @@ def app_logs(slug: str, tail: int = 200) -> str:
 
 def sync_cron(slug: str) -> None:
     _b().sync_cron(slug)
+
+
+def sync_cron_async(slug: str) -> None:
+    """Register/reconcile Coolify Scheduled Tasks off the request path."""
+    _pool.submit(sync_cron, slug)
 
 
 def prune_old_images(slug: str, keep: str) -> None:

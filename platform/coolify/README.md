@@ -31,10 +31,20 @@ Per README §3 ("native Coolify = deploy engine"):
 |---|---|---|
 | Deploy-from-image | Docker-image application | `backends/coolify/backend.py::deploy` |
 | TLS + domains | Coolify-managed Traefik | `domains` field on the app |
-| Env / secret store | Coolify encrypted env store | `client.set_envs` (bulk upsert) |
+| Env / secret store | Coolify encrypted env store | `client.replace_envs` (upsert + prune) |
 | CPU / mem limits | app resource limits | `limits_cpus` / `limits_memory` |
-| Cron | **Scheduled Tasks** | `client.*_scheduled_task` (no kiosk scheduler) |
-| Rollback | deployment history | dashboard (surfaced via the Kiosk's rollback action) |
+| Cron | **Scheduled Tasks** (UTC) | `sync_cron` — two-way reconcile (create/update/delete) |
+| Rollback | redeploy the retained prior build | `backend.rollback` |
+
+**Async deploys are reconciled, not assumed.** A deploy returns once Coolify
+*accepts* it; the app stays `deploying` and the kiosk monitor (`monitor.py`
+`_reconcile_loop`, ~15s) polls Coolify's real status and advances it to
+`running`/`failed` — so a failed async deploy never shows a false green.
+
+**Scheduled-task run history & failure alerts are Coolify's.** The kiosk no
+longer runs a scheduler, so per-run status (last run, success/failure) lives in
+the Coolify dashboard; enable Coolify's notifications for task-failure alerting.
+The kiosk only keeps the schedule in sync (both directions).
 
 **Still the Kiosk's job** (README's extensions): the LLM Dockerfile + build /
 verify / heal pipeline, redaction, the base-image allowlist, per-tenant Postgres

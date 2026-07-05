@@ -3,8 +3,9 @@
 Every Coolify HTTP call the kiosk makes lives here — one place to see the API
 surface, one place to adjust if the endpoint shape differs on the target Coolify
 version. Methods return parsed JSON (dict/list) on success and raise
-`CoolifyError` on any transport/HTTP/JSON failure, so the backend can translate
-one failure type into a creator-facing message + Slack escalation.
+`CoolifyError` on any transport/HTTP/JSON failure (including a not-configured
+client), so the backend can translate one failure type into a creator-facing
+message + Slack escalation instead of a 500.
 
 Endpoint paths follow Coolify v4's documented API. They are all funnelled
 through `_request`, so pinning them to a specific Coolify release (the runbook's
@@ -20,20 +21,34 @@ import httpx
 
 
 class CoolifyError(RuntimeError):
-    """Any Coolify API failure — transport, non-2xx, or unparseable body."""
+    """Any Coolify API failure — transport, non-2xx, unparseable body, or a
+    client built without credentials."""
+
+
+def _dig(data, key: str):
+    """Best-effort read of `key` from a Coolify response that may be the object
+    itself or wrapped in `{"data": {...}}`. Returns None for any other shape
+    (list, null, scalar) rather than raising."""
+    if isinstance(data, dict):
+        if data.get(key) is not None:
+            return data[key]
+        inner = data.get("data")
+        if isinstance(inner, dict):
+            return inner.get(key)
+    return None
 
 
 class CoolifyClient:
     def __init__(self, base_url: str, token: str, timeout: float = 30.0,
                  transport: httpx.BaseTransport | None = None) -> None:
-        if not base_url or not token:
-            raise CoolifyError(
-                "Coolify backend selected but COOLIFY_BASE_URL / "
-                "COOLIFY_API_TOKEN are not set")
-        # `transport` is an injection seam for tests (httpx.MockTransport); in
-        # production it stays None and httpx uses its default HTTP transport.
+        # Missing creds don't raise here — they raise from `_request` when a call
+        # is actually made, so an unconfigured box degrades to clean per-request
+        # CoolifyErrors (caught by the backend) instead of 500-ing web routes
+        # that merely construct the client.
+        self._configured = bool(base_url and token)
         self._http = httpx.Client(
-            base_url=base_url.rstrip("/") + "/api/v1",
+            base_url=(base_url.rstrip("/") + "/api/v1") if self._configured
+            else "http://coolify.unconfigured/api/v1",
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -46,6 +61,10 @@ class CoolifyClient:
     # ── transport ────────────────────────────────────────────────────────────
     def _request(self, method: str, path: str, *,
                  params: dict | None = None, json_body: dict | None = None):
+        if not self._configured:
+            raise CoolifyError(
+                "Coolify is not configured (set COOLIFY_BASE_URL / "
+                "COOLIFY_API_TOKEN)")
         try:
             resp = self._http.request(method, path, params=params, json=json_body)
         except httpx.HTTPError as e:
@@ -79,7 +98,7 @@ class CoolifyClient:
             "instant_deploy": False,
         }
         data = self._request("POST", "/applications/dockerimage", json_body=body)
-        uuid = data.get("uuid") or data.get("data", {}).get("uuid")
+        uuid = _dig(data, "uuid")
         if not uuid:
             raise CoolifyError(f"create app: no uuid in response: {data}")
         return uuid
@@ -87,11 +106,16 @@ class CoolifyClient:
     def update_app(self, uuid: str, fields: dict) -> dict:
         return self._request("PATCH", f"/applications/{uuid}", json_body=fields)
 
+    def app_status(self, uuid: str) -> str:
+        """The app's current status string (e.g. 'running:healthy', 'exited',
+        'degraded'). Empty string if Coolify doesn't report one."""
+        return str(_dig(self._request("GET", f"/applications/{uuid}"), "status") or "")
+
     def delete_app(self, uuid: str) -> None:
         self._request("DELETE", f"/applications/{uuid}",
                       params={"delete_volumes": "true"})
 
-    def deploy(self, uuid: str, *, force: bool = False) -> dict:
+    def deploy(self, uuid: str, force: bool) -> dict:
         """Trigger a (re)deploy. Coolify runs it asynchronously; we only kick it."""
         return self._request("GET", "/deploy",
                              params={"uuid": uuid, "force": str(force).lower()})
@@ -100,17 +124,44 @@ class CoolifyClient:
         data = self._request("GET", f"/applications/{uuid}/logs",
                              params={"lines": lines})
         if isinstance(data, dict):
-            return data.get("logs") or data.get("data") or json.dumps(data)
+            # Empty logs come back as "" — return that, don't fall through to a
+            # raw JSON dump of the envelope.
+            for key in ("logs", "data"):
+                if key in data:
+                    return data[key] or ""
+            return json.dumps(data)
         return str(data)
 
     # ── environment variables (Coolify's encrypted env store) ──────────────────
-    def set_envs(self, uuid: str, env: dict[str, str]) -> None:
-        """Replace the app's env with `env` (bulk upsert). Coolify stores these
-        encrypted and injects them at container start — the README's
-        'Coolify encrypted env store'."""
+    def list_envs(self, uuid: str) -> list[dict]:
+        data = self._request("GET", f"/applications/{uuid}/envs")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def delete_env(self, uuid: str, env_uuid: str) -> None:
+        self._request("DELETE", f"/applications/{uuid}/envs/{env_uuid}")
+
+    # Coolify-injected env we must never prune. COOLIFY_* is the documented
+    # prefix; SOURCE_COMMIT is its one common non-prefixed one. Verify this set
+    # against the target Coolify version on the parity gate.
+    _RESERVED_ENV = ("SOURCE_COMMIT",)
+
+    def replace_envs(self, uuid: str, env: dict[str, str]) -> None:
+        """Make the app's env EXACTLY `env` (for kiosk-managed keys): bulk-upsert
+        the desired keys, then delete any key we previously set that is no longer
+        present — so a removed/rotated secret actually stops being injected.
+        Coolify-managed keys are left untouched."""
         payload = {"data": [{"key": k, "value": v, "is_preview": False}
                             for k, v in env.items()]}
         self._request("PATCH", f"/applications/{uuid}/envs/bulk", json_body=payload)
+        desired = set(env)
+        for row in self.list_envs(uuid):
+            key = row.get("key")
+            if (not key or key in desired or key.startswith("COOLIFY_")
+                    or key in self._RESERVED_ENV):
+                continue
+            env_uuid = row.get("uuid") or row.get("id")
+            if env_uuid:
+                self.delete_env(uuid, env_uuid)
 
     # ── scheduled tasks (Coolify Scheduled Task == the README's cron) ──────────
     def list_scheduled_tasks(self, uuid: str) -> list[dict]:
@@ -118,10 +169,22 @@ class CoolifyClient:
         return data if isinstance(data, list) else data.get("data", [])
 
     def create_scheduled_task(self, uuid: str, *, name: str, command: str,
-                              frequency: str) -> None:
+                              frequency: str, timezone: str = "UTC") -> None:
         self._request("POST", f"/applications/{uuid}/scheduled-tasks", json_body={
             "name": name, "command": command, "frequency": frequency,
+            "timezone": timezone,
         })
+
+    def update_scheduled_task(self, uuid: str, task_uuid: str, *, name: str,
+                              command: str, frequency: str,
+                              timezone: str = "UTC") -> None:
+        self._request("PATCH",
+                      f"/applications/{uuid}/scheduled-tasks/{task_uuid}",
+                      json_body={"name": name, "command": command,
+                                 "frequency": frequency, "timezone": timezone})
+
+    def delete_scheduled_task(self, uuid: str, task_uuid: str) -> None:
+        self._request("DELETE", f"/applications/{uuid}/scheduled-tasks/{task_uuid}")
 
     # ── helpers ────────────────────────────────────────────────────────────────
     @staticmethod
