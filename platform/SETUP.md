@@ -36,11 +36,14 @@ make samples                # 5. build the Node + Python sample zips into ./dist
 make parity                 # 6. run the parity gate against the live Coolify
 ```
 
-**Topology:** the Kiosk + shared services run **as a Coolify service** (the
+**Topology:** the Kiosk + its backing services run **as a Coolify service** (the
 platform hosts itself) — `make bootstrap` deploys
 [`coolify/platform-stack.yml`](./coolify/platform-stack.yml) via Coolify's API, so
-Coolify owns the Kiosk's domain/TLS/auth chain. Coolify then deploys tenant apps
-on the same network. See [`coolify/README.md`](./coolify/README.md#self-hosting-the-control-plane-make-bootstrap).
+Coolify owns the Kiosk's domain/TLS/auth chain, and then deploys tenant apps on
+the same network. The **identity edge (`oauth2-proxy`) is run separately** and
+answers the `forward-auth` alias on that network: `make up PROFILE=google`
+(compose) or your own resource in prod; the compose `local` profile + mock issuer
+locally. See [`coolify/README.md`](./coolify/README.md#self-hosting-the-control-plane-make-bootstrap).
 
 **Faster local path (no self-host):** for quick iteration you can instead run the
 shared services from the root compose behind the dev-auth stub —

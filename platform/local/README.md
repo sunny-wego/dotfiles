@@ -27,25 +27,26 @@ brew install colima docker mkcert nss
 make local-up        # 1: Colima + (opt) Coolify   4: real oauth2-proxy + mock OIDC (compose)
 make local-certs     # 3: browser-trusted wildcard cert for *.apps.127.0.0.1.nip.io
 # → finish the Coolify dashboard steps up.sh prints, fill local/.env.local
+make build           # build the kiosk image
+make bootstrap       # self-host kiosk + backing services ON Coolify (identity edge stays in compose)
 make parity-local    # 5: the parity gate (contract + auth-chain 403) vs local Coolify
 ```
 
-### Two ways to run the control plane locally
+### Where each piece runs (Option C — the identity edge is environment-provided)
 
-- **Compose (what `make local-up` does today):** the kiosk + a real oauth2-proxy +
-  the mock OIDC issuer run from the local compose stack, sharing
-  `COOLIFY_TENANT_NETWORK` with Coolify's tenant apps. This is the fully-working
-  local path and what `make parity-local` exercises.
-- **Self-hosted (`make bootstrap`, the prod topology):** the kiosk + oauth2-proxy
-  run *as a Coolify service* ([`../coolify/platform-stack.yml`](../coolify/platform-stack.yml)).
-  Locally this adds one wrinkle that needs a live Coolify to pin down: the
-  Coolify-run oauth2-proxy must reach the **compose-hosted mock issuer** on the
-  host (the same front-/back-channel issuer-URL consistency the base compose
-  solves with `auth.<domain> → host-gateway`). Prod doesn't have this wrinkle —
-  the issuer is `accounts.google.com`, reachable from anywhere. So on a laptop,
-  use the compose path above to exercise the mock; use `make bootstrap` to
-  rehearse the *prod* self-hosting flow (against Google, or once the mock wiring
-  is validated on your box).
+The **kiosk + its backing services** self-host on Coolify (`make bootstrap` →
+[`../coolify/platform-stack.yml`](../coolify/platform-stack.yml)). The **identity
+edge — `oauth2-proxy` + the mock OIDC issuer — stays in the local compose**
+(`make local-up`), sharing `COOLIFY_TENANT_NETWORK` so Coolify's Traefik resolves
+`forward-auth` for the kiosk's router. Because oauth2-proxy stays in compose, the
+front-/back-channel issuer wiring is the one the base compose already solves
+(`auth.<domain> → host-gateway`) — **there is no cross-boundary seam**, and no
+local hack leaks into the shipped stack. In prod, the same `forward-auth` slot is
+filled by `oauth2-proxy` against Google (external issuer, no wrinkle).
+
+So a full local run is: `make local-up` (Colima + Coolify + oauth2-proxy + mock),
+`make local-certs`, `make build`, `make bootstrap` (kiosk + backing services onto
+Coolify), then `make parity-local`.
 
 `local/up.sh --install-coolify` also runs Coolify's installer inside the VM
 (otherwise install it once yourself: `colima ssh -- sudo bash -c "$(curl -fsSL https://cdn.coollabs.io/coolify/install.sh)"`).

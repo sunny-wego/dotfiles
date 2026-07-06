@@ -122,27 +122,38 @@ make parity     # == ./coolify/parity-gate.sh
 
 ## Self-hosting the control plane (`make bootstrap`)
 
-The Kiosk and shared services (Postgres, LiteLLM, egress-proxy, oauth2-proxy,
-registry) run **as a Coolify service**, not a side compose stack.
+The Kiosk + its backing services (Postgres, LiteLLM, egress-proxy, registry) run
+**as a Coolify service**, not a side compose stack.
 [`bootstrap.py`](./bootstrap.py) drives the *same* `CoolifyClient` the Kiosk uses
 for tenant apps to create [`platform-stack.yml`](./platform-stack.yml) via
 `POST /services` — so Coolify owns the Kiosk's domain/TLS/auth chain exactly like
-any app, and there is no separate stack to network-bridge. This is the bootstrap
-answer to "who deploys the Kiosk?": the platform deploys itself.
+any app, and there is no separate app stack to network-bridge. This is the
+bootstrap answer to "who deploys the Kiosk?": the platform deploys itself.
 
 - The Kiosk's public router (`kiosk.<domain>`) carries `strip-auth-in → forwardauth`
-  (company Google) via labels in the stack file — the Kiosk UI is behind Google,
-  and it enforces per-app RBAC itself. `/internal/authz` stays internal (Traefik
-  reaches it by service name, never through the public router).
-- Everything shares `COOLIFY_TENANT_NETWORK`, so tenant apps reach oauth2-proxy /
-  Kiosk / LiteLLM / egress-proxy and their Coolify databases by name. **Connect
-  the service to that network** in Coolify (service → "Connect to Predefined
-  Network").
+  via labels in the stack file — the Kiosk UI is behind company login, and it
+  enforces per-app RBAC itself. `/internal/authz` stays internal (Traefik reaches
+  it by service name, never through the public router).
+- **The identity edge (`oauth2-proxy`) is environment-provided, not in this
+  stack** (Option C). `forwardauth@file` points at the `forward-auth` alias
+  (`traefik-dynamic.yml`); whatever answers it on the shared network is the
+  environment's IdP:
+  - **local:** the compose `oauth2-proxy` + mock OIDC issuer
+    (`docker compose … --profile local`), already wired on the shared network.
+  - **prod:** `oauth2-proxy` against company Google — run it as its own resource,
+    or `docker compose --profile google up -d oauth2-proxy` on the shared network.
+    No back-channel wrinkle: Google is external.
+  Keeping the IdP out of the shipped stack means no local networking hack ever
+  leaks into it, and the answerer stays swappable per environment.
+- Everything (this service, tenant apps, AND the forward-auth answerer) shares
+  `COOLIFY_TENANT_NETWORK`, so they reach each other + the Coolify databases by
+  name. **Connect the service to that network** in Coolify (service → "Connect to
+  Predefined Network").
 - Re-running `make bootstrap` reuses the service, refreshes its env store, and
   redeploys; `./coolify/bootstrap.sh --delete` tears it down.
-- The root compose (`../docker-compose.yml`) remains the fast **dev-stub, non-
-  self-hosted** local path (`make up PROFILE=dev`); `platform-stack.yml` is the
-  Coolify-managed control plane for `local`/`google`.
+- The root compose (`../docker-compose.yml`) is the fast **dev-stub, non-self-
+  hosted** local path (`make up PROFILE=dev`) AND the home of the forward-auth
+  answerer; `platform-stack.yml` is the Coolify-managed app control plane.
 
 > Parity-gate checks the live bring-up can't skip (see the stack file's header):
 > Coolify must not ALSO auto-publish the Kiosk's domain (else the auth chain is

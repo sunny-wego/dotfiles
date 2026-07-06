@@ -29,13 +29,14 @@ REQUIRED = ["COOLIFY_BASE_URL", "COOLIFY_API_TOKEN", "COOLIFY_PROJECT_UUID",
 # Keys platform-stack.yml references; pushed into the service env store so
 # Coolify resolves the compose's ${VAR} placeholders. (Only those present are
 # sent; secrets live in the env store, never in the committed compose.)
+# The identity edge (oauth2-proxy) is environment-provided (Option C), so its
+# OIDC_ISSUER_URL / OAUTH2_PROXY_* are configured wherever forward-auth runs —
+# not here.
 STACK_ENV_KEYS = [
     "PLATFORM_DOMAIN", "AUTH_MODE", "COMPANY_EMAIL_DOMAIN",
     "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB",
     "LITELLM_MASTER_KEY", "KIOSK_LLM_MODE", "KIOSK_SECRET_KEY",
     "SLACK_WEBHOOK_URL", "OPENROUTER_API_KEY", "KIOSK_IMAGE",
-    "OIDC_ISSUER_URL", "OAUTH2_PROXY_CLIENT_ID", "OAUTH2_PROXY_CLIENT_SECRET",
-    "OAUTH2_PROXY_COOKIE_SECRET",
     "COOLIFY_BASE_URL", "COOLIFY_API_TOKEN", "COOLIFY_PROJECT_UUID",
     "COOLIFY_ENVIRONMENT", "COOLIFY_ENVIRONMENT_UUID", "COOLIFY_SERVER_UUID",
     "COOLIFY_DESTINATION_UUID", "COOLIFY_TENANT_NETWORK",
