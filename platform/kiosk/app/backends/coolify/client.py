@@ -302,6 +302,38 @@ class CoolifyClient:
                             for k, v in env.items()]}
         self._request("PATCH", f"/services/{uuid}/envs/bulk", json_body=payload)
 
+    # ── control-plane provisioning (bootstrap helpers) ─────────────────────────
+    # Small read/create helpers so `coolify/provision.py` can resolve the
+    # project/environment/server UUIDs from just an API token — turning the
+    # dashboard's copy-the-UUIDs chore into one auto-provision step.
+    def list_servers(self) -> list[dict]:
+        data = self._request("GET", "/servers")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def list_projects(self) -> list[dict]:
+        data = self._request("GET", "/projects")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def create_project(self, name: str, description: str = "") -> str:
+        data = self._request("POST", "/projects",
+                             json_body={"name": name, "description": description})
+        uuid = _dig(data, "uuid")
+        if not uuid:
+            raise CoolifyError(f"create project: no uuid in response: {data}")
+        return uuid
+
+    def list_environments(self, project_uuid: str) -> list[dict]:
+        data = self._request("GET", f"/projects/{project_uuid}/environments")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def create_environment(self, project_uuid: str, name: str) -> str:
+        data = self._request("POST", f"/projects/{project_uuid}/environments",
+                             json_body={"name": name})
+        uuid = _dig(data, "uuid")
+        if not uuid:
+            raise CoolifyError(f"create environment: no uuid in response: {data}")
+        return uuid
+
     # ── scheduled tasks (Coolify Scheduled Task == the README's cron) ──────────
     def list_scheduled_tasks(self, uuid: str) -> list[dict]:
         data = self._request("GET", f"/applications/{uuid}/scheduled-tasks")

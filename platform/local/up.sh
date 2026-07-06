@@ -71,12 +71,16 @@ ok "DNS: *.$domain resolves to 127.0.0.1 via nip.io (no /etc/hosts needed)"
 if [ -f local/certs/wildcard.pem ]; then ok "TLS: local/certs/wildcard.pem present"
 else note "TLS: run ./local/mkcert.sh to mint a trusted wildcard cert for *.$domain"; fi
 
-# ── 4. Bring up the shared stack with the mock OIDC issuer ───────────────────
-step "Shared stack (real oauth2-proxy + mock OIDC, profile=local)"
+# ── 4. Bring up the compose services with the mock OIDC issuer ───────────────
+# LOCAL_UP_SERVICES limits what compose starts. The self-host one-liner
+# (local/local.sh) sets it to just the identity edge (oauth2-proxy + mock-oidc),
+# because the app itself self-hosts on Coolify (Option C). Empty = whole profile
+# (the "everything in compose" path).
+step "Compose services (real oauth2-proxy + mock OIDC, profile=local)"
 docker compose --env-file .env --env-file local/.env.local \
   -f docker-compose.yml -f local/docker-compose.local.yml \
-  --profile local up -d --build \
-  && ok "stack up (kiosk, oauth2-proxy, mock-oidc, litellm, registry, egress, postgres)" \
+  --profile local up -d --build ${LOCAL_UP_SERVICES:-} \
+  && ok "up: ${LOCAL_UP_SERVICES:-full stack}" \
   || { bad "compose up failed"; exit 1; }
 
 # ── Coolify dashboard steps (manual, once) ───────────────────────────────────

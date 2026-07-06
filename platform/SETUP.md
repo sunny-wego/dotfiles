@@ -45,11 +45,16 @@ answers the `forward-auth` alias on that network: `make up PROFILE=google`
 (compose) or your own resource in prod; the compose `local` profile + mock issuer
 locally. See [`coolify/README.md`](./coolify/README.md#self-hosting-the-control-plane-make-bootstrap).
 
+**On a Mac (Colima), one command:** `make local` — idempotent: it stands up
+Colima + Coolify + certs + the identity edge (real oauth2-proxy + mock OIDC),
+stops for one ~30-second browser step (create the Coolify admin + an API token,
+paste into `local/.env.local`), then on a second `make local` auto-provisions the
+UUIDs, builds the kiosk, and self-hosts the control plane. See
+[`local/README.md`](./local/README.md).
+
 **Faster local path (no self-host):** for quick iteration you can instead run the
 shared services from the root compose behind the dev-auth stub —
-`make up PROFILE=dev` — and skip `make bootstrap`. **On a Mac**, `make local-up`
-stands up Colima + Coolify + the stack behind a real oauth2-proxy + mock OIDC
-(see [`local/README.md`](./local/README.md)), then `make bootstrap`.
+`make up PROFILE=dev` — and skip `make bootstrap`.
 
 The Kiosk is exposed through Coolify's proxy at `https://kiosk.<PLATFORM_DOMAIN>`.
 Open it, sign in, and **upload a sample zip from `./dist`** to deploy your first

@@ -21,16 +21,31 @@ per-tenant Coolify Postgres + native backups — is byte-for-byte the prod path.
 brew install colima docker mkcert nss
 ```
 
-## One run
+## The one-liner
 
 ```
-make local-up        # 1: Colima + (opt) Coolify   4: real oauth2-proxy + mock OIDC (compose)
-make local-certs     # 3: browser-trusted wildcard cert for *.apps.127.0.0.1.nip.io
-# → finish the Coolify dashboard steps up.sh prints, fill local/.env.local
-make build           # build the kiosk image
-make bootstrap       # self-host kiosk + backing services ON Coolify (identity edge stays in compose)
-make parity-local    # 5: the parity gate (contract + auth-chain 403) vs local Coolify
+make local        # first run: Colima + Coolify + certs + identity edge; then stops
+                  #   for ONE browser step (create admin + API token)
+# → open the printed Coolify URL, create the admin, make an API token, and paste
+#   COOLIFY_BASE_URL + COOLIFY_API_TOKEN into local/.env.local  (~30 seconds)
+make local        # second run: auto-provisions project/env/server, builds the
+                  #   kiosk, self-hosts the control plane on Coolify
+make parity-local # (optional) drive the deploy engine end-to-end + the 403 check
 ```
+
+`make local` is **idempotent** — run it, do the one browser step, run it again.
+It brings up only the identity edge (`oauth2-proxy` + mock OIDC) in compose; the
+kiosk + backing services self-host on Coolify. First time on a fresh Mac, install
+Coolify into the VM with `./local/local.sh --install-coolify` (or let it run once
+via `local/up.sh --install-coolify`).
+
+Why the one manual step can't be scripted: Coolify's **first-run admin + API
+token** are created in the browser (no API exists until a token does). Everything
+after the token — project, environment, server UUIDs — is auto-provisioned by
+`coolify/provision.py`.
+
+The individual targets still exist if you want to step through it: `make local-up`,
+`make local-certs`, `make build`, `make bootstrap`, `make parity-local`.
 
 ### Where each piece runs (Option C — the identity edge is environment-provided)
 

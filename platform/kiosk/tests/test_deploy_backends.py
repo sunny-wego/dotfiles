@@ -240,6 +240,30 @@ def test_create_service_posts_base64_compose_and_returns_uuid():
     assert seen["body"]["environment_uuid"] == "env-9"
 
 
+def test_create_project_posts_name_and_returns_uuid():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"uuid": "proj-1"})
+
+    uuid = _client(handler).create_project("internal-apps", "Internal App Platform")
+    assert uuid == "proj-1"
+    assert (seen["method"], seen["path"]) == ("POST", "/api/v1/projects")
+    assert seen["body"]["name"] == "internal-apps"
+
+
+def test_list_servers_unwraps_data_envelope():
+    # Coolify may return a bare list or {"data": [...]}; both yield a list.
+    bare = _client(lambda r: httpx.Response(200, json=[{"uuid": "s1"}]))
+    assert bare.list_servers() == [{"uuid": "s1"}]
+    wrapped = _client(lambda r: httpx.Response(200, json={"data": [{"uuid": "s1"}]}))
+    assert wrapped.list_servers() == [{"uuid": "s1"}]
+
+
 def test_logs_empty_string_is_not_a_json_dump():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"logs": ""})

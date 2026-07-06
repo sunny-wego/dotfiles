@@ -53,6 +53,10 @@ bootstrap: ## Self-host the control plane on Coolify (kiosk as a Coolify service
 	./coolify/bootstrap.sh
 
 # ── Local parity on macOS/Colima (real Coolify + real oauth2-proxy + mock OIDC) ─
+.PHONY: local
+local: ## macOS one-liner: Colima+Coolify+edge, then (after pasting a token) self-host
+	./local/local.sh
+
 .PHONY: local-up
 local-up: ## Start the local Colima parity stack (see local/README.md)
 	./local/up.sh
