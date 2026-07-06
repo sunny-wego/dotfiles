@@ -48,6 +48,10 @@ samples: ## Zip the Node + Python sample apps into ./dist
 parity: ## Coolify parity gate — validate the client against the live Coolify
 	./coolify/parity-gate.sh
 
+.PHONY: bootstrap
+bootstrap: ## Self-host the control plane on Coolify (kiosk as a Coolify service)
+	./coolify/bootstrap.sh
+
 # ── Local parity on macOS/Colima (real Coolify + real oauth2-proxy + mock OIDC) ─
 .PHONY: local-up
 local-up: ## Start the local Colima parity stack (see local/README.md)

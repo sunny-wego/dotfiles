@@ -246,6 +246,62 @@ class CoolifyClient:
         data = self._request("POST", f"/databases/{uuid}/backups", json_body=body)
         return _dig(data, "uuid") or ""
 
+    # ── services (a Coolify-managed docker-compose stack) ──────────────────────
+    # Used to SELF-HOST the platform's own control plane (kiosk + oauth2-proxy +
+    # litellm + registry + egress-proxy + metadata Postgres) as one Coolify
+    # resource on the tenant network — so Coolify owns the kiosk's domain/TLS/auth
+    # chain exactly like a tenant app. See coolify/bootstrap.py.
+    def create_service(self, *, project_uuid: str, server_uuid: str,
+                       environment_name: str, environment_uuid: str,
+                       destination_uuid: str, name: str, compose: str,
+                       instant_deploy: bool = True) -> str:
+        """Create a Coolify service from a raw docker-compose (sent base64 as
+        `docker_compose_raw`). Returns the new service UUID."""
+        body: dict = {
+            "project_uuid": project_uuid,
+            "server_uuid": server_uuid,
+            "environment_name": environment_name,
+            "name": name,
+            "docker_compose_raw": self._b64(compose),
+            "instant_deploy": instant_deploy,
+        }
+        if environment_uuid:
+            body["environment_uuid"] = environment_uuid
+        if destination_uuid:
+            body["destination_uuid"] = destination_uuid
+        data = self._request("POST", "/services", json_body=body)
+        uuid = _dig(data, "uuid")
+        if not uuid:
+            raise CoolifyError(f"create service: no uuid in response: {data}")
+        return uuid
+
+    def list_services(self) -> list[dict]:
+        data = self._request("GET", "/services")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def get_service(self, uuid: str) -> dict:
+        data = self._request("GET", f"/services/{uuid}")
+        if isinstance(data, dict):
+            return data.get("data") if isinstance(data.get("data"), dict) else data
+        return {}
+
+    def service_status(self, uuid: str) -> str:
+        return str(_dig(self.get_service(uuid), "status") or "")
+
+    def start_service(self, uuid: str) -> dict:
+        return self._request("GET", f"/services/{uuid}/start")
+
+    def delete_service(self, uuid: str) -> None:
+        self._request("DELETE", f"/services/{uuid}")
+
+    def set_service_envs(self, uuid: str, env: dict[str, str]) -> None:
+        """Bulk-upsert the control-plane env (COOLIFY_* creds, secrets, domain)
+        into the service's env store. Values are resolved into the compose's
+        `${VAR}` placeholders by Coolify at deploy."""
+        payload = {"data": [{"key": k, "value": v, "is_preview": False}
+                            for k, v in env.items()]}
+        self._request("PATCH", f"/services/{uuid}/envs/bulk", json_body=payload)
+
     # ── scheduled tasks (Coolify Scheduled Task == the README's cron) ──────────
     def list_scheduled_tasks(self, uuid: str) -> list[dict]:
         data = self._request("GET", f"/applications/{uuid}/scheduled-tasks")
@@ -271,8 +327,12 @@ class CoolifyClient:
 
     # ── helpers ────────────────────────────────────────────────────────────────
     @staticmethod
+    def _b64(text: str) -> str:
+        return base64.b64encode(text.encode()).decode()
+
+    @staticmethod
     def encode_custom_labels(label_map: dict[str, str]) -> str:
         """Coolify carries per-app Traefik labels as a base64-encoded, newline-
         joined `key=value` block in the application's `custom_labels` field."""
         block = "\n".join(f"{k}={v}" for k, v in label_map.items())
-        return base64.b64encode(block.encode()).decode()
+        return CoolifyClient._b64(block)

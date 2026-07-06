@@ -30,15 +30,23 @@ See also: [`docs/AUTH.md`](./docs/AUTH.md) (dev stub · local OIDC mock · Googl
 sudo coolify/install.sh     # 0. install Coolify; then set it up (coolify/README.md)
 cp .env.example .env        # 1. create config (see the delta blocks below)
 #                             2. edit .env — COOLIFY_* + a few values by target
-make up                     # 3. start shared services (== docker compose --profile dev up -d --build)
-make samples                # 4. build the Node + Python sample zips into ./dist
-make parity                 # 5. run the parity gate against the live Coolify
+make build                  # 3. build the kiosk image
+make bootstrap              # 4. self-host the control plane ON Coolify (kiosk as a Coolify service)
+make samples                # 5. build the Node + Python sample zips into ./dist
+make parity                 # 6. run the parity gate against the live Coolify
 ```
 
-**On a Mac, use the Colima harness instead of steps 0/3** — it stands up Colima,
-Coolify, and the shared services behind a real oauth2-proxy + a mock OIDC issuer
-in one path: `make local-up` (see [`local/README.md`](./local/README.md)). Steps
-1/2/4/5 are the same.
+**Topology:** the Kiosk + shared services run **as a Coolify service** (the
+platform hosts itself) — `make bootstrap` deploys
+[`coolify/platform-stack.yml`](./coolify/platform-stack.yml) via Coolify's API, so
+Coolify owns the Kiosk's domain/TLS/auth chain. Coolify then deploys tenant apps
+on the same network. See [`coolify/README.md`](./coolify/README.md#self-hosting-the-control-plane-make-bootstrap).
+
+**Faster local path (no self-host):** for quick iteration you can instead run the
+shared services from the root compose behind the dev-auth stub —
+`make up PROFILE=dev` — and skip `make bootstrap`. **On a Mac**, `make local-up`
+stands up Colima + Coolify + the stack behind a real oauth2-proxy + mock OIDC
+(see [`local/README.md`](./local/README.md)), then `make bootstrap`.
 
 The Kiosk is exposed through Coolify's proxy at `https://kiosk.<PLATFORM_DOMAIN>`.
 Open it, sign in, and **upload a sample zip from `./dist`** to deploy your first

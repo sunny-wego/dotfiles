@@ -15,6 +15,10 @@
 # Per-tenant databases are NOT here: each is a Coolify-managed PostgreSQL
 # resource with native scheduled backups, created on demand by the kiosk.
 #
+# This file is the LOCAL / dev-stub + mock-OIDC path. The production topology
+# self-hosts this control plane ON Coolify (the platform hosts itself) via
+# `make bootstrap` → coolify/platform-stack.yml. See coolify/README.md.
+#
 # Ingress + tenant-app routing are Coolify's job (see coolify/README.md); this
 # file publishes no ports. Auth profiles select the forward-auth answerer:
 #   AUTH_MODE=dev    -> authstub     (default; runnable with no Google)

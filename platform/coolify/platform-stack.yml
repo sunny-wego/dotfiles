@@ -1,0 +1,152 @@
+# Self-hosted control plane — the platform running ON Coolify (Option B).
+#
+# coolify/bootstrap.py base64-encodes this file and creates it as a Coolify
+# SERVICE (POST /services). Coolify then runs the whole control plane on the
+# tenant/destination network and owns the kiosk's domain + TLS + auth chain,
+# exactly like a tenant app — so there is no side compose stack and no manual
+# network bridging. Tenant apps the kiosk deploys land on the SAME network and
+# reach oauth2-proxy / kiosk / litellm / egress-proxy by service name.
+#
+# Values are ${VAR} placeholders resolved by Coolify from the service's env
+# store, which bootstrap.py populates from platform/.env (COOLIFY_*, secrets,
+# domain, OIDC issuer). NOTHING secret is committed here.
+#
+# PARITY-GATE CHECKS (can't be verified without a live Coolify):
+#   1. Coolify must NOT also publish its own auto-domain router for the kiosk —
+#      only the custom-label router below may serve it (enable "Readonly labels"
+#      or don't set a Coolify domain on the kiosk). An unauthenticated hit to
+#      https://kiosk.<domain>/ must 403 (the coolify/parity-gate.sh Layer-B check).
+#   2. Connect this service to the tenant/destination network (Coolify → the
+#      service → "Connect to Predefined Network" = COOLIFY_TENANT_NETWORK) so
+#      tenant apps and this stack share one network.
+#   3. The @file middlewares (strip-auth-in/forwardauth/appauthz) come from
+#      coolify/traefik-dynamic.yml — install it in Coolify's proxy first.
+services:
+  # The control-plane UI + orchestrator. Coolify serves it at kiosk.<domain>
+  # behind company Google (strip-auth-in → forwardauth); see labels below.
+  kiosk:
+    image: ${KIOSK_IMAGE:-platform/kiosk:m1}
+    restart: unless-stopped
+    environment:
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN}
+      AUTH_MODE: ${AUTH_MODE:-google}
+      COMPANY_EMAIL_DOMAIN: ${COMPANY_EMAIL_DOMAIN}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      KIOSK_LLM_MODE: ${KIOSK_LLM_MODE:-llm}
+      KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY}
+      REGISTRY_HOST: registry:5000
+      EGRESS_PROXY: egress-proxy:3128
+      EGRESS_ALLOWLIST_FILE: /egress/allowlist.txt
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # Coolify creds — how the kiosk drives Coolify to deploy tenant apps + DBs.
+      COOLIFY_BASE_URL: ${COOLIFY_BASE_URL}
+      COOLIFY_API_TOKEN: ${COOLIFY_API_TOKEN}
+      COOLIFY_PROJECT_UUID: ${COOLIFY_PROJECT_UUID}
+      COOLIFY_ENVIRONMENT: ${COOLIFY_ENVIRONMENT:-production}
+      COOLIFY_ENVIRONMENT_UUID: ${COOLIFY_ENVIRONMENT_UUID}
+      COOLIFY_SERVER_UUID: ${COOLIFY_SERVER_UUID}
+      COOLIFY_DESTINATION_UUID: ${COOLIFY_DESTINATION_UUID}
+      COOLIFY_TENANT_NETWORK: ${COOLIFY_TENANT_NETWORK:-platform_tenant}
+      COOLIFY_BACKUP_FREQUENCY: ${COOLIFY_BACKUP_FREQUENCY:-daily}
+    volumes:
+      # Builds tenant images via the host Docker socket (docker-out-of-docker).
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kiosk-work:/work
+      - egress-allowlist:/egress
+    labels:
+      # === auth chain for the kiosk's own public router (labels.kiosk_label_map) ===
+      # kiosk.<domain> → strip-auth-in → forwardauth (company Google) → :8000.
+      # NO per-app slug/appauthz (that gates tenant apps); /internal/authz stays
+      # internal — Traefik reaches it by service name, not via this router.
+      - "traefik.enable=true"
+      - "traefik.docker.network=${COOLIFY_TENANT_NETWORK:-platform_tenant}"
+      - "traefik.http.routers.kiosk.rule=Host(`kiosk.${PLATFORM_DOMAIN}`)"
+      - "traefik.http.routers.kiosk.entrypoints=websecure"
+      - "traefik.http.routers.kiosk.tls=true"
+      - "traefik.http.routers.kiosk.middlewares=strip-auth-in@file,forwardauth@file"
+      - "traefik.http.services.kiosk.loadbalancer.server.port=8000"
+
+  # Company-Google (generic OIDC) forward-auth answerer + /oauth2 callback host.
+  # `forward-auth` alias keeps coolify/traefik-dynamic.yml address stable.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    restart: unless-stopped
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true
+      - --provider=oidc
+      - --oidc-issuer-url=${OIDC_ISSUER_URL:-https://accounts.google.com}
+      - --email-domains=${COMPANY_EMAIL_DOMAIN}
+      - --upstream=static://202
+      - --skip-provider-button=true
+      - --cookie-domain=.${PLATFORM_DOMAIN}
+      - --whitelist-domain=.${PLATFORM_DOMAIN}
+      - --cookie-secure=true
+      - --set-xauthrequest=true
+      - --pass-access-token=false
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+    networks:
+      default:
+        aliases: ["forward-auth"]
+    labels:
+      # Serve the OAuth callback on every platform host so a single login works
+      # across the kiosk + all tenant subdomains.
+      - "traefik.enable=true"
+      - "traefik.http.routers.oauth2.rule=HostRegexp(`{host:.+\\.${PLATFORM_DOMAIN}}`) && PathPrefix(`/oauth2/`)"
+      - "traefik.http.routers.oauth2.entrypoints=websecure"
+      - "traefik.http.routers.oauth2.tls=true"
+      - "traefik.http.services.oauth2.loadbalancer.server.port=4180"
+
+  # kiosk's own (redacted) LLM calls + per-tenant virtual keys.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "true"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+
+  # Deploy-from-image registry: the kiosk pushes here, Coolify pulls from here.
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    volumes:
+      - registry-data:/var/lib/registry
+
+  # Default-deny outbound: the only container with internet; tenants get
+  # HTTPS_PROXY to it iff they have an allowlisted domain.
+  egress-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+      - egress-allowlist:/egress
+
+  # The kiosk's OWN metadata (apps, access, secrets, cron, tokens, audit).
+  # Per-TENANT databases are separate Coolify-managed resources, not here.
+  # Enable a Coolify scheduled backup on this DB (coolify/README.md).
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  pgdata:
+  registry-data:
+  kiosk-work:
+  egress-allowlist:

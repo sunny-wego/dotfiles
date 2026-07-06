@@ -113,14 +113,41 @@ sudo ./install.sh
 #    COOLIFY_ENVIRONMENT + COOLIFY_ENVIRONMENT_UUID, COOLIFY_SERVER_UUID,
 #    COOLIFY_DESTINATION_UUID
 
-# 4. Run the parity gate (one command; see below).
+# 4. Self-host the control plane ON Coolify (the platform hosts itself).
+make bootstrap  # == ./coolify/bootstrap.sh
+
+# 5. Run the parity gate (one command; see below).
 make parity     # == ./coolify/parity-gate.sh
 ```
 
-The Kiosk and shared services (Postgres, LiteLLM, egress-proxy, oauth2-proxy) can
-keep running from the compose stack on the same box, or be deployed as Coolify
-resources; either way they must share `COOLIFY_TENANT_NETWORK` so tenant apps
-reach their DB/LLM and the `appauthz` hop reaches the Kiosk.
+## Self-hosting the control plane (`make bootstrap`)
+
+The Kiosk and shared services (Postgres, LiteLLM, egress-proxy, oauth2-proxy,
+registry) run **as a Coolify service**, not a side compose stack.
+[`bootstrap.py`](./bootstrap.py) drives the *same* `CoolifyClient` the Kiosk uses
+for tenant apps to create [`platform-stack.yml`](./platform-stack.yml) via
+`POST /services` — so Coolify owns the Kiosk's domain/TLS/auth chain exactly like
+any app, and there is no separate stack to network-bridge. This is the bootstrap
+answer to "who deploys the Kiosk?": the platform deploys itself.
+
+- The Kiosk's public router (`kiosk.<domain>`) carries `strip-auth-in → forwardauth`
+  (company Google) via labels in the stack file — the Kiosk UI is behind Google,
+  and it enforces per-app RBAC itself. `/internal/authz` stays internal (Traefik
+  reaches it by service name, never through the public router).
+- Everything shares `COOLIFY_TENANT_NETWORK`, so tenant apps reach oauth2-proxy /
+  Kiosk / LiteLLM / egress-proxy and their Coolify databases by name. **Connect
+  the service to that network** in Coolify (service → "Connect to Predefined
+  Network").
+- Re-running `make bootstrap` reuses the service, refreshes its env store, and
+  redeploys; `./coolify/bootstrap.sh --delete` tears it down.
+- The root compose (`../docker-compose.yml`) remains the fast **dev-stub, non-
+  self-hosted** local path (`make up PROFILE=dev`); `platform-stack.yml` is the
+  Coolify-managed control plane for `local`/`google`.
+
+> Parity-gate checks the live bring-up can't skip (see the stack file's header):
+> Coolify must not ALSO auto-publish the Kiosk's domain (else the auth chain is
+> bypassable — the Layer-B 403 check catches it), and `traefik-dynamic.yml` must
+> be installed in Coolify's proxy.
 
 ## Databases — Coolify-managed, one per app
 

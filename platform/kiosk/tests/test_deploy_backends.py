@@ -205,6 +205,41 @@ def test_create_backup_posts_frequency_and_returns_uuid():
     assert seen["body"]["save_s3"] is False
 
 
+# ── self-hosting the control plane as a Coolify service (Option B) ───────────
+def test_kiosk_label_map_is_google_only_not_per_app_authz():
+    m = labels.kiosk_label_map("kiosk.apps.internal", "platform_tenant")
+    # The kiosk UI sits behind company Google, NOT the per-app slug/appauthz hops.
+    assert m["traefik.http.routers.kiosk.middlewares"] == \
+        "strip-auth-in@file,forwardauth@file"
+    assert "appauthz@file" not in m["traefik.http.routers.kiosk.middlewares"]
+    assert m["traefik.http.routers.kiosk.rule"] == "Host(`kiosk.apps.internal`)"
+    assert m["traefik.http.services.kiosk.loadbalancer.server.port"] == "8000"
+    # No slug middleware is emitted for the kiosk itself.
+    assert not any("middlewares.slug-" in k for k in m)
+
+
+def test_create_service_posts_base64_compose_and_returns_uuid():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"uuid": "svc-1", "domains": ["https://kiosk.x"]})
+
+    compose = "services:\n  kiosk:\n    image: platform/kiosk:m1\n"
+    uuid = _client(handler).create_service(
+        project_uuid="p", server_uuid="s", environment_name="production",
+        environment_uuid="env-9", destination_uuid="d",
+        name="platform-control-plane", compose=compose)
+
+    assert uuid == "svc-1"
+    assert seen["path"] == "/api/v1/services"
+    # The compose is sent base64-encoded and round-trips exactly.
+    assert base64.b64decode(seen["body"]["docker_compose_raw"]).decode() == compose
+    assert seen["body"]["environment_uuid"] == "env-9"
+
+
 def test_logs_empty_string_is_not_a_json_dump():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"logs": ""})

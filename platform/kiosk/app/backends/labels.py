@@ -37,6 +37,29 @@ def middleware_chain(slug: str) -> list[str]:
     return [STRIP_AUTH_IN, slug_middleware(slug), FORWARD_AUTH, APP_AUTHZ]
 
 
+def kiosk_label_map(host: str, network: str, port: int = 8000) -> dict[str, str]:
+    """Traefik labels for the KIOSK's own public router when the control plane is
+    self-hosted on Coolify (see coolify/bootstrap.py).
+
+    The kiosk UI sits behind company Google only — strip-auth-in → forwardauth —
+    NOT the per-app slug/appauthz hops (those gate tenant apps; the kiosk enforces
+    per-app RBAC itself, and honours a Bearer token for the CLI). The kiosk's
+    /internal/authz answerer stays internal: Traefik reaches it by service name on
+    `network`, never through this public router — so it is not exposed here.
+    """
+    router = "kiosk"
+    chain = ",".join([STRIP_AUTH_IN, FORWARD_AUTH])
+    return {
+        "traefik.enable": "true",
+        "traefik.docker.network": network,
+        f"traefik.http.routers.{router}.rule": f"Host(`{host}`)",
+        f"traefik.http.routers.{router}.entrypoints": "websecure",
+        f"traefik.http.routers.{router}.tls": "true",
+        f"traefik.http.routers.{router}.middlewares": chain,
+        f"traefik.http.services.{router}.loadbalancer.server.port": str(port),
+    }
+
+
 def tenant_label_map(slug: str, host: str, port: int, network: str) -> dict[str, str]:
     """The full Traefik label set for a tenant app: routing, TLS, the
     authoritative X-App-Slug header, the middleware chain, and the service port.
