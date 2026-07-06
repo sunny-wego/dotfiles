@@ -48,6 +48,25 @@ samples: ## Zip the Node + Python sample apps into ./dist
 parity: ## Coolify parity gate — validate the client against the live Coolify
 	./coolify/parity-gate.sh
 
+# ── Local parity on macOS/Colima (real Coolify + real oauth2-proxy + mock OIDC) ─
+.PHONY: local-up
+local-up: ## Start the local Colima parity stack (see local/README.md)
+	./local/up.sh
+
+.PHONY: local-certs
+local-certs: ## Mint a browser-trusted wildcard cert for the local domain (mkcert)
+	./local/mkcert.sh
+
+.PHONY: parity-local
+parity-local: ## Run the parity gate against the local Colima Coolify
+	./local/parity-local.sh
+
+.PHONY: local-down
+local-down: ## Stop the local parity stack (keep volumes)
+	$(COMPOSE) --env-file .env --env-file local/.env.local \
+	  -f docker-compose.yml -f local/docker-compose.local.yml \
+	  --profile local down
+
 .PHONY: check
 check: ## Syntax-check the kiosk Python (no Docker needed)
 	python3 -m compileall -q kiosk/app authstub && echo "python ok"

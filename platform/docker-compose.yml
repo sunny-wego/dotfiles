@@ -66,15 +66,21 @@ services:
       tenant:
         aliases: ["forward-auth"]
 
-  # ── Auth (google profile): oauth2-proxy against company Google ─────────────
+  # ── Auth (google / local profile): oauth2-proxy via generic OIDC ───────────
+  # One config, generic-OIDC provider. Prod points OIDC_ISSUER_URL at Google
+  # (https://accounts.google.com); local parity points it at the mock issuer
+  # (local/docker-compose.local.yml). The ONLY thing that differs between the two
+  # is the issuer URL + its client credentials — every flag/behaviour below is
+  # identical, so the local run exercises the real oauth2-proxy code path.
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
     restart: unless-stopped
-    profiles: ["google"]
+    profiles: ["google", "local"]
     command:
       - --http-address=0.0.0.0:4180
       - --reverse-proxy=true
-      - --provider=google
+      - --provider=oidc
+      - --oidc-issuer-url=${OIDC_ISSUER_URL:-https://accounts.google.com}
       - --email-domains=${COMPANY_EMAIL_DOMAIN}
       - --upstream=static://202
       - --skip-provider-button=true

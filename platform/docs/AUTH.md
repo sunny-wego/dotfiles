@@ -7,8 +7,15 @@ auth modes never touches Traefik or the tenant labels.
 
 | Mode | Service | When | Command |
 |---|---|---|---|
-| `dev` | `authstub` | laptop / CI — no Google needed | `make up PROFILE=dev` (default) |
+| `dev` | `authstub` | laptop / CI — no OIDC at all | `make up PROFILE=dev` (default) |
+| `local` | `oauth2-proxy` + `mock-oidc` | laptop parity — real oauth2-proxy, mock issuer | `make local-up` ([local/README.md](../local/README.md)) |
 | `google` | `oauth2-proxy` | EC2 / staging / prod | `make up PROFILE=google` |
+
+`google` and `local` are the **same** `oauth2-proxy`, run as a generic **OIDC**
+client. Only `OIDC_ISSUER_URL` (+ its client id/secret) differs:
+`https://accounts.google.com` in prod, a local mock issuer for `local`. Google is
+a compliant OIDC provider, and `--email-domains` enforces the company domain in
+both — so nothing about the auth *behaviour* changes with the issuer.
 
 ## Dev stub (`AUTH_MODE=dev`)
 
@@ -43,10 +50,15 @@ non-company Google account is denied at the proxy; the kiosk enforces the same
 domain as defense-in-depth. The cookie is scoped to `.<PLATFORM_DOMAIN>` so a
 single login works across every app subdomain.
 
-### Local `*.apps.internal` caveat
+## Local parity (`AUTH_MODE=local`) — real oauth2-proxy without Google
 
-As the README notes, Google OAuth redirect URIs and `*.apps.internal` TLS/DNS
-don't "just work" on a laptop. For a local Google test use **mkcert** for the
-cert and **dnsmasq** (or `/etc/hosts`) to resolve the hosts, with a registered
-dev redirect URI. On a real EC2 box with internal DNS this drops away. For day-
-to-day local work, prefer the dev stub.
+To exercise the genuine oauth2-proxy path on a laptop — redirects, callback,
+cookie, the whole OIDC handshake — without a Google tenant, use the Colima parity
+harness ([local/README.md](../local/README.md)). It runs the same oauth2-proxy
+against [`navikt/mock-oauth2-server`](https://github.com/navikt/mock-oauth2-server)
+(a real OIDC issuer) with `mkcert` TLS and `nip.io` DNS, so only the issuer URL,
+its client creds, and the cert issuer differ from prod. `make local-up` then
+`make parity-local`.
+
+For day-to-day work that doesn't care about OAuth, prefer the dev stub. When you
+need to trust the auth chain end-to-end, use `local` (or the real thing on EC2).

@@ -17,7 +17,12 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # platform/
 cd "$here"
-set -a; [ -f .env ] && . ./.env; set +a
+set -a
+[ -f .env ] && . ./.env
+# Local-parity overrides (gitignored; present only on a laptop running the
+# Colima harness) win over .env — so the same gate validates the local Coolify.
+[ -f local/.env.local ] && { . ./local/.env.local; echo "  (loaded local/.env.local overrides)"; }
+set +a
 
 rc=0
 echo "== Coolify parity gate =="
