@@ -35,14 +35,24 @@ CREATE TABLE IF NOT EXISTS apps (
 );
 ALTER TABLE apps ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'invite-only';
 
--- Per-tenant database credentials (password encrypted at rest).
+-- Per-tenant database: the identity of a Coolify-managed PostgreSQL resource.
+-- coolify_db_uuid is the resource Coolify runs + backs up; dburl_enc is its
+-- connection URL (encrypted at rest), read back from Coolify and injected as
+-- DATABASE_URL. dbname/dbuser/dbpassword_enc are the creds the kiosk generated
+-- for the create call. backup_uuid is the native scheduled-backup config.
 CREATE TABLE IF NOT EXISTS tenant_db (
     slug          TEXT PRIMARY KEY,
     dbname        TEXT NOT NULL,
     dbuser        TEXT NOT NULL,
     dbpassword_enc TEXT NOT NULL,
+    coolify_db_uuid TEXT,
+    dburl_enc     TEXT,
+    backup_uuid   TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE tenant_db ADD COLUMN IF NOT EXISTS coolify_db_uuid TEXT;
+ALTER TABLE tenant_db ADD COLUMN IF NOT EXISTS dburl_enc TEXT;
+ALTER TABLE tenant_db ADD COLUMN IF NOT EXISTS backup_uuid TEXT;
 
 -- Encrypted per-app secrets, injected as env at deploy.
 CREATE TABLE IF NOT EXISTS app_secrets (
@@ -249,12 +259,26 @@ def get_tenant_db(slug: str) -> dict | None:
         return cur.fetchone()
 
 
-def put_tenant_db(slug: str, dbname: str, dbuser: str, dbpassword_enc: str) -> None:
+def put_tenant_db(slug: str, dbname: str, dbuser: str, dbpassword_enc: str,
+                  *, coolify_db_uuid: str | None = None) -> None:
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO tenant_db (slug, dbname, dbuser, dbpassword_enc) "
-            "VALUES (%s,%s,%s,%s) ON CONFLICT (slug) DO NOTHING",
-            (slug, dbname, dbuser, dbpassword_enc),
+            "INSERT INTO tenant_db (slug, dbname, dbuser, dbpassword_enc, "
+            "coolify_db_uuid) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (slug) DO NOTHING",
+            (slug, dbname, dbuser, dbpassword_enc, coolify_db_uuid),
+        )
+
+
+def update_tenant_db(slug: str, *, dburl_enc: str | None = None,
+                     backup_uuid: str | None = None) -> None:
+    """Fill in the connection URL / backup config once known (after the Coolify
+    resource is created). Only overwrites a column when a value is supplied."""
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE tenant_db SET "
+            "dburl_enc = COALESCE(%s, dburl_enc), "
+            "backup_uuid = COALESCE(%s, backup_uuid) WHERE slug=%s",
+            (dburl_enc, backup_uuid, slug),
         )
 
 

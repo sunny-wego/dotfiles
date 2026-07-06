@@ -1,162 +1,123 @@
-"""Per-tenant database provisioning on the shared Postgres cluster.
+"""Per-tenant database provisioning — Coolify-managed PostgreSQL.
 
-db-per-tenant (README default): one database + one login role per app on the
-one shared cluster — cheap, mainstream-ORM-compatible, one backup story. The
-kiosk connects as the cluster superuser to create them, then injects a scoped
-DATABASE_URL into the tenant container.
+Each app gets its own Coolify-managed PostgreSQL *resource* (a dedicated
+container Coolify runs, monitors and backs up), rather than a database on a
+shared cluster the kiosk administers. The kiosk asks Coolify to create it,
+reads back the connection URL, configures a native scheduled backup, and injects
+the URL into the tenant container. This keeps the deploy engine the single owner
+of runtime infrastructure (README §3): Coolify owns lifecycle + backups, the
+kiosk owns identity + wiring.
 
-Shared-cluster guards (the README's "one runaway query must not affect
-neighbours"): per-role CONNECTION LIMIT, a statement_timeout, and a size quota
-enforced by the monitor loop (Postgres has no native per-db quota).
+Trade-off vs the old shared-cluster db-per-tenant model: one container per app
+(less dense) in exchange for real isolation, per-app resource limits enforced by
+Coolify, and native backups/retention — no kiosk-side pg_dump, admin superuser,
+or size-quota loop. Backups + DB size are observed in the Coolify dashboard.
 
-Idempotent + re-runnable: creds are stored (encrypted) in tenant_db and reused
-on re-deploy, so a re-provision never drops tenant data.
+Idempotent + re-runnable: the Coolify database UUID and connection URL are stored
+(URL encrypted) in tenant_db and reused on re-deploy, so a re-provision never
+recreates the database or drops tenant data.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-from urllib.parse import urlsplit
-
-import psycopg
-from psycopg import sql
-
 from . import crypto, db
+from .backends.coolify.client import CoolifyClient, CoolifyError
 from .config import config
+
+_client: CoolifyClient | None = None
+
+
+def _c() -> CoolifyClient:
+    # Lazy singleton so importing this module never requires Coolify creds; a
+    # not-configured client raises CoolifyError only when a call is made.
+    global _client
+    if _client is None:
+        _client = CoolifyClient(
+            config.COOLIFY_BASE_URL, config.COOLIFY_API_TOKEN,
+            timeout=config.COOLIFY_TIMEOUT_S)
+    return _client
 
 
 def _ident(slug: str, prefix: str) -> str:
     return prefix + slug.replace("-", "_")
 
 
-# ── admin credentials (this module is the authority for them) ────────────────
-@lru_cache(maxsize=1)
-def admin_password() -> str:
-    return urlsplit(config.PG_ADMIN_URL).password or ""
-
-
-def admin_url(dbname: str | None = None, *, with_password: bool = True) -> str:
-    """Admin connection URL, optionally targeting `dbname`. Pass
-    with_password=False for callers that interpolate the URL into a shell string
-    (they must supply the password separately via PGPASSWORD) so a `$`/quote in
-    the password can't break or inject into the command."""
-    u = urlsplit(config.PG_ADMIN_URL)
-    host = u.hostname or "postgres"
-    port = f":{u.port}" if u.port else ""
-    if with_password and u.password:
-        userinfo = f"{u.username}:{u.password}@"
-    elif u.username:
-        userinfo = f"{u.username}@"
-    else:
-        userinfo = ""
-    path = f"/{dbname}" if dbname else (u.path or "")
-    return f"{u.scheme}://{userinfo}{host}{port}{path}"
-
-
-def _admin():
-    # autocommit: CREATE DATABASE can't run in a transaction block.
-    return psycopg.connect(config.PG_ADMIN_URL, autocommit=True)
-
-
 def ensure_tenant_db(slug: str, log) -> str:
-    """Create (or reuse) the tenant DB + role; return the injected DATABASE_URL."""
-    existing = db.get_tenant_db(slug)
-    if existing:
-        password = crypto.decrypt(existing["dbpassword_enc"])
-        dbname, dbuser = existing["dbname"], existing["dbuser"]
-        log(f"[db] reusing existing database {dbname}")
-    else:
-        dbname = _ident(slug, "d_")
-        dbuser = _ident(slug, "t_")
-        password = crypto.random_token(18)
-        _create(dbname, dbuser, password, log)
-        db.put_tenant_db(slug, dbname, dbuser, crypto.encrypt(password))
+    """Create (or reuse) the tenant's Coolify-managed Postgres; return the
+    injected DATABASE_URL. Safe to re-run: an existing database is reused and its
+    stored URL returned without touching data."""
+    row = db.get_tenant_db(slug)
+    if row and row.get("coolify_db_uuid"):
+        uuid = row["coolify_db_uuid"]
+        if row.get("dburl_enc"):
+            log(f"[db] reusing Coolify database {uuid}")
+            return crypto.decrypt(row["dburl_enc"])
+        # Row exists but URL wasn't persisted (a prior run died mid-provision):
+        # finish the job against the existing resource instead of orphaning it.
+        log(f"[db] completing provision of existing Coolify database {uuid}")
+        return _finish(slug, uuid, log)
 
-    return (f"postgresql://{dbuser}:{password}@"
-            f"{config.PG_TENANT_HOST}:{config.PG_TENANT_PORT}/{dbname}")
+    dbname = _ident(slug, "d_")
+    dbuser = _ident(slug, "t_")
+    password = crypto.random_token(24)
+    log(f"[db] creating Coolify-managed PostgreSQL for {slug}")
+    uuid = _c().create_postgres(
+        project_uuid=config.COOLIFY_PROJECT_UUID,
+        server_uuid=config.COOLIFY_SERVER_UUID,
+        environment_name=config.COOLIFY_ENVIRONMENT,
+        environment_uuid=config.COOLIFY_ENVIRONMENT_UUID,
+        destination_uuid=config.COOLIFY_DESTINATION_UUID,
+        name=f"tenant-{slug}-db", db_name=dbname, db_user=dbuser,
+        db_password=password,
+        limits_cpus=config.COOLIFY_CPU_LIMIT,
+        limits_memory=config.COOLIFY_MEMORY_LIMIT)
+    # Persist the UUID before reading the URL / configuring the backup, so a crash
+    # in the next step is recoverable (reuse branch above) rather than orphaning.
+    db.put_tenant_db(slug, dbname, dbuser, crypto.encrypt(password),
+                     coolify_db_uuid=uuid)
+    return _finish(slug, uuid, log)
+
+
+def _finish(slug: str, uuid: str, log) -> str:
+    """Read the connection URL back from Coolify and configure a native scheduled
+    backup, then persist both. The DB is usable once the URL is known; the backup
+    is best-effort so a backup-API hiccup doesn't fail the whole provision."""
+    url = _c().database_url(uuid)
+    backup_uuid = None
+    try:
+        if not _c().list_backups(uuid):
+            backup_uuid = _c().create_backup(
+                uuid, frequency=config.COOLIFY_BACKUP_FREQUENCY,
+                save_s3=bool(config.COOLIFY_BACKUP_S3_STORAGE_UUID),
+                s3_storage_uuid=config.COOLIFY_BACKUP_S3_STORAGE_UUID,
+                retention_days_locally=config.COOLIFY_BACKUP_RETENTION_DAYS)
+            log(f"[db] native daily backup configured ({config.COOLIFY_BACKUP_FREQUENCY})")
+    except CoolifyError as e:
+        log(f"[db] scheduled backup not configured (set it in Coolify): {e}")
+    db.update_tenant_db(slug, dburl_enc=crypto.encrypt(url), backup_uuid=backup_uuid)
+    return url
 
 
 def database_url(slug: str) -> str | None:
-    """Reconstruct the tenant DATABASE_URL from stored creds (no creation)."""
+    """The tenant DATABASE_URL from the stored (encrypted) Coolify URL. No I/O to
+    Coolify — used on every deploy to rebuild the env bundle."""
     row = db.get_tenant_db(slug)
-    if not row:
+    if not row or not row.get("dburl_enc"):
         return None
-    password = crypto.decrypt(row["dbpassword_enc"])
-    return (f"postgresql://{row['dbuser']}:{password}@"
-            f"{config.PG_TENANT_HOST}:{config.PG_TENANT_PORT}/{row['dbname']}")
-
-
-def _create(dbname: str, dbuser: str, password: str, log) -> None:
-    log(f"[db] creating role {dbuser} + database {dbname}")
-    with _admin() as conn, conn.cursor() as cur:
-        # Role (idempotent). If it already exists (e.g. a prior run created the
-        # role but died before persisting the tenant_db row), re-sync the
-        # password to the value we are about to store/inject — otherwise the
-        # stored password and the actual role password diverge and the tenant
-        # can never authenticate.
-        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (dbuser,))
-        if cur.fetchone():
-            cur.execute(
-                sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {} CONNECTION LIMIT {}").format(
-                    sql.Identifier(dbuser),
-                    sql.Literal(password),
-                    sql.Literal(config.TENANT_DB_CONN_LIMIT),
-                ))
-        else:
-            cur.execute(
-                sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} CONNECTION LIMIT {}").format(
-                    sql.Identifier(dbuser),
-                    sql.Literal(password),
-                    sql.Literal(config.TENANT_DB_CONN_LIMIT),
-                ))
-        cur.execute(
-            sql.SQL("ALTER ROLE {} SET statement_timeout = {}").format(
-                sql.Identifier(dbuser),
-                sql.Literal(config.TENANT_DB_STATEMENT_TIMEOUT),
-            ))
-        # Database (idempotent).
-        cur.execute("SELECT 1 FROM pg_database WHERE datname=%s", (dbname,))
-        if not cur.fetchone():
-            cur.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(
-                sql.Identifier(dbname), sql.Identifier(dbuser)))
-            cur.execute(sql.SQL("ALTER DATABASE {} CONNECTION LIMIT {}").format(
-                sql.Identifier(dbname), sql.Literal(config.TENANT_DB_CONN_LIMIT)))
-    # Lock down: revoke public, ensure the tenant owns its schema.
-    with psycopg.connect(_admin_db_url(dbname), autocommit=True) as conn, conn.cursor() as cur:
-        cur.execute("REVOKE ALL ON DATABASE " + _q(dbname) + " FROM PUBLIC")
-        cur.execute(sql.SQL("GRANT ALL ON SCHEMA public TO {}").format(
-            sql.Identifier(dbuser)))
-
-
-def _admin_db_url(dbname: str) -> str:
-    # Same admin creds, targeting the tenant DB (for schema grants). psycopg
-    # parses the URL (no shell), so the inline password is safe here.
-    return admin_url(dbname)
-
-
-def _q(ident: str) -> str:
-    return '"' + ident.replace('"', '""') + '"'
-
-
-def db_size_mb(slug: str) -> float | None:
-    row = db.get_tenant_db(slug)
-    if not row:
-        return None
-    with _admin() as conn, conn.cursor() as cur:
-        cur.execute("SELECT pg_database_size(%s)", (row["dbname"],))
-        got = cur.fetchone()
-        return round(got[0] / 1024 / 1024, 1) if got else None
+    return crypto.decrypt(row["dburl_enc"])
 
 
 def drop_tenant_db(slug: str, log) -> None:
+    """Delete the tenant's Coolify database (container, volume and its scheduled
+    backups) and forget it. Best-effort on the Coolify side."""
     row = db.get_tenant_db(slug)
     if not row:
         return
-    dbname, dbuser = row["dbname"], row["dbuser"]
-    log(f"[db] dropping database {dbname} + role {dbuser}")
-    with _admin() as conn, conn.cursor() as cur:
-        cur.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE datname=%s", (dbname,))
-        cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
-        cur.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(dbuser)))
+    uuid = row.get("coolify_db_uuid")
+    if uuid:
+        log(f"[db] deleting Coolify database {uuid}")
+        try:
+            _c().delete_database(uuid)
+        except CoolifyError as e:
+            log(f"[db] Coolify delete failed (prune it in the dashboard): {e}")
     db.delete_tenant_db(slug)

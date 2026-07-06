@@ -11,7 +11,6 @@ throwaway Postgres before importing the app; docker one-liner:
 import os
 
 os.environ.setdefault("DATABASE_URL", "postgresql://kiosk:kiosk@localhost:55432/kiosk")
-os.environ.setdefault("PG_ADMIN_URL", os.environ["DATABASE_URL"])
 
 import pytest  # noqa: E402
 import psycopg  # noqa: E402
@@ -39,6 +38,7 @@ def _clean():
         cur.execute("DELETE FROM apps")
         cur.execute("DELETE FROM coolify_app")
         cur.execute("DELETE FROM app_cron")
+        cur.execute("DELETE FROM tenant_db")
     yield
 
 
@@ -208,6 +208,78 @@ def test_delete_cron_removes_row():
     assert any(c["name"] == "nightly" for c in db.list_cron("cronapp"))
     db.delete_cron("cronapp", "nightly")
     assert db.list_cron("cronapp") == []
+
+
+# ── per-tenant DB is a Coolify-managed resource (create once, reuse, backup) ──
+class _FakeDBClient:
+    def __init__(self):
+        self.created = []
+        self.backups = []
+        self.deleted = []
+
+    def create_postgres(self, **k):
+        self.created.append(k)
+        return "db-uuid"
+
+    def database_url(self, uuid):
+        return f"postgresql://t:pw@{uuid}-host:5432/d"
+
+    def list_backups(self, uuid):
+        return list(self.backups)
+
+    def create_backup(self, uuid, **k):
+        self.backups.append(k)
+        return "bk-uuid"
+
+    def delete_database(self, uuid):
+        self.deleted.append(uuid)
+
+
+def test_ensure_tenant_db_creates_reuses_and_backs_up(monkeypatch):
+    from app import provision_db
+    fake = _FakeDBClient()
+    monkeypatch.setattr(provision_db, "_c", lambda: fake)
+
+    url1 = provision_db.ensure_tenant_db("dbapp", lambda *_: None)
+    assert url1 == "postgresql://t:pw@db-uuid-host:5432/d"
+    assert len(fake.created) == 1          # created the Coolify resource
+    assert len(fake.backups) == 1          # configured a native scheduled backup
+    row = db.get_tenant_db("dbapp")
+    assert row["coolify_db_uuid"] == "db-uuid"
+    assert row["dburl_enc"] and row["dburl_enc"] != url1  # stored encrypted
+
+    # Re-provision is idempotent: reuse the resource, no second create/backup.
+    url2 = provision_db.ensure_tenant_db("dbapp", lambda *_: None)
+    assert url2 == url1
+    assert len(fake.created) == 1
+    assert len(fake.backups) == 1
+    # database_url() reconstructs from stored creds without touching Coolify.
+    assert provision_db.database_url("dbapp") == url1
+
+
+def test_ensure_tenant_db_recovers_from_partial_provision(monkeypatch):
+    """UUID persisted but URL never stored (a prior run died mid-provision):
+    finish against the existing resource, don't create a duplicate."""
+    from app import provision_db
+    fake = _FakeDBClient()
+    monkeypatch.setattr(provision_db, "_c", lambda: fake)
+    db.put_tenant_db("halfdb", "d_h", "t_h", "enc", coolify_db_uuid="db-uuid")
+
+    url = provision_db.ensure_tenant_db("halfdb", lambda *_: None)
+    assert url == "postgresql://t:pw@db-uuid-host:5432/d"
+    assert fake.created == []              # existing resource reused, not recreated
+    assert db.get_tenant_db("halfdb")["dburl_enc"]
+
+
+def test_drop_tenant_db_deletes_coolify_resource(monkeypatch):
+    from app import provision_db
+    fake = _FakeDBClient()
+    monkeypatch.setattr(provision_db, "_c", lambda: fake)
+    provision_db.ensure_tenant_db("gone", lambda *_: None)
+
+    provision_db.drop_tenant_db("gone", lambda *_: None)
+    assert fake.deleted == ["db-uuid"]
+    assert db.get_tenant_db("gone") is None
 
 
 def test_sync_cron_creates_missing_and_deletes_removed():

@@ -110,6 +110,9 @@ class CoolifyClient:
     def update_app(self, uuid: str, fields: dict) -> dict:
         return self._request("PATCH", f"/applications/{uuid}", json_body=fields)
 
+    def delete_app(self, uuid: str) -> None:
+        self._request("DELETE", f"/applications/{uuid}")
+
     def app_status(self, uuid: str) -> str:
         """The app's current status string (e.g. 'running:healthy', 'exited',
         'degraded'). Empty string if Coolify doesn't report one."""
@@ -162,6 +165,86 @@ class CoolifyClient:
             env_uuid = row.get("uuid") or row.get("id")
             if env_uuid:
                 self.delete_env(uuid, env_uuid)
+
+    # ── databases (Coolify-managed Postgres == the README's per-tenant DB) ─────
+    def create_postgres(self, *, project_uuid: str, server_uuid: str,
+                        environment_name: str, environment_uuid: str,
+                        destination_uuid: str, name: str, db_name: str,
+                        db_user: str, db_password: str,
+                        limits_cpus: str = "", limits_memory: str = "") -> str:
+        """Create a Coolify-managed PostgreSQL database resource and start it.
+        Returns the new database UUID. Coolify assigns the container host, so the
+        connection URL is read back via `database_url` — not reconstructed here."""
+        body: dict = {
+            "project_uuid": project_uuid,
+            "server_uuid": server_uuid,
+            "environment_name": environment_name,
+            "name": name,
+            "postgres_user": db_user,
+            "postgres_password": db_password,
+            "postgres_db": db_name,
+            "instant_deploy": True,
+        }
+        if environment_uuid:
+            body["environment_uuid"] = environment_uuid
+        if destination_uuid:
+            body["destination_uuid"] = destination_uuid
+        if limits_cpus:
+            body["limits_cpus"] = limits_cpus
+        if limits_memory:
+            body["limits_memory"] = limits_memory
+        data = self._request("POST", "/databases/postgresql", json_body=body)
+        uuid = _dig(data, "uuid")
+        if not uuid:
+            raise CoolifyError(f"create database: no uuid in response: {data}")
+        return uuid
+
+    def get_database(self, uuid: str) -> dict:
+        data = self._request("GET", f"/databases/{uuid}")
+        if isinstance(data, dict):
+            return data.get("data") if isinstance(data.get("data"), dict) else data
+        return {}
+
+    def database_url(self, uuid: str) -> str:
+        """The connection URL a container on the tenant network uses to reach this
+        database. Coolify exposes it as `internal_db_url`. Normalised to the
+        `postgresql://` scheme mainstream ORMs expect."""
+        data = self.get_database(uuid)
+        url = _dig(data, "internal_db_url") or _dig(data, "internal_url")
+        if not url:
+            raise CoolifyError(
+                f"database {uuid}: no internal_db_url in response: {data}")
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        return url
+
+    def database_status(self, uuid: str) -> str:
+        return str(_dig(self.get_database(uuid), "status") or "")
+
+    def delete_database(self, uuid: str) -> None:
+        # Removes the container, its volume and any scheduled backups.
+        self._request("DELETE", f"/databases/{uuid}")
+
+    def list_backups(self, uuid: str) -> list[dict]:
+        data = self._request("GET", f"/databases/{uuid}/backups")
+        return data if isinstance(data, list) else data.get("data", [])
+
+    def create_backup(self, uuid: str, *, frequency: str, enabled: bool = True,
+                      save_s3: bool = False, s3_storage_uuid: str = "",
+                      retention_days_locally: int = 7) -> str:
+        """Configure a native scheduled backup on a Coolify database resource.
+        Returns the scheduled-backup UUID."""
+        body: dict = {
+            "frequency": frequency,
+            "enabled": enabled,
+            "save_s3": save_s3,
+            "dump_all": False,
+            "database_backup_retention_days_locally": retention_days_locally,
+        }
+        if save_s3 and s3_storage_uuid:
+            body["s3_storage_uuid"] = s3_storage_uuid
+        data = self._request("POST", f"/databases/{uuid}/backups", json_body=body)
+        return _dig(data, "uuid") or ""
 
     # ── scheduled tasks (Coolify Scheduled Task == the README's cron) ──────────
     def list_scheduled_tasks(self, uuid: str) -> list[dict]:

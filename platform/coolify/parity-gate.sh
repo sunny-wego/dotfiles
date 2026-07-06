@@ -55,10 +55,12 @@ cat <<EOF
   Upload dist/node-hello.zip   → reaches a live URL behind Google login
   Upload dist/python-hello.zip → same
   A non-company Google account is denied (403)
-  Per-tenant DATABASE_URL is injected + a scoped connection works
+  A per-tenant Coolify Postgres resource is created; DATABASE_URL is injected
+    (its internal_db_url) + a scoped connection from the app works
+  Each tenant DB shows a native scheduled backup in Coolify (Database → Backups)
+  A tenant DB backup restores from the Coolify dashboard (restore drill)
   A Scheduled Task runs (Coolify → app container; run history in the dashboard)
   Egress to a NON-allowlisted host is blocked; an allowlisted one succeeds
-  POST /ops/backup then GET /ops/restore-drill → ok:true
   Base image is UTC (Coolify has no scheduled-task timezone field)
 EOF
 

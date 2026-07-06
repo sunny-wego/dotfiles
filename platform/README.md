@@ -36,15 +36,15 @@ People keep vibe-coding useful internal tools and hit the same wall: **nowhere p
 
 **Lean v1 — one box, ~8 containers:**
 ```
-traefik → oauth2-proxy → tenant apps
+coolify (traefik → oauth2-proxy → tenant apps + per-app Postgres)
 kiosk (UI + orchestrator + build worker + audit)
-postgres (one cluster: kiosk metadata + db-per-tenant)
-litellm · registry · uptime-kuma        (+ minio locally / S3 on EC2)
+postgres (kiosk metadata only; tenant DBs are Coolify-managed resources)
+litellm · registry · uptime-kuma
 ```
 Deliberate simplifications (still **fail-closed** — coarser, not weaker):
 - **Access = whole-app, not per-route.** oauth2-proxy per app with an allow-list (emails or a Google Group) — "who can open this app," full stop. Deletes the authz service, manifest role rules, route detection, role proposal, and the server-action hybrid *entirely*. Most internal tools need exactly "my team can see this."
 - **Data governance = policy + attestation + egress-deny, no scanning.** "No customer/PNR data on this tier" as a rule + a deploy checkbox + default-deny egress (the load-bearing *structural* boundary stays). Drops the classification LLM pass, detector eval harness, and red-team corpus.
-- **Backups = nightly `pg_dump` per database + a platform-state dump to S3.** RPO of a day — honest and adequate for internal tools; a cron job, not WAL shipping.
+- **Backups = Coolify native scheduled backups, one per tenant database (daily, with retention; optional S3).** RPO of a day — honest and adequate for internal tools; a scheduled dump, not WAL shipping. (Since the deploy engine owns each DB resource, it also owns its backups + restore — the kiosk runs no `pg_dump`.)
 - **Observability = Kiosk-surfaced logs + Uptime-Kuma + a disk alert.** Nothing else.
 - **Keep the cheap hygiene** (nearly free, prevents irreversible mistakes): safe ZIP extraction · secret redaction before any LLM call · base-image allowlist · apps private by default · an append-only audit table · the Slack escalation channel. **And keep the provisioning saga idempotent/re-runnable**, so a partial failure is recoverable by hand (the reconciler just automates this later).
 
@@ -114,10 +114,10 @@ Creators see **only** the Kiosk. Operators use **only** Coolify (admin). End use
    notifications · ADMIN DASHBOARD (operators)   [state itself is backed up]
 
 ── SHARED SERVICES (Coolify-deployed, governed, per-tenant-scoped) ───────────
-   LiteLLM ──▶ OpenRouter (ZDR)   Postgres cluster (db-per-tenant, DEFAULT)
-   (also: the Kiosk's OWN          + libSQL (lightweight option)
-    LLM calls, redacted)          Metadata Postgres (authz cache + fast restore) + Redis
-   MinIO / S3 (backups+buckets)   Email relay ──▶ SES / Postal
+   LiteLLM ──▶ OpenRouter (ZDR)   Per-tenant Postgres (Coolify-managed resource
+   (also: the Kiosk's OWN          per app, native backups; DEFAULT)
+    LLM calls, redacted)          Metadata Postgres (kiosk state; own backup)
+   Email relay ──▶ SES / Postal   Coolify S3 storage (optional off-box backups)
    Observability: Uptime-Kuma · Grafana+Loki · GlitchTip
 
 ── PER TENANT (provisioned by the Kiosk) ────────────────────────────────────
@@ -159,7 +159,7 @@ The gap is **structural** (apps stall waiting for an engineer). Two named pilots
 | Feature | Delivered by |
 |---|---|
 | Host Node/Python app | generated Dockerfile → image → Coolify deploy-from-image |
-| Database | **Postgres db-per-tenant (default)** / libSQL (light option) + injected `DATABASE_URL` |
+| Database | **Coolify-managed Postgres, one resource per tenant (default)** / libSQL (light option) + injected `DATABASE_URL` (from Coolify's `internal_db_url`) |
 | Cron | Coolify Scheduled Task (overlap-guard, timezone, retry, creator alerts) |
 | Google login | oauth2-proxy (company domain only) |
 | Machine/webhook access | manifest public-path allowlist + app-verified provider signature / machine token |
@@ -198,9 +198,9 @@ Vibe-coded apps use mainstream ORMs that assume Postgres or file-SQLite. **Detec
 | Django ORM | ✅ | ✗ (no happy path) | dev-only |
 | raw SQL / libsql client | ✅ | ✅ | ✅ |
 
-**Postgres db-per-tenant on one shared cluster** is the default because it buys the mainstream ecosystem, **RLS without a second engine**, and **one backup story** — while still being cheap (a database, not an instance, per tenant). libSQL is the lightweight option for tiny/edge cases, not the default.
+**Postgres, one database per tenant** is the default because it buys the mainstream ecosystem, **RLS without a second engine**, and a **uniform backup story** — while staying cheap. libSQL is the lightweight option for tiny/edge cases, not the default.
 
-**Shared-cluster guards (with the shared cluster, so effectively v1):** a shared cluster loses instance-per-tenant's free isolation, so add **per-tenant connection limits, statement timeouts, and per-database size quotas** — one runaway query or unbounded table must not affect neighbors.
+**v1 implements this as a Coolify-managed Postgres *resource* per app** rather than a database on one kiosk-administered cluster. Since Coolify is the deploy engine and already runs, monitors, backs up and resource-limits database resources, letting it own each tenant DB removes the kiosk-side admin superuser, shared-cluster guard loop, and `pg_dump`/restore code — the engine owns lifecycle + backups, the kiosk owns identity + wiring. The trade-off (accepted): one container per app instead of a database on a shared cluster (less dense), and per-tenant restore granularity comes from Coolify's per-DB backups rather than a custom kiosk drill. Isolation and per-app resource limits come for free with the dedicated resource, so the shared-cluster guards (connection limits, statement timeouts, size quotas) are no longer needed.
 </details>
 
 ---
@@ -215,9 +215,9 @@ We lean on Coolify for everything it does well, and **only build what it genuine
 | Build + deploy-from-image, rollback | **LLM Dockerfile generation + heal + probe detection** |
 | Cron (Scheduled Tasks) | **LiteLLM gateway + per-tenant virtual keys** (multi-tenant AI governance) |
 | Env / secret store | **oauth2-proxy + manifest authz + machine-token/webhook escape hatch** (Coolify RBAC gates its dashboard, not app end-users *or* machine callers) |
-| Per-app CPU/mem limits | **Postgres db-per-tenant + RLS** wiring (Coolify provisions whole instances) |
+| Per-app CPU/mem limits + **per-tenant Postgres resources** | **DB credential generation + `DATABASE_URL` wiring + RLS** (Coolify creates the resource; the kiosk scopes + injects it) |
 | Multi-server placement | **Destination-per-tenant** orchestration |
-| Scheduled DB backups + **its own state backup** | **per-tenant DB backups + Coolify-state restore runbook + host-as-code** |
+| Scheduled DB backups + **its own state backup** | **native per-tenant DB backups (Coolify) + Coolify-state/metadata restore runbook + host-as-code** |
 | Deploy notifications | **Shared email relay**, **creator-facing observability**, **escalation queue** |
 | **Admin dashboard (operators)** | **Governance** — data classification, lifecycle/sprawl, actor-attributed audit, **reconciler** |
 
@@ -316,14 +316,14 @@ oauth2-proxy is a browser flow — Stripe/Slack/inbound-email/external-cron/CLI 
 
 ## 6. Operations (target architecture — pulled by trigger)
 
-> **v1 keeps only:** nightly `pg_dump` backups + a platform-state dump · Kiosk-surfaced logs + Uptime-Kuma + a disk alert · the cheap hygiene (safe extract, redaction, allowlist, private-by-default, audit table, Slack escalation) · an owner field + monthly orphans report. Everything else below arrives on its trigger (see Scope).
+> **v1 keeps only:** Coolify native scheduled backups (one per tenant DB) + a backup of the kiosk's metadata DB · Kiosk-surfaced logs + Uptime-Kuma + a disk alert · the cheap hygiene (safe extract, redaction, allowlist, private-by-default, audit table, Slack escalation) · an owner field + monthly orphans report. Everything else below arrives on its trigger (see Scope).
 
 <details>
 <summary><b>Backup & DR</b> — tenant data AND platform state</summary>
 
-- **Tenant DBs:** cluster WAL to S3, one backup story. Honest per-tenant RTO: restore = **restore the cluster elsewhere + extract the one database** (not native per-db PITR). (libSQL apps: bottomless S3 replication.)
-- **Coolify's own state** (domains, envs, tasks, destinations = the deployment state): **data-dir backup + a restore-tested runbook + host provisioning as code.** Retained ZIPs+Dockerfiles only reproduce apps if the engine that deploys them does too.
-- RPO ≈ minutes (WAL) or a day (v1 nightly `pg_dump`); RTO = restore engine + data. **A restore drill — basic in v1, full once WAL is added — measures mean-restore-time.**
+- **Tenant DBs:** each is a Coolify-managed Postgres resource with its own **native scheduled backup** (daily + retention, optional S3). Per-tenant restore is native — restore that one database's backup from the Coolify dashboard. Later hardening: WAL/PITR per resource. (libSQL apps: bottomless S3 replication.)
+- **Coolify's own state + kiosk metadata** (domains, envs, tasks, destinations, and the apps/access/secrets/cron/audit tables = the deployment state): **data-dir backup + scheduled backup of both Postgres DBs + a restore-tested runbook + host provisioning as code.** Retained ZIPs+Dockerfiles only reproduce apps if the engine that deploys them does too.
+- RPO ≈ a day (Coolify daily scheduled backup); RTO = restore engine + data. **A restore drill — restore a tenant DB backup from the Coolify dashboard — measures mean-restore-time.**
 </details>
 
 <details>
@@ -396,7 +396,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 
 **Build order (dependency edges → each milestone is shippable):**
 1. **Walking skeleton:** ZIP → LLM Dockerfile (redacted→LiteLLM) → build+scan → deploy behind oauth2-proxy. Proves the core loop + two-plane. **Includes a minimal escalation surface (Slack + a table).**
-2. **Lean v1:** + per-tenant Postgres + secret store + **whole-app oauth2-proxy allow-list** + cron + LLM key + nightly backups + Uptime-Kuma + disk alert. → **Pilot 1: Leaderboard.** *This is the v1 commitment.*
+2. **Lean v1:** + per-tenant Coolify-managed Postgres + secret store + **whole-app oauth2-proxy allow-list** + cron + LLM key + Coolify scheduled backups + Uptime-Kuma + disk alert. → **Pilot 1: Leaderboard.** *This is the v1 commitment.*
 
 *Triggered afterward (target sequence, not committed):*
 3. **+ Per-route RBAC & machine access** — authz service + manifest roles + server-action hybrid + webhook/machine-token. *(Trigger: an app needs Viewer/Editor/Admin — e.g. Pilot 2, ADM Tracker.)*
@@ -413,8 +413,8 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 - **Done when:** a trivial **Node** ZIP *and* a **Python** ZIP each go drop → live URL behind Google login, Dockerfile LLM-generated, the heal loop recovering ≥1 induced failure; a non-company Google account is denied.
 
 **v1 · Lean v1** *(the commitment)* — *depends on: M1.*
-- **Build:** per-tenant **Postgres db-per-tenant** + injected `DATABASE_URL` · **whole-app allow-list** per app (emails / Google Group) · secrets via Coolify env · **cron** (Scheduled Task) · per-tenant **LLM key** · **egress-deny + outbound allowlist** · **nightly `pg_dump`** + platform-state dump to S3 · Kiosk logs/health + Uptime-Kuma + disk alert · owner field + basic catalog.
-- **Done when:** **Pilot 1 (Leaderboard)** runs on-platform doing what it did on Vercel, self-served end-to-end by a non-engineer; an unauthorized user is denied; a **restore-from-backup drill passes**; egress to a non-allowlisted host is blocked.
+- **Build:** per-tenant **Coolify-managed Postgres** + injected `DATABASE_URL` · **whole-app allow-list** per app (emails / Google Group) · secrets via Coolify env · **cron** (Scheduled Task) · per-tenant **LLM key** · **egress-deny + outbound allowlist** · **Coolify native scheduled backups** (per tenant DB + kiosk metadata) · Kiosk logs/health + Uptime-Kuma + disk alert · owner field + basic catalog.
+- **Done when:** **Pilot 1 (Leaderboard)** runs on-platform doing what it did on Vercel, self-served end-to-end by a non-engineer; an unauthorized user is denied; a **restore-from-backup drill passes** (restore a tenant DB backup from Coolify); egress to a non-allowlisted host is blocked.
 
 *Triggered later — author the Definition of Done when the trigger fires (don't pre-plan):* **M3** per-route RBAC + machine access · **M4** classification tier · **M5** ops depth · **M6** polish. Build tasks are sketched in the Scope table + the target sequence above; each becomes a detailed milestone only when its trigger lands.
 
@@ -435,7 +435,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 | LLM-generated Dockerfile, **reused across updates** | One reproducible contract; regenerated only on detection change |
 | Trusted-internal, accident-hardened | Threat is mistakes → keep blast-radius controls, drop gVisor → Coolify stays simple |
 | oauth2-proxy + company Google **+ machine-token/webhook allowlist** | Browser SSO for people; a designed bypass for Stripe/Slack/cron/CLI. Not Clerk/Authelia |
-| **Postgres db-per-tenant (default)**, libSQL optional | Mainstream ORM compatibility for vibe-coded apps + RLS + one backup story; libSQL is the light option |
+| **Coolify-managed Postgres per tenant (default)**, libSQL optional | Mainstream ORM compatibility for vibe-coded apps + RLS + engine-owned backups/limits; libSQL is the light option |
 | No source modification | Detection = static + LLM probes + confirmed manifest; code never rewritten |
 | **Kiosk LLM calls governed like tenants'** | Its own inference goes through LiteLLM (ZDR) after redaction |
 | **LLM proposes, structure guarantees** | Safety rests on deterministic defaults (default-deny, default-coarse RBAC, egress boundary) + a detector eval harness — an LLM miss changes friction, not safety |
@@ -504,7 +504,7 @@ Default single image; genuine multi-service → **multiple linked Coolify apps i
 - **Manifest** — confirmed per-app record: routes, role→path rules, **public/webhook paths**, **outbound domain allowlist**, port, secrets, cron.
 - **Reconciler** — background control loop diffing desired (metadata) vs actual (Coolify), GC-ing orphans.
 - **Machine token** — platform-issued credential for non-browser service-to-service calls.
-- **db-per-tenant** — one database per tenant on a shared Postgres cluster (cheap, mainstream, RLS-native).
+- **db-per-tenant** — one database per tenant (mainstream, RLS-native). v1 realizes this as a Coolify-managed Postgres *resource* per app (engine owns lifecycle + backups) rather than a database on one shared kiosk-run cluster.
 - **forward-auth** — proxy middleware that authN/authZ a request before it reaches the app.
 - **Virtual key** — per-tenant, budgeted LiteLLM key mapped to the OpenRouter master key.
 - **RLS** — Postgres Row-Level Security; row-level access enforced by the database.

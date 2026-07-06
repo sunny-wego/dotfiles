@@ -90,10 +90,12 @@ def _run(job: Job, work_root: str, zip_path: str) -> None:
 
         # 4. Provision per-tenant resources FIRST, so the verify boot (step 5)
         #    can inject the real DATABASE_URL/secrets — apps that read their env
-        #    at import must survive the probe. Idempotent + reused on retry.
+        #    at import must survive the probe. The database is a Coolify-managed
+        #    Postgres resource (created once, reused on retry); verify asserts the
+        #    image starts, while live DB connectivity is on Coolify's network.
         job.status = "building"
         db.set_app_status(slug, "building")
-        job.log("provisioning per-tenant database …")
+        job.log("provisioning per-tenant Coolify database …")
         provision_db.ensure_tenant_db(slug, job.log)
         audit.record(job.actor, "provision.db", app=slug)
         egress.regenerate_allowlist(job.log)

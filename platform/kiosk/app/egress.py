@@ -38,7 +38,10 @@ def proxy_env_for(slug: str) -> dict[str, str]:
     if not domains or not config.EGRESS_PROXY:
         return {}  # no allowlist -> no proxy -> fully egress-denied by the network
     proxy = f"http://{config.EGRESS_PROXY}"
-    no_proxy = f"localhost,127.0.0.1,{config.PG_TENANT_HOST},litellm"
+    # The tenant DB is a Coolify-managed Postgres on the internal network reached
+    # over TCP (not HTTP), so the proxy env never touches it; localhost + litellm
+    # cover the in-cluster HTTP clients that should bypass the egress proxy.
+    no_proxy = "localhost,127.0.0.1,litellm"
     return {
         "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
         "http_proxy": proxy, "https_proxy": proxy,

@@ -36,8 +36,8 @@ _FAILED_MARKERS = ("exited", "error", "failed", "degraded", "unhealthy", "stoppe
 
 class CoolifyBackend:
     """Drives Coolify for all deploy/cron/rollback/logs operations. Cron runs as
-    Coolify Scheduled Tasks (no kiosk-side scheduler); per-tenant pg_dump backups
-    stay in the kiosk (README §3)."""
+    Coolify Scheduled Tasks (no kiosk-side scheduler); per-tenant databases are
+    Coolify-managed resources with native scheduled backups (see provision_db)."""
 
     name = "coolify"
 

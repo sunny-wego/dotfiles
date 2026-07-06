@@ -3,10 +3,12 @@
 
 Drives the *shipped* CoolifyClient (not a re-implementation) against a live
 Coolify, exercising every endpoint the kiosk uses: create-from-image, env
-replace+prune, update (labels/limits/domain), deploy trigger, status, logs, and
-the scheduled-task lifecycle (create → list → update → delete). Each step is
-reported PASS/FAIL with the failing endpoint, so a contract mismatch against the
-deployed Coolify version is pinpointed rather than discovered app-by-app.
+replace+prune, update (labels/limits/domain), deploy trigger, status, logs, the
+scheduled-task lifecycle (create → list → update → delete), and the per-tenant
+database lifecycle (create Postgres → read internal_db_url → configure native
+backup → delete). Each step is reported PASS/FAIL with the failing endpoint, so a
+contract mismatch against the deployed Coolify version is pinpointed rather than
+discovered app-by-app.
 
 Creates a throwaway `parity-probe` app from a trivial public image and deletes it
 at the end (PARITY_KEEP=1 leaves it up, e.g. for the Layer-B auth-chain 403 check).
@@ -143,6 +145,9 @@ def main() -> int:
                    lambda: client.delete_scheduled_task(uuid, tid))
             p.step("scheduled task gone", lambda: _assert(
                 _find_task(client, uuid) is None, "task still listed after delete"))
+
+        # ── per-tenant database lifecycle (the DB move) ──────────────────────
+        _probe_database(client, p)
     finally:
         if uuid and _env("PARITY_KEEP") != "1":
             p.step("delete_app (cleanup)", lambda: client.delete_app(uuid))
@@ -151,6 +156,34 @@ def main() -> int:
                   "auth-chain 403 check)")
 
     return p.report()
+
+
+def _probe_database(client, p):
+    """Create a throwaway Coolify Postgres, read its connection URL back, attach
+    a native scheduled backup, then delete it — the exact path provision_db uses.
+    Pins the response shapes (internal_db_url, backup uuid) the kiosk depends on."""
+    db_uuid = p.step("create_postgres", lambda: client.create_postgres(
+        project_uuid=_env("COOLIFY_PROJECT_UUID"),
+        server_uuid=_env("COOLIFY_SERVER_UUID"),
+        environment_name=_env("COOLIFY_ENVIRONMENT", "production"),
+        environment_uuid=_env("COOLIFY_ENVIRONMENT_UUID"),
+        destination_uuid=_env("COOLIFY_DESTINATION_UUID"),
+        name="parity-probe-db", db_name="d_parity", db_user="t_parity",
+        db_password="parity-probe-pw"))
+    if not db_uuid:
+        p.note("database checks", False, "skipped — create_postgres failed")
+        return
+    try:
+        p.step("database_url exposes internal_db_url", lambda: _assert(
+            client.database_url(db_uuid).startswith("postgresql://"),
+            "internal_db_url missing or wrong scheme"))
+        p.step("create_backup (native scheduled backup)",
+               lambda: client.create_backup(db_uuid, frequency="daily"))
+        p.step("list_backups has it", lambda: _assert(
+            len(client.list_backups(db_uuid)) >= 1, "no scheduled backup listed"))
+    finally:
+        p.step("delete_database (cleanup)",
+               lambda: client.delete_database(db_uuid))
 
 
 def _find_task(client, uuid, name="parity-cron"):

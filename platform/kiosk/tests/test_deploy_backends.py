@@ -147,6 +147,64 @@ def test_replace_envs_upserts_then_prunes_removed_nonreserved_keys():
     assert not any(m == "DELETE" and p.endswith(("/e1", "/e3")) for m, p in calls)
 
 
+# ── Coolify-managed databases (per-tenant Postgres) ──────────────────────────
+def test_create_postgres_posts_creds_and_returns_uuid():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"uuid": "db-77"})
+
+    uuid = _client(handler).create_postgres(
+        project_uuid="p", server_uuid="s", environment_name="production",
+        environment_uuid="env-9", destination_uuid="d", name="tenant-x-db",
+        db_name="d_x", db_user="t_x", db_password="pw")
+
+    assert uuid == "db-77"
+    assert seen["path"] == "/api/v1/databases/postgresql"
+    assert seen["body"]["postgres_db"] == "d_x"
+    assert seen["body"]["postgres_user"] == "t_x"
+    assert seen["body"]["environment_uuid"] == "env-9"
+    assert seen["body"]["instant_deploy"] is True
+
+
+def test_database_url_reads_internal_url_and_normalises_scheme():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "uuid": "db-77", "status": "running",
+            "internal_db_url": "postgres://t_x:pw@db-host:5432/d_x"})
+
+    # postgres:// → postgresql:// (what mainstream ORMs expect).
+    assert _client(handler).database_url("db-77") == \
+        "postgresql://t_x:pw@db-host:5432/d_x"
+
+
+def test_database_url_missing_internal_url_raises():
+    bad = _client(lambda r: httpx.Response(200, json={"uuid": "db-77"}))
+    with pytest.raises(CoolifyError):
+        bad.database_url("db-77")
+
+
+def test_create_backup_posts_frequency_and_returns_uuid():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"uuid": "bk-1", "message": "ok"})
+
+    uuid = _client(handler).create_backup("db-77", frequency="daily",
+                                          retention_days_locally=7)
+    assert uuid == "bk-1"
+    assert seen["path"] == "/api/v1/databases/db-77/backups"
+    assert seen["body"]["frequency"] == "daily"
+    assert seen["body"]["enabled"] is True
+    assert seen["body"]["save_s3"] is False
+
+
 def test_logs_empty_string_is_not_a_json_dump():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"logs": ""})

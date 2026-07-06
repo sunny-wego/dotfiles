@@ -7,7 +7,6 @@ that revocation takes effect. Needs Postgres; skips cleanly without one.
 import os
 
 os.environ.setdefault("DATABASE_URL", "postgresql://kiosk:kiosk@localhost:55432/kiosk")
-os.environ.setdefault("PG_ADMIN_URL", os.environ["DATABASE_URL"])
 
 import pytest  # noqa: E402
 import psycopg  # noqa: E402

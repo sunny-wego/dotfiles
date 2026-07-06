@@ -47,9 +47,11 @@ the Coolify dashboard; enable Coolify's notifications for task-failure alerting.
 The kiosk only keeps the schedule in sync (both directions).
 
 **Still the Kiosk's job** (README's extensions): the LLM Dockerfile + build /
-verify / heal pipeline, redaction, the base-image allowlist, per-tenant Postgres
-db-per-tenant, LiteLLM virtual keys, the oauth2-proxy + `appauthz` auth chain,
-per-tenant `pg_dump` backups, and actor-attributed audit.
+verify / heal pipeline, redaction, the base-image allowlist, generating each
+tenant DB's credentials + wiring its `DATABASE_URL`, LiteLLM virtual keys, the
+oauth2-proxy + `appauthz` auth chain, and actor-attributed audit. The DB
+*resource* and its *backups* are Coolify's (see "Databases" below); the Kiosk
+asks Coolify to create them and injects the connection URL.
 
 ## The auth chain still applies — verify this first
 
@@ -120,14 +122,30 @@ keep running from the compose stack on the same box, or be deployed as Coolify
 resources; either way they must share `COOLIFY_TENANT_NETWORK` so tenant apps
 reach their DB/LLM and the `appauthz` hop reaches the Kiosk.
 
+## Databases — Coolify-managed, one per app
+
+Each app's database is a **Coolify-managed PostgreSQL resource** (not a database
+inside the Kiosk's own cluster). On first deploy the Kiosk calls Coolify to
+create it, reads back the `internal_db_url`, injects it as the app's
+`DATABASE_URL`, and configures a **native scheduled backup** (`daily` by default;
+tune with `COOLIFY_BACKUP_FREQUENCY` / `COOLIFY_BACKUP_RETENTION_DAYS`). The DB
+appears in the dashboard as a normal Coolify database — that's where its status,
+size, per-app limits, backup executions and **restore** live.
+
+For off-box backup durability, create an **S3 storage** in Coolify once and set
+`COOLIFY_BACKUP_S3_STORAGE_UUID`; scheduled backups are then pushed to S3 too.
+
 ## Backups — the one thing the engine swap adds to your runbook
 
-Per-tenant DB backups stay in the Kiosk (`backup.py`, unchanged). What Coolify
-adds is that **Coolify's own state is now deployment state** — domains, envs,
-scheduled tasks, destinations. If you lose it, retained images/Dockerfiles alone
-won't reproduce the apps. So:
+Per-tenant DB backups are Coolify's job now (above). What still needs a runbook
+step is that **Coolify's own state is deployment state** — domains, envs,
+scheduled tasks, destinations, and the tenant databases' definitions. If you lose
+it, retained images/Dockerfiles alone won't reproduce the apps. So:
 
 - Enable Coolify's built-in **scheduled backup of its own database**.
+- Also enable a scheduled backup on the **Kiosk's metadata Postgres** (apps,
+  access, secrets, cron, tokens, audit) — make it a Coolify-managed DB too, or
+  back it up however you back up Coolify's own DB.
 - Back up Coolify's data directory (`/data/coolify`) off-box.
 - Keep this runbook + `install.sh` as the host-as-code restore path.
 

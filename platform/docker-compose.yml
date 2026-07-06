@@ -6,11 +6,14 @@
 # the kiosk and tenant apps depend on, on the same Docker network Coolify's
 # Destination uses (platform_tenant):
 #
-#   kiosk (UI · orchestrator · build worker · backups · audit) → Coolify API
+#   kiosk (UI · orchestrator · build worker · audit) → Coolify API
 #   oauth2-proxy|authstub (forward-auth answerer, alias `forward-auth`)
-#   postgres (metadata + db-per-tenant)   litellm ─▶ OpenRouter (+ virtual keys)
+#   postgres (kiosk metadata only)        litellm ─▶ OpenRouter (+ virtual keys)
 #   egress-proxy (squid, default-deny allowlist)   registry (deploy-from-image)
-#   minio (backup target)                 uptime-kuma (health)
+#   uptime-kuma (health)
+#
+# Per-tenant databases are NOT here: each is a Coolify-managed PostgreSQL
+# resource with native scheduled backups, created on demand by the kiosk.
 #
 # Ingress + tenant-app routing are Coolify's job (see coolify/README.md); this
 # file publishes no ports. Auth profiles select the forward-auth answerer:
@@ -23,11 +26,11 @@ networks:
   # Shared plane: kiosk + auth answerer, reachable by Coolify's proxy.
   proxy:
     name: platform_proxy
-  # Control/data plane: kiosk <-> postgres <-> litellm <-> registry <-> minio.
+  # Control/data plane: kiosk <-> postgres <-> litellm <-> registry.
   backplane:
     name: platform_backplane
     internal: true
-  # Tenant plane: tenant apps (Coolify-deployed here) + postgres/litellm.
+  # Tenant plane: tenant apps + their Coolify databases + litellm/egress-proxy.
   # internal:true == default-deny egress; the only route out is the egress-proxy.
   tenant:
     name: platform_tenant
@@ -40,8 +43,6 @@ volumes:
   pgdata:
   registry-data:
   kiosk-work:
-  backups:
-  minio-data:
   uptime-kuma:
   egress-allowlist:
 
@@ -134,19 +135,6 @@ services:
     networks:
       - backplane
 
-  # ── Object storage: off-box backup target (local S3) ───────────────────────
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-platform}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-platform-local-dev}
-    volumes:
-      - minio-data:/data
-    networks:
-      - backplane
-
   # ── Health monitoring (operator-facing) ────────────────────────────────────
   uptime-kuma:
     image: louislam/uptime-kuma:1
@@ -158,7 +146,9 @@ services:
     networks:
       - tenant     # probe tenant apps + be reached by Coolify's proxy
 
-  # ── Metadata Postgres: kiosk state + db-per-tenant ─────────────────────────
+  # ── Metadata Postgres: the kiosk's own state (apps, access, secrets, cron,
+  #    tokens, audit). Per-tenant databases are separate Coolify-managed
+  #    resources, not databases inside this cluster. ───────────────────────────
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -175,10 +165,9 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - backplane   # kiosk (admin) access
-      - tenant      # tenant apps' scoped DATABASE_URL
+      - backplane   # kiosk access only — tenants use their own Coolify databases
 
-  # ── The Kiosk: user plane · orchestrator · build worker · cron · backups ───
+  # ── The Kiosk: user plane · orchestrator · build worker · deploy driver ────
   kiosk:
     build: ./kiosk
     image: platform/kiosk:m1
@@ -192,8 +181,6 @@ services:
       COMPANY_EMAIL_DOMAIN: ${COMPANY_EMAIL_DOMAIN}
       DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PG_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PG_TENANT_HOST: postgres
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       KIOSK_LLM_MODEL: ${KIOSK_LLM_MODEL:-dockerfile-gen}
@@ -208,21 +195,23 @@ services:
       REGISTRY_HOST: registry:5000
       EGRESS_PROXY: egress-proxy:3128
       EGRESS_ALLOWLIST_FILE: /egress/allowlist.txt
-      KIOSK_TENANT_DB_QUOTA_MB: ${KIOSK_TENANT_DB_QUOTA_MB:-1024}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-platform}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-platform-local-dev}
-      # Coolify is the deploy engine; the kiosk drives its API. These are
-      # required at runtime (see platform/coolify/README.md).
+      # Coolify is the deploy engine AND the owner of per-tenant databases; the
+      # kiosk drives its API. These are required at runtime (see
+      # platform/coolify/README.md).
       COOLIFY_BASE_URL: ${COOLIFY_BASE_URL:-}
       COOLIFY_API_TOKEN: ${COOLIFY_API_TOKEN:-}
       COOLIFY_PROJECT_UUID: ${COOLIFY_PROJECT_UUID:-}
       COOLIFY_ENVIRONMENT: ${COOLIFY_ENVIRONMENT:-production}
+      COOLIFY_ENVIRONMENT_UUID: ${COOLIFY_ENVIRONMENT_UUID:-}
       COOLIFY_SERVER_UUID: ${COOLIFY_SERVER_UUID:-}
       COOLIFY_DESTINATION_UUID: ${COOLIFY_DESTINATION_UUID:-}
       COOLIFY_TENANT_NETWORK: ${COOLIFY_TENANT_NETWORK:-platform_tenant}
       COOLIFY_CPU_LIMIT: ${COOLIFY_CPU_LIMIT:-}
       COOLIFY_MEMORY_LIMIT: ${COOLIFY_MEMORY_LIMIT:-}
+      # Per-tenant database backups run natively in Coolify (daily by default).
+      COOLIFY_BACKUP_FREQUENCY: ${COOLIFY_BACKUP_FREQUENCY:-daily}
+      COOLIFY_BACKUP_RETENTION_DAYS: ${COOLIFY_BACKUP_RETENTION_DAYS:-7}
+      COOLIFY_BACKUP_S3_STORAGE_UUID: ${COOLIFY_BACKUP_S3_STORAGE_UUID:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - kiosk-work:/work

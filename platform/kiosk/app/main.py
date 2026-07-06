@@ -21,7 +21,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import (access, audit, backup, crypto, db, deployer, egress,
+from . import (access, audit, crypto, db, deployer, egress,
                monitor, orchestrator, secrets_store)
 from .auth import identity
 from .config import config
@@ -84,9 +84,9 @@ def _startup() -> None:
               flush=True)
     db.init()
     egress.regenerate_allowlist()
-    # Cron runs as Coolify Scheduled Tasks (no in-process scheduler); the kiosk
-    # keeps the nightly per-tenant pg_dump (README §3).
-    backup.start_nightly()
+    # Cron runs as Coolify Scheduled Tasks and per-tenant databases are
+    # Coolify-managed resources with native scheduled backups — the kiosk runs no
+    # in-process scheduler and no pg_dump loop (README §3).
     monitor.start()
     print("[startup] deploy engine = coolify", flush=True)
 
@@ -118,17 +118,18 @@ def internal_authz(request: Request) -> Response:
     return Response(status_code=403, content=f"not authorized for {slug or '?'}")
 
 
-@app.post("/ops/backup")
-def ops_backup(request: Request):
-    identity(request)  # any company user may trigger an on-demand backup
-    _enforce_csrf(request)
-    return JSONResponse(backup.backup_all(print))
-
-
-@app.get("/ops/restore-drill")
-def ops_restore_drill(request: Request):
+@app.get("/ops/backups")
+def ops_backups(request: Request):
+    """Point operators at where backups now live. Per-tenant databases are
+    Coolify-managed resources; their scheduled backups, executions and restore
+    are handled in the Coolify dashboard, not by the kiosk."""
     identity(request)
-    return JSONResponse(backup.restore_drill(log=print))
+    return JSONResponse({
+        "managed_by": "coolify",
+        "note": "Per-tenant databases and their scheduled backups are managed in "
+                "the Coolify dashboard (Database → Backups). Restores run there.",
+        "dashboard": config.COOLIFY_BASE_URL or None,
+    })
 
 
 # ── identity + personal API tokens (the CLI / agent surface) ──────────────────
