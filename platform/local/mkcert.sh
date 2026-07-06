@@ -3,13 +3,17 @@
 # via mkcert, so Coolify's Traefik serves https://*.<domain> exactly like prod.
 # The ONLY difference from prod is the issuer (mkcert local CA vs Let's Encrypt).
 #
-#   ./local/mkcert.sh
+#   ./local/mkcert.sh            # mint the cert + print load steps
+#   ./local/mkcert.sh --load     # also copy it into Colima's Coolify proxy
 #
 # Produces local/certs/{wildcard.pem,wildcard-key.pem} + local/certs/coolify-tls.yml
 # and prints how to load them into Coolify's proxy. Certs are gitignored.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"     # platform/local
 cd "$here"
+
+load=0
+[ "${1:-}" = "--load" ] && load=1
 
 # Domain from local/.env.local if present, else the nip.io default.
 domain="apps.127.0.0.1.nip.io"
@@ -63,3 +67,20 @@ Load into Coolify's proxy (on the Colima VM):
 Then set each app/kiosk to use its own domain (https://<slug>.$domain) and
 DISABLE Let's Encrypt for it — the wildcard above already covers it.
 EOF
+
+# Optional: copy into the Colima Coolify proxy for you (best-effort).
+if [ "$load" = "1" ]; then
+  echo
+  echo "== --load: copying certs into Colima's Coolify proxy =="
+  if ! command -v colima >/dev/null 2>&1; then
+    echo "  colima not found — skipping (do the copy above manually)." >&2
+    exit 0
+  fi
+  cdir=/data/coolify/proxy
+  colima ssh -- sudo mkdir -p "$cdir/certs" "$cdir/dynamic" \
+    && colima ssh -- sudo tee "$cdir/certs/wildcard.pem"     >/dev/null < certs/wildcard.pem \
+    && colima ssh -- sudo tee "$cdir/certs/wildcard-key.pem" >/dev/null < certs/wildcard-key.pem \
+    && colima ssh -- sudo tee "$cdir/dynamic/local-tls.yml"  >/dev/null < certs/coolify-tls.yml \
+    && echo "  copied. Now restart Coolify's proxy (dashboard → Server → Proxy → Restart)." \
+    || echo "  copy failed — is Coolify installed in the VM? Do it manually (steps above)." >&2
+fi
