@@ -83,7 +83,7 @@ def _startup() -> None:
               "secrets at rest are NOT protected. Set a real key for real use.",
               flush=True)
     db.init()
-    egress.regenerate_allowlist()
+    egress.regenerate_allowlist_async()  # don't block boot on the squid reload
     # Cron runs as Coolify Scheduled Tasks and per-tenant databases are
     # Coolify-managed resources with native scheduled backups — the kiosk runs no
     # in-process scheduler and no pg_dump loop (README §3).
@@ -172,9 +172,10 @@ def revoke_token(request: Request, token_id: int):
 
 
 # ── device-authorization flow (browserless `kiosk login`) ─────────────────────
-# /device/code and /device/token are pre-auth (the CLI has no token yet); the
-# approval (/device, /device/approve) requires a verified browser identity, so it
-# must sit behind oauth2-proxy. See cli/README.md for the ingress split.
+# /device/code and /device/token are pre-auth (the CLI has no token yet) — the
+# identity edge exempts them via oauth2-proxy `--skip-auth-regex=^/device/(code|token)$`
+# (see docker-compose.yml). The approval pages (/device, /device/approve) require a
+# verified browser identity, so they stay behind oauth2-proxy.
 def _user_code() -> str:
     raw = "".join(secrets.choice(_USER_CODE_ALPHABET) for _ in range(8))
     return f"{raw[:4]}-{raw[4:]}"
@@ -364,7 +365,8 @@ def add_egress(request: Request, slug: str, domain: str = Form(...),
     _enforce_csrf(request, csrf)
     _owner_guard(slug, who)
     db.add_egress(slug, domain.strip())
-    egress.regenerate_allowlist()
+    # Off the request path: the squid reconfigure exec can take up to 30s.
+    egress.regenerate_allowlist_async()
     # Egress proxy env is injected at start; redeploy (off the request path) so
     # the running app can reach the new domain, not just squid permitting it.
     deployer.redeploy_async(slug)

@@ -79,6 +79,29 @@ def test_create_image_app_posts_dockerimage_and_returns_uuid():
     assert seen["body"]["environment_uuid"] == "env-9"  # required by Coolify
 
 
+def test_create_image_app_omits_empty_destination_uuid():
+    # An empty destination_uuid must NOT be sent (a single-destination server
+    # rejects it); a set one must be. Mirrors create_postgres/create_service.
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"uuid": "app-1"})
+
+    _client(handler).create_image_app(
+        project_uuid="p", server_uuid="s", environment_name="e",
+        environment_uuid="ev", destination_uuid="", name="n", image="i",
+        tag="t", port=8000, domain="h")
+    assert "destination_uuid" not in seen["body"]
+
+    _client(handler).create_image_app(
+        project_uuid="p", server_uuid="s", environment_name="e",
+        environment_uuid="ev", destination_uuid="dest-9", name="n", image="i",
+        tag="t", port=8000, domain="h")
+    assert seen["body"]["destination_uuid"] == "dest-9"
+
+
 def test_replace_envs_uses_bulk_upsert_shape():
     bulk = {}
 

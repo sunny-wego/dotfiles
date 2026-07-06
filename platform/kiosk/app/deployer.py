@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from . import dockercli
+from . import db, dockercli, slack
 from .config import config
 
 # Keep the newest N local builds per app (the live one + one previous for a quick
@@ -57,10 +57,31 @@ def redeploy(slug: str) -> tuple[bool, str, str]:
     return _b().redeploy(slug)
 
 
+def _redeploy_and_record(slug: str) -> None:
+    """Redeploy and WRITE the result to the app's status, so a failed async
+    redeploy can't leave a false-green app serving the old secret/egress config.
+    On success the app goes to 'deploying' (the monitor reconciler then advances
+    it to running/failed from Coolify's real state); on failure it is marked
+    'failed' and escalated — the same failure surface the saga deploy has."""
+    try:
+        ok, url, msg = redeploy(slug)
+    except Exception as e:  # noqa: BLE001 — background worker must not die silently
+        ok, url, msg = False, "", f"redeploy crashed: {e}"
+    try:
+        if ok:
+            db.set_app_status(slug, "deploying", url=url or None)
+        else:
+            db.set_app_status(slug, "failed")
+            slack.escalate("redeploy", slug, f"Async redeploy failed: {msg}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[deployer] could not record redeploy result for {slug}: {e}", flush=True)
+
+
 def redeploy_async(slug: str) -> None:
     """Redeploy off the request path so a secret/egress change doesn't block the
-    HTTP response; the UI redirects immediately and the app refreshes shortly."""
-    _pool.submit(redeploy, slug)
+    HTTP response; the UI redirects immediately and the app refreshes shortly.
+    The result is recorded to status so a failure isn't silently swallowed."""
+    _pool.submit(_redeploy_and_record, slug)
 
 
 def rollback(slug: str) -> tuple[bool, str, str]:

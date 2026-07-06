@@ -18,6 +18,7 @@ the trusted-internal model; per-source ACLs are a later hardening.
 from __future__ import annotations
 
 import os
+import threading
 
 from . import dockercli, db
 from .config import config
@@ -64,3 +65,9 @@ def regenerate_allowlist(log=lambda *_: None) -> None:
     res = dockercli.run(["exec", "egress-proxy", "squid", "-k", "reconfigure"], timeout=30)
     log(f"[egress] allowlist -> {len(domains)} domain(s)"
         + ("" if res.ok else " (squid reload skipped: proxy not running)"))
+
+
+def regenerate_allowlist_async(log=lambda *_: None) -> None:
+    """Off-path variant: the squid `-k reconfigure` exec (up to a 30s timeout)
+    must not block the HTTP response on an egress edit, nor delay startup."""
+    threading.Thread(target=regenerate_allowlist, args=(log,), daemon=True).start()

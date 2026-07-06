@@ -35,12 +35,18 @@ def safe_extract(zip_path: str, dest_dir: str, max_total_bytes: int) -> None:
         if len(infos) > MAX_ENTRIES:
             raise UnsafeArchive(f"too many entries ({len(infos)} > {MAX_ENTRIES})")
 
+        # Cheap early reject on the DECLARED sizes...
         total = sum(i.file_size for i in infos)
         if total > max_total_bytes:
             raise UnsafeArchive(
                 f"uncompressed size {total} exceeds limit {max_total_bytes}"
             )
 
+        # ...but the declared size is attacker-controlled and can under-report the
+        # real stream, so extraction below also counts ACTUAL decompressed bytes
+        # against the same cap and aborts mid-stream — the header check alone does
+        # not stop a zip bomb.
+        written = 0
         for info in infos:
             name = info.filename
             if name.startswith("/") or os.path.isabs(name):
@@ -64,8 +70,20 @@ def safe_extract(zip_path: str, dest_dir: str, max_total_bytes: int) -> None:
                 target.mkdir(parents=True, exist_ok=True)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
+                # Stream in bounded chunks so a member's real (decompressed) size
+                # is metered as we go: memory stays ~chunk-sized and the total cap
+                # is enforced against actual bytes, not the declared header.
                 with zf.open(info) as src, open(target, "wb") as out:
-                    out.write(src.read())
+                    while True:
+                        chunk = src.read(1 << 20)  # 1 MiB
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > max_total_bytes:
+                            raise UnsafeArchive(
+                                f"uncompressed size exceeds limit {max_total_bytes} "
+                                "(zip bomb — declared size under-reported)")
+                        out.write(chunk)
 
 
 def _within(base: Path, target: Path) -> bool:

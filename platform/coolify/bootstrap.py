@@ -84,7 +84,7 @@ def main() -> int:
         if existing:
             uuid = existing
             print(f"reusing service {SERVICE_NAME} ({uuid})")
-            client.set_service_envs(uuid, env)
+            client.replace_service_envs(uuid, env)
             client.start_service(uuid)      # redeploy with refreshed env
             print("env refreshed + redeploy triggered")
         else:
@@ -98,7 +98,7 @@ def main() -> int:
                 destination_uuid=_env("COOLIFY_DESTINATION_UUID"),
                 name=SERVICE_NAME, compose=compose, instant_deploy=False)
             print(f"created service {SERVICE_NAME} ({uuid})")
-            client.set_service_envs(uuid, env)   # set env BEFORE first deploy
+            client.replace_service_envs(uuid, env)   # set env BEFORE first deploy
             client.start_service(uuid)
             print("env set + deploy triggered")
     except CoolifyError as e:

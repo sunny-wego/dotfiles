@@ -86,6 +86,10 @@ services:
       - --provider=oidc
       - --oidc-issuer-url=${OIDC_ISSUER_URL:-https://accounts.google.com}
       - --email-domains=${COMPANY_EMAIL_DOMAIN}
+      # Pre-auth endpoints: the browserless `kiosk login` device flow starts with
+      # no token, so these two paths must NOT be redirected to the IdP. (/device
+      # and /device/approve stay behind auth — they bind a browser identity.)
+      - --skip-auth-regex=^/device/(code|token)$$
       - --upstream=static://202
       - --skip-provider-button=true
       - --cookie-domain=.${PLATFORM_DOMAIN}

@@ -11,7 +11,10 @@ from . import egress, llmkey, provision_db, secrets_store
 
 
 def build_env(slug: str, log=lambda *_: None) -> dict[str, str]:
-    env: dict[str, str] = {}
+    # Pin the container to UTC so Coolify Scheduled Tasks (which have no timezone
+    # field and run in the container's TZ) fire at the kiosk's declared UTC time,
+    # not whatever TZ the base image happens to carry.
+    env: dict[str, str] = {"TZ": "UTC"}
 
     url = provision_db.database_url(slug)
     if url:

@@ -32,7 +32,9 @@ def ensure_key(slug: str, log) -> dict[str, str]:
         resp = httpx.post(url, json=payload, headers=headers, timeout=20)
         resp.raise_for_status()
         key = resp.json()["key"]
-    except (httpx.HTTPError, KeyError) as e:  # noqa: BLE001
+    except (httpx.HTTPError, KeyError, ValueError) as e:  # noqa: BLE001
+        # ValueError covers json.JSONDecodeError — a 200 with a non-JSON body
+        # (proxy/gateway error page) must skip, not fail the whole provision.
         log(f"[llm] virtual-key mint skipped ({e}); app gets no LLM key")
         return {}
 

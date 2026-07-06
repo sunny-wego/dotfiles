@@ -178,10 +178,12 @@ class CoolifyBackend:
         """Reconcile Coolify Scheduled Tasks with the kiosk's cron rows in BOTH
         directions: create missing tasks, update ones whose schedule/command
         changed, and delete tasks whose kiosk row is gone. (A one-way create-only
-        sync would leave edits and deletions silently diverging.) Schedules are
-        the kiosk's declared UTC, so tasks are created with timezone=UTC. Called
-        with the resolved `uuid` from `deploy`, or without it from the cron route.
-        Best-effort — a Coolify without the scheduled-task API logs and skips."""
+        sync would leave edits and deletions silently diverging.) Coolify's API
+        has no timezone field, so it runs each task in the CONTAINER's TZ; the
+        schedules are the kiosk's declared UTC, and tenant containers are pinned to
+        TZ=UTC (tenant_env.build_env) so a task fires at the declared UTC time.
+        Called with the resolved `uuid` from `deploy`, or without it from the cron
+        route. Best-effort — a Coolify without the scheduled-task API logs+skips."""
         uuid = uuid or db.get_coolify_uuid(slug)
         if not uuid:  # not deployed yet — deploy() re-syncs once the app exists
             return

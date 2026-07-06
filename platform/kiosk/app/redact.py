@@ -35,12 +35,15 @@ _PATTERNS = [
     re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@[^\s]+", re.IGNORECASE),
 ]
 
-# `SECRET_KEY = "value"` / `password: value` style assignments in config/env.
+# `SECRET_KEY = "value"` / `  password: value` style assignments in config/env/
+# source. `lead` captures any indentation + the key + the `:`/`=` + spacing so an
+# INDENTED assignment (nested YAML, code inside a function) is caught too — only
+# the value is replaced, indentation/key/separator/quotes preserved.
 _ASSIGN = re.compile(
-    r"(?im)^(?P<key>[A-Z0-9_.-]*"
+    r"(?im)^(?P<lead>[ \t]*[A-Z0-9_.-]*"
     r"(?:SECRET|TOKEN|PASSWORD|PASSWD|API[_-]?KEY|PRIVATE[_-]?KEY|"
     r"CREDENTIAL|ACCESS[_-]?KEY|CLIENT[_-]?SECRET|DSN|CONN)"
-    r"[A-Z0-9_.-]*)\s*[:=]\s*(?P<q>[\"']?)(?P<val>[^\"'\r\n]+)(?P=q)"
+    r"[A-Z0-9_.-]*\s*[:=]\s*)(?P<q>[\"']?)(?P<val>[^\"'\r\n]+)(?P=q)"
 )
 
 
@@ -49,5 +52,6 @@ def redact(text: str) -> str:
         return text
     for pat in _PATTERNS:
         text = pat.sub(_PLACEHOLDER, text)
-    text = _ASSIGN.sub(lambda m: f"{m.group('key')}={_PLACEHOLDER}", text)
+    text = _ASSIGN.sub(
+        lambda m: f"{m.group('lead')}{m.group('q')}{_PLACEHOLDER}{m.group('q')}", text)
     return text

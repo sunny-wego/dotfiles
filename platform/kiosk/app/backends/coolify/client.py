@@ -91,7 +91,6 @@ class CoolifyClient:
             "project_uuid": project_uuid,
             "server_uuid": server_uuid,
             "environment_name": environment_name,
-            "destination_uuid": destination_uuid,
             "name": name,
             "docker_registry_image_name": image,
             "docker_registry_image_tag": tag,
@@ -101,6 +100,10 @@ class CoolifyClient:
         }
         if environment_uuid:
             body["environment_uuid"] = environment_uuid
+        # Only send destination_uuid when set — an empty string is rejected by a
+        # single-destination server (matching create_postgres/create_service).
+        if destination_uuid:
+            body["destination_uuid"] = destination_uuid
         data = self._request("POST", "/applications/dockerimage", json_body=body)
         uuid = _dig(data, "uuid")
         if not uuid:
@@ -144,27 +147,34 @@ class CoolifyClient:
         self._request("DELETE", f"/applications/{uuid}/envs/{env_uuid}")
 
     # Coolify-injected env we must never prune. COOLIFY_* is the documented
-    # prefix; SOURCE_COMMIT is its one common non-prefixed one. Verify this set
-    # against the target Coolify version on the parity gate.
+    # prefix; SERVICE_* is Coolify's compose-service magic (SERVICE_FQDN_*,
+    # SERVICE_URL_*, generated SERVICE_PASSWORD_*, …); SOURCE_COMMIT is a common
+    # non-prefixed one. Verify against the target Coolify version on the parity gate.
     _RESERVED_ENV = ("SOURCE_COMMIT",)
+    _RESERVED_PREFIXES = ("COOLIFY_", "SERVICE_")
 
-    def replace_envs(self, uuid: str, env: dict[str, str]) -> None:
-        """Make the app's env EXACTLY `env` (for kiosk-managed keys): bulk-upsert
-        the desired keys, then delete any key we previously set that is no longer
-        present — so a removed/rotated secret actually stops being injected.
-        Coolify-managed keys are left untouched."""
+    def _replace_envs(self, kind: str, uuid: str, env: dict[str, str]) -> None:
+        """Make a resource's env EXACTLY `env` for kiosk-managed keys: bulk-upsert
+        the desired keys, then delete any non-reserved key we previously set that
+        is no longer present — so a removed/rotated secret actually stops being
+        injected. `kind` is 'applications' or 'services'."""
         payload = {"data": [{"key": k, "value": v, "is_preview": False}
                             for k, v in env.items()]}
-        self._request("PATCH", f"/applications/{uuid}/envs/bulk", json_body=payload)
+        self._request("PATCH", f"/{kind}/{uuid}/envs/bulk", json_body=payload)
         desired = set(env)
-        for row in self.list_envs(uuid):
+        listed = self._request("GET", f"/{kind}/{uuid}/envs")
+        rows = listed if isinstance(listed, list) else listed.get("data", [])
+        for row in rows:
             key = row.get("key")
-            if (not key or key in desired or key.startswith("COOLIFY_")
-                    or key in self._RESERVED_ENV):
+            if (not key or key in desired or key in self._RESERVED_ENV
+                    or key.startswith(self._RESERVED_PREFIXES)):
                 continue
             env_uuid = row.get("uuid") or row.get("id")
             if env_uuid:
-                self.delete_env(uuid, env_uuid)
+                self._request("DELETE", f"/{kind}/{uuid}/envs/{env_uuid}")
+
+    def replace_envs(self, uuid: str, env: dict[str, str]) -> None:
+        self._replace_envs("applications", uuid, env)
 
     # ── databases (Coolify-managed Postgres == the README's per-tenant DB) ─────
     def create_postgres(self, *, project_uuid: str, server_uuid: str,
@@ -198,6 +208,10 @@ class CoolifyClient:
         if not uuid:
             raise CoolifyError(f"create database: no uuid in response: {data}")
         return uuid
+
+    def list_databases(self) -> list[dict]:
+        data = self._request("GET", "/databases")
+        return data if isinstance(data, list) else data.get("data", [])
 
     def get_database(self, uuid: str) -> dict:
         data = self._request("GET", f"/databases/{uuid}")
@@ -294,13 +308,13 @@ class CoolifyClient:
     def delete_service(self, uuid: str) -> None:
         self._request("DELETE", f"/services/{uuid}")
 
-    def set_service_envs(self, uuid: str, env: dict[str, str]) -> None:
-        """Bulk-upsert the control-plane env (COOLIFY_* creds, secrets, domain)
-        into the service's env store. Values are resolved into the compose's
-        `${VAR}` placeholders by Coolify at deploy."""
-        payload = {"data": [{"key": k, "value": v, "is_preview": False}
-                            for k, v in env.items()]}
-        self._request("PATCH", f"/services/{uuid}/envs/bulk", json_body=payload)
+    def replace_service_envs(self, uuid: str, env: dict[str, str]) -> None:
+        """Make the control-plane service's env EXACTLY `env` for kiosk-managed
+        keys: upsert the desired keys and prune any non-reserved key we previously
+        set that is gone — so a decommissioned/rotated control-plane secret stops
+        being injected (same guarantee as the tenant path). Coolify's own
+        SERVICE_*/COOLIFY_* magic is preserved."""
+        self._replace_envs("services", uuid, env)
 
     # ── control-plane provisioning (bootstrap helpers) ─────────────────────────
     # Small read/create helpers so `coolify/provision.py` can resolve the

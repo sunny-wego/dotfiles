@@ -212,10 +212,14 @@ def test_delete_cron_removes_row():
 
 # ── per-tenant DB is a Coolify-managed resource (create once, reuse, backup) ──
 class _FakeDBClient:
-    def __init__(self):
+    def __init__(self, existing_dbs=None):
         self.created = []
         self.backups = []
         self.deleted = []
+        self.existing_dbs = existing_dbs or []
+
+    def list_databases(self):
+        return self.existing_dbs
 
     def create_postgres(self, **k):
         self.created.append(k)
@@ -255,6 +259,19 @@ def test_ensure_tenant_db_creates_reuses_and_backs_up(monkeypatch):
     assert len(fake.backups) == 1
     # database_url() reconstructs from stored creds without touching Coolify.
     assert provision_db.database_url("dbapp") == url1
+
+
+def test_ensure_tenant_db_adopts_orphaned_coolify_db(monkeypatch):
+    """A prior run created the Coolify DB but died before persisting the row:
+    the next provision must ADOPT the existing resource, not create a duplicate."""
+    from app import provision_db
+    fake = _FakeDBClient(existing_dbs=[{"name": "tenant-orphan-db", "uuid": "db-old"}])
+    monkeypatch.setattr(provision_db, "_c", lambda: fake)
+
+    url = provision_db.ensure_tenant_db("orphan", lambda *_: None)
+    assert fake.created == []                       # adopted, not recreated
+    assert db.get_tenant_db("orphan")["coolify_db_uuid"] == "db-old"
+    assert url == "postgresql://t:pw@db-old-host:5432/d"
 
 
 def test_ensure_tenant_db_recovers_from_partial_provision(monkeypatch):

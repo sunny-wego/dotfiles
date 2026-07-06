@@ -43,6 +43,21 @@ def test_env_style_assignments_are_masked():
         assert leaked not in out
 
 
+def test_indented_assignments_are_masked():
+    # Nested YAML / assignments inside code are indented — these must still be
+    # redacted (the anchor used to require column 0, leaking indented secrets).
+    text = (
+        "database:\n"
+        "    db_password: SuperSecret123\n"
+        "def connect():\n"
+        "    API_TOKEN = 'tok_indented_value'\n"
+    )
+    out = redact(text)
+    for leaked in ("SuperSecret123", "tok_indented_value"):
+        assert leaked not in out
+    assert REDACTED in out
+
+
 def test_pem_private_key_block_is_masked():
     body = "MIIEabcdef1234567890"
     pem = f"-----BEGIN RSA PRIVATE KEY-----\n{body}\nzzzz\n-----END RSA PRIVATE KEY-----"

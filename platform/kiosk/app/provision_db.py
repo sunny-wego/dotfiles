@@ -59,6 +59,25 @@ def ensure_tenant_db(slug: str, log) -> str:
 
     dbname = _ident(slug, "d_")
     dbuser = _ident(slug, "t_")
+    resource_name = f"tenant-{slug}-db"
+
+    # Recover from a prior run that created the Coolify resource but was killed
+    # before persisting the tenant_db row — adopt it instead of creating a
+    # duplicate + orphaning the first. The connection URL is read back from
+    # Coolify (internal_db_url), so not knowing the original password is fine.
+    try:
+        adopted = next((d for d in _c().list_databases()
+                        if d.get("name") == resource_name), None)
+    except CoolifyError:
+        adopted = None  # lookup is best-effort; fall through to create
+    if adopted:
+        uuid = adopted.get("uuid") or adopted.get("id")
+        log(f"[db] adopting existing Coolify database {resource_name} ({uuid})")
+        db.put_tenant_db(slug, dbname, dbuser,
+                         crypto.encrypt(crypto.random_token(24)),
+                         coolify_db_uuid=uuid)
+        return _finish(slug, uuid, log)
+
     password = crypto.random_token(24)
     log(f"[db] creating Coolify-managed PostgreSQL for {slug}")
     uuid = _c().create_postgres(
