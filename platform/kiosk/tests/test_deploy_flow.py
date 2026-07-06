@@ -288,17 +288,6 @@ def test_ensure_tenant_db_recovers_from_partial_provision(monkeypatch):
     assert db.get_tenant_db("halfdb")["dburl_enc"]
 
 
-def test_drop_tenant_db_deletes_coolify_resource(monkeypatch):
-    from app import provision_db
-    fake = _FakeDBClient()
-    monkeypatch.setattr(provision_db, "_c", lambda: fake)
-    provision_db.ensure_tenant_db("gone", lambda *_: None)
-
-    provision_db.drop_tenant_db("gone", lambda *_: None)
-    assert fake.deleted == ["db-uuid"]
-    assert db.get_tenant_db("gone") is None
-
-
 def test_sync_cron_creates_missing_and_deletes_removed():
     from app.backends.coolify.backend import CoolifyBackend
     _seed("recon")

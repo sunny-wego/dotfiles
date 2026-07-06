@@ -38,6 +38,26 @@ def _dig(data, key: str):
     return None
 
 
+def _as_list(data) -> list:
+    """A Coolify list response is either a bare list or wrapped in
+    `{"data": [...]}`. Return the list either way ([] for any other shape)."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        inner = data.get("data")
+        return inner if isinstance(inner, list) else []
+    return []
+
+
+def _as_obj(data) -> dict:
+    """A Coolify object response is either the object itself or wrapped in
+    `{"data": {...}}`. Return the object either way ({} for any other shape)."""
+    if isinstance(data, dict):
+        inner = data.get("data")
+        return inner if isinstance(inner, dict) else data
+    return {}
+
+
 class CoolifyClient:
     def __init__(self, base_url: str, token: str, timeout: float = 30.0,
                  transport: httpx.BaseTransport | None = None) -> None:
@@ -141,7 +161,7 @@ class CoolifyClient:
     # ── environment variables (Coolify's encrypted env store) ──────────────────
     def list_envs(self, uuid: str) -> list[dict]:
         data = self._request("GET", f"/applications/{uuid}/envs")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def delete_env(self, uuid: str, env_uuid: str) -> None:
         self._request("DELETE", f"/applications/{uuid}/envs/{env_uuid}")
@@ -211,13 +231,10 @@ class CoolifyClient:
 
     def list_databases(self) -> list[dict]:
         data = self._request("GET", "/databases")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def get_database(self, uuid: str) -> dict:
-        data = self._request("GET", f"/databases/{uuid}")
-        if isinstance(data, dict):
-            return data.get("data") if isinstance(data.get("data"), dict) else data
-        return {}
+        return _as_obj(self._request("GET", f"/databases/{uuid}"))
 
     def database_url(self, uuid: str) -> str:
         """The connection URL a container on the tenant network uses to reach this
@@ -241,7 +258,7 @@ class CoolifyClient:
 
     def list_backups(self, uuid: str) -> list[dict]:
         data = self._request("GET", f"/databases/{uuid}/backups")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def create_backup(self, uuid: str, *, frequency: str, enabled: bool = True,
                       save_s3: bool = False, s3_storage_uuid: str = "",
@@ -291,13 +308,10 @@ class CoolifyClient:
 
     def list_services(self) -> list[dict]:
         data = self._request("GET", "/services")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def get_service(self, uuid: str) -> dict:
-        data = self._request("GET", f"/services/{uuid}")
-        if isinstance(data, dict):
-            return data.get("data") if isinstance(data.get("data"), dict) else data
-        return {}
+        return _as_obj(self._request("GET", f"/services/{uuid}"))
 
     def service_status(self, uuid: str) -> str:
         return str(_dig(self.get_service(uuid), "status") or "")
@@ -322,11 +336,11 @@ class CoolifyClient:
     # dashboard's copy-the-UUIDs chore into one auto-provision step.
     def list_servers(self) -> list[dict]:
         data = self._request("GET", "/servers")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def list_projects(self) -> list[dict]:
         data = self._request("GET", "/projects")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def create_project(self, name: str, description: str = "") -> str:
         data = self._request("POST", "/projects",
@@ -338,7 +352,7 @@ class CoolifyClient:
 
     def list_environments(self, project_uuid: str) -> list[dict]:
         data = self._request("GET", f"/projects/{project_uuid}/environments")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def create_environment(self, project_uuid: str, name: str) -> str:
         data = self._request("POST", f"/projects/{project_uuid}/environments",
@@ -351,7 +365,7 @@ class CoolifyClient:
     # ── scheduled tasks (Coolify Scheduled Task == the README's cron) ──────────
     def list_scheduled_tasks(self, uuid: str) -> list[dict]:
         data = self._request("GET", f"/applications/{uuid}/scheduled-tasks")
-        return data if isinstance(data, list) else data.get("data", [])
+        return _as_list(data)
 
     def create_scheduled_task(self, uuid: str, *, name: str, command: str,
                               frequency: str) -> None:

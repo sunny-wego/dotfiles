@@ -282,11 +282,6 @@ def update_tenant_db(slug: str, *, dburl_enc: str | None = None,
         )
 
 
-def delete_tenant_db(slug: str) -> None:
-    with cursor() as cur:
-        cur.execute("DELETE FROM tenant_db WHERE slug=%s", (slug,))
-
-
 # ── secrets ───────────────────────────────────────────────────────────────────
 def set_secret(slug: str, key: str, value_enc: str) -> None:
     with cursor() as cur:

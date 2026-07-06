@@ -125,18 +125,8 @@ def database_url(slug: str) -> str | None:
         return None
     return crypto.decrypt(row["dburl_enc"])
 
-
-def drop_tenant_db(slug: str, log) -> None:
-    """Delete the tenant's Coolify database (container, volume and its scheduled
-    backups) and forget it. Best-effort on the Coolify side."""
-    row = db.get_tenant_db(slug)
-    if not row:
-        return
-    uuid = row.get("coolify_db_uuid")
-    if uuid:
-        log(f"[db] deleting Coolify database {uuid}")
-        try:
-            _c().delete_database(uuid)
-        except CoolifyError as e:
-            log(f"[db] Coolify delete failed (prune it in the dashboard): {e}")
-    db.delete_tenant_db(slug)
+# Note: tenant-DB teardown is intentionally NOT implemented here. Offboarding
+# (delete an app → tear down its Coolify database + reclaim the row, with the
+# reconciler GC-ing orphans) is a deferred feature (README §6); it will add a
+# real delete route with auth + confirmation and the client.delete_database call
+# then, rather than leaving an unreachable primitive around now.
