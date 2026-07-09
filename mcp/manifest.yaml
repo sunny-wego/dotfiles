@@ -26,22 +26,16 @@ servers:
     url: https://mcp.figma.com/mcp
   sonarqube:
     name: sonarqube
-    transport: stdio
-    command: docker
-    args:
-      - run
-      - -i
-      - --rm
-      - --init
-      - --pull=always
-      - -e
-      - SONARQUBE_TOKEN
-      - -e
-      - SONARQUBE_URL
-      - mcp/sonarqube
-    env:
-      SONARQUBE_TOKEN: SONARQUBE_TOKEN
-      SONARQUBE_URL: SONARQUBE_URL
+    # Runs as a long-lived HTTP server (shared across all AI clients) instead of
+    # a per-session stdio container. Launch/refresh it with:
+    #   scripts/sonarqube-mcp.sh   (install.sh runs this automatically)
+    # The server authenticates to SONARQUBE_URL using SONARQUBE_TOKEN; clients
+    # present the same token as a bearer header (baked in at sync time).
+    transport: http
+    url: http://localhost:8765/mcp
+    auth:
+      type: bearer
+      fromEnv: SONARQUBE_TOKEN
   posthog:
     name: posthog
     transport: http
