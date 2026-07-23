@@ -86,6 +86,10 @@ servers:
     name: anya
     transport: http
     url: https://internal-mcp.wego.com/mcp/anya
+  sonar:
+    name: sonar
+    transport: http
+    url: https://internal-mcp.wego.com/mcp/sonarqube
   sentry:
     name: sentry
     transport: http
