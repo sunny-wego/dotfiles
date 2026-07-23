@@ -24,18 +24,6 @@ servers:
     name: figma
     transport: http
     url: https://mcp.figma.com/mcp
-  sonarqube:
-    name: sonarqube
-    # Runs as a long-lived HTTP server (shared across all AI clients) instead of
-    # a per-session stdio container. Launch/refresh it with:
-    #   scripts/sonarqube-mcp.sh   (install.sh runs this automatically)
-    # The server authenticates to SONARQUBE_URL using SONARQUBE_TOKEN; clients
-    # present the same token as a bearer header (baked in at sync time).
-    transport: http
-    url: http://localhost:8765/mcp
-    auth:
-      type: bearer
-      fromEnv: SONARQUBE_TOKEN
   posthog:
     name: posthog
     transport: http
@@ -44,15 +32,6 @@ servers:
     name: vercel
     transport: http
     url: https://mcp.vercel.com
-  codex-cli:
-    name: codex-cli
-    transport: stdio
-    command: codex
-    args:
-      - mcp-server
-    excludeAgents:
-      - codex
-      - gemini
   next-devtools:
     name: next-devtools
     transport: stdio
@@ -86,6 +65,10 @@ servers:
     name: anya
     transport: http
     url: https://internal-mcp.wego.com/mcp/anya
+  sonarqube:
+    name: sonarqube
+    transport: http
+    url: https://internal-mcp.wego.com/mcp/sonarqube
   sentry:
     name: sentry
     transport: http

@@ -138,15 +138,6 @@ ensure_installed() {
 # Define tools here
 ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Claude Code"
 
-# SonarQube MCP server (long-lived HTTP service on :8765, shared across AI clients).
-# Idempotent: recreates the container. Skips cleanly if Docker or secrets are absent.
-if command -v docker >/dev/null 2>&1 && [ -n "${SONARQUBE_TOKEN:-}" ] && [ -n "${SONARQUBE_URL:-}" ]; then
-  "$DOTFILES_DIR/scripts/sonarqube-mcp.sh" || echo "⚠️  SonarQube MCP server failed to start (continuing)"
-else
-  echo "⏭️  Skipping SonarQube MCP server (needs Docker + SONARQUBE_TOKEN/SONARQUBE_URL in ~/.zshrc_local)."
-  echo "    Start it later with: $DOTFILES_DIR/scripts/sonarqube-mcp.sh"
-fi
-
 # 5. Cross-Platform Sync & Assets (WSL)
 if [ "$IS_WSL" = true ]; then
   "$DOTFILES_DIR/scripts/install-fonts.sh"
