@@ -179,12 +179,14 @@ if command -v starship >/dev/null; then
 fi
 
 # wgd (cached for speed - regenerate with: wgd init > ~/.cache/wgd-init.zsh)
-_wgd_cache="$HOME/.cache/wgd-init.zsh"
-if [[ ! -f "$_wgd_cache" ]] || [[ $(command -v wgd) -nt "$_wgd_cache" ]]; then
-    mkdir -p "$HOME/.cache"
-    wgd init > "$_wgd_cache"
+if command -v wgd >/dev/null; then
+    _wgd_cache="$HOME/.cache/wgd-init.zsh"
+    if [[ ! -f "$_wgd_cache" ]] || [[ $(command -v wgd) -nt "$_wgd_cache" ]]; then
+        mkdir -p "$HOME/.cache"
+        wgd init > "$_wgd_cache"
+    fi
+    source "$_wgd_cache"
 fi
-source "$_wgd_cache"
 
 # Load local overrides (Secrets, machine-specific)
 [ -f ~/.zshrc_local ] && source ~/.zshrc_local
