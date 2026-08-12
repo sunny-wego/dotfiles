@@ -8,13 +8,13 @@ This repository manages my configuration for **macOS** and **Linux (WSL2)**, ens
 
 This automation handles the **Linux/WSL2** environment and automatically bridges your configuration to the Windows host.
 
-1.  **Install WezTerm:** Install the WezTerm terminal on Windows.
+1.  **Install Windows Terminal:** Install Windows Terminal on Windows (or use any terminal you prefer).
 2.  **Enable Developer Mode (Recommended):** 
     *   Go to **Settings > Privacy & security > For developers**.
     *   Toggle **Developer Mode** to **ON**. This allows the installer to create symbolic links without Administrator privileges.
     *   *Note: If the installer fails with a permission error, run `wsl --shutdown` in a Windows PowerShell and try again.*
 3.  **Install Fonts (Automated):** The installer now handles font installation for both WSL and Windows. You no longer need to install them manually.
-4.  **Proceed with Installation:** Open WezTerm, launch WSL (`wsl`), and run `./install.sh`. The script will automatically link your config and install the required fonts.
+4.  **Proceed with Installation:** Open Windows Terminal, launch WSL (`wsl`), and run `./install.sh`. The script will automatically link your config and install the required fonts.
 
 ## 🚀 Installation
 
@@ -65,7 +65,7 @@ Your terminal is supercharged with modern Rust-based tools. Here is how to use t
 | `btop` | **btop** | System monitor (CPU, Mem, Network) with Tokyo Night theme. |
 
 ### Terminal Splits (Ghostty)
-Tmux-style **prefix** key, mirroring the WezTerm leader map. Tap and release the prefix `Ctrl+b`, then press the next key.
+Tmux-style **prefix** key. Tap and release the prefix `Ctrl+b`, then press the next key.
 
 | Shortcut | Action |
 | :--- | :--- |
@@ -78,7 +78,7 @@ Tmux-style **prefix** key, mirroring the WezTerm leader map. Tap and release the
 | `Ctrl+b` then `=` | Equalize all panes. |
 | `Cmd`+`Shift`+`,` | Reload Ghostty config (apply changes without restart). |
 
-> **Note:** Ghostty has no jump-to-pane-by-index for splits (unlike WezTerm's numbered `PaneSelect`), so `n` / `p` cycling and the directional moves replace it. Numbered jumping in Ghostty exists only for tabs.
+> **Note:** Ghostty has no jump-to-pane-by-index for splits, so `n` / `p` cycling and the directional moves replace it. Numbered jumping in Ghostty exists only for tabs.
 
 ## 🔐 Post-Installation (Manual Steps)
 
@@ -169,10 +169,9 @@ Use this flow when adding, removing, or updating servers in `mcp/manifest.yaml`.
 ## 📂 Structure
 
 *   **`install.sh`**: The master idempotent setup script.
-*   **`scripts/`**: Automation utilities (Windows-WSL bridge, diagnostic tests).
+*   **`scripts/`**: Automation utilities (font installation, MCP sync, diagnostic tests).
 *   **`Brewfile`**: The manifest of installed tools.
 *   **`zsh/`**: Shell configuration (Aliases, FZF, Tools init).
-*   **`wezterm/`**: Cross-platform configuration (Dynamic titlebars, Tokyo Night theme).
 *   **`ghostty/`**: Ghostty terminal configuration (Tokyo Night Day theme, tmux-style split keybinds).
 *   **`git/`**: Global git configuration (Delta, Excludes).
 *   **`nvim/`**: LazyVim configuration.

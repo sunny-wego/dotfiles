@@ -150,24 +150,6 @@ export FZF_ALT_C_OPTS="--preview 'eza --tree --color=always {} | head -200'"
 
 # --- 7. Terminal & System Integration ---
 
-# WezTerm Title Logic
-set_wezterm_title() {
-    [[ "$TERM_PROGRAM" != "WezTerm" ]] && return
-    local title
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-        local repo_name=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
-        local git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-        title="$repo_name${git_branch:+ ($git_branch)}"
-    fi
-    title=${title:-$(basename "$PWD")}
-
-    # OSC 0: Set window title
-    printf '\033]0;%s\007' "$title"
-
-    # OSC 7: Report current working directory (required for CWD preservation on splits)
-    printf '\033]7;file://%s%s\007' "${HOST:-$(hostname)}" "$PWD"
-}
-
 # Transient Prompt (Shrink previous prompt after Enter)
 if command -v starship >/dev/null; then
   function starship_accept-line() {
@@ -195,11 +177,6 @@ if command -v starship >/dev/null; then
   }
   zle -N accept-line starship_accept-line
 fi
-
-
-autoload -U add-zsh-hook
-add-zsh-hook chpwd set_wezterm_title
-add-zsh-hook precmd set_wezterm_title
 
 # wgd (cached for speed - regenerate with: wgd init > ~/.cache/wgd-init.zsh)
 _wgd_cache="$HOME/.cache/wgd-init.zsh"

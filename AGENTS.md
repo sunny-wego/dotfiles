@@ -9,14 +9,13 @@ Agents operating here must respect the existing structure, symlink logic, and ae
 2.  **Declarative Configuration**: Prefer defining the "desired state" in a config file over imperative setup steps. If a feature can be configured via a tool's native config (e.g., Starship's `add_newline`), do not write a shell hook for it.
 3.  **Cross-Platform Parity**: All changes must work on both **macOS** and **WSL2**. 
     *   **Unified Package Management**: Use **Homebrew** (macOS) and **Linuxbrew** (WSL). **DO NOT use `apt`, `yum`, or `pacman`.**
-    *   **WSL2 Bridge**: WezTerm typically runs on Windows but reads its configuration from WSL. Path translation (via `wslpath`) may be required in setup scripts.
 
 ## 2. Project Structure
 
 - **`install.sh`**: The master setup script. Handles symlinking, directory creation, and dependency bootstrapping.
 - **`Brewfile`**: The source of truth for all binary dependencies. Cross-platform via `if OS.mac?` and `if OS.linux?` blocks.
 - **`zsh/`**: Zsh configuration. `.zshrc` is the primary entry point.
-- **`wezterm/`**: Terminal configuration. Uses `wezterm.lua`.
+- **`ghostty/`**: Ghostty terminal configuration (macOS).
 - **`nvim/`**: Neovim configuration. Based on **LazyVim**.
 - **`starship/`**: Prompt configuration via `starship.toml`.
 - **`lazygit/`**: Git TUI configuration.
@@ -52,10 +51,9 @@ Automated testing is not currently implemented. Verification must be performed m
 2.  **Apply**: Run `source ~/.zshrc` or `exec zsh`.
 3.  **Functional Check**: Test the specific feature (e.g., `cd <TAB>` for tree-view, `kill <TAB>` for process details).
 
-### Terminal (WezTerm)
-1.  **Reload**: WezTerm auto-reloads on save.
-2.  **Validation**: Use the Debug Overlay (`CTRL+SHIFT+L`) to check for Lua runtime errors or log messages.
-3.  **Cross-Check**: If a change affects windowing, verify it doesn't break the `is_windows` logic.
+### Terminal (Ghostty)
+1.  **Reload**: Reload the config with `Cmd+Shift+,` (or restart Ghostty).
+2.  **Validation**: Check the Ghostty log or terminal output for config errors.
 
 ### Editor (Neovim)
 1.  **Health**: Run `:checkhealth` inside Neovim.
@@ -67,9 +65,8 @@ Automated testing is not currently implemented. Verification must be performed m
 *   **Path Management**: Use `$HOME` or `~` for path references. Never hardcode usernames or `/Users/` paths.
 *   **Cross-Platform Logic**: 
     *   **Shell**: `if [[ "$OSTYPE" == "darwin"* ]]; then ... fi`
-    *   **WezTerm (Lua)**: `local is_windows = wezterm.target_triple == "x86_64-pc-windows-msvc"`
 
-### Lua (WezTerm & Neovim)
+### Lua (Neovim)
 *   **Formatter**: Stylua.
 *   **Indent**: 2 Spaces.
 *   **Max Line Length**: 120 Columns.
@@ -79,7 +76,7 @@ Automated testing is not currently implemented. Verification must be performed m
     *   Minimize imperative logic in config files.
 *   **Error Handling**:
     *   Use `pcall` or `xpcall` when requiring optional plugins or running risky logic.
-    *   Log errors using `wezterm.log_error` or `vim.notify`.
+    *   Log errors using `vim.notify`.
 
 ### Zsh (Shell)
 *   **Abstraction**: Prefer functions over aliases for anything involving more than one command or complex flags.

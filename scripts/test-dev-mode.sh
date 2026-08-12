@@ -5,7 +5,7 @@
 WIN_TEMP=$(powershell.exe -NoProfile -Command "Write-Host \$env:TEMP" | tr -d '\r')
 # Use a simple file as target instead of C:\ for better compatibility
 TEST_TARGET="C:\\Windows\\win.ini"
-TEST_LINK="$WIN_TEMP\\wezterm_dev_test_link"
+TEST_LINK="$WIN_TEMP\\dev_mode_test_link"
 
 echo "🔍 Checking Windows Developer Mode status..."
 

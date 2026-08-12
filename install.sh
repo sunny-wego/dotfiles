@@ -60,7 +60,6 @@ fi
 echo -e "\n--- Linking Configuration Files ---"
 link_file "$DOTFILES_DIR/zsh/.zshrc" "$HOME/.zshrc"
 link_file "$DOTFILES_DIR/git/.gitconfig" "$HOME/.gitconfig"
-link_file "$DOTFILES_DIR/wezterm/wezterm.lua" "$HOME/.wezterm.lua"
 # Ghostty is unsupported on Windows — skip its config link under WSL.
 if [ "$IS_WSL" != true ]; then
   link_file "$DOTFILES_DIR/ghostty/config" "$HOME/.config/ghostty/config"
@@ -90,6 +89,13 @@ fi
 
 # 4. Post-Install Configuration
 echo -e "\n--- Post-Install Configuration ---"
+
+# Remove stale WezTerm config symlink (WezTerm no longer managed by this repo)
+if [ -L "$HOME/.wezterm.lua" ] && [ "$(readlink "$HOME/.wezterm.lua")" = "$DOTFILES_DIR/wezterm/wezterm.lua" ]; then
+  echo "🗑️  Removing stale WezTerm symlink $HOME/.wezterm.lua"
+  mkdir -p "$BACKUP_DIR"
+  mv "$HOME/.wezterm.lua" "$BACKUP_DIR/"
+fi
 
 # Bat Theme (TokyoNight Day)
 if command -v bat >/dev/null; then
@@ -141,7 +147,6 @@ ensure_installed "claude" "curl -fsSL https://claude.ai/install.sh | bash" "Clau
 # 5. Cross-Platform Sync & Assets (WSL)
 if [ "$IS_WSL" = true ]; then
   "$DOTFILES_DIR/scripts/install-fonts.sh"
-  "$DOTFILES_DIR/scripts/sync-wezterm.sh"
 fi
 
 echo -e "\n✨  Dotfiles setup complete! Restart your shell."
