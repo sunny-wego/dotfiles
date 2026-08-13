@@ -1,0 +1,41 @@
+# Local-parity override — layer on top of the base compose for Mac/Colima:
+#
+#   docker compose -f docker-compose.yml -f local/docker-compose.local.yml \
+#     --profile local up -d
+#
+# (local/up.sh does this for you.) It adds a real OIDC issuer mock and points the
+# base oauth2-proxy's back-channel at it, so the ONLY difference from prod is the
+# issuer URL + its client creds — everything else (oauth2-proxy flags, the
+# forward-auth → appauthz chain, the kiosk identity path) is identical to google
+# mode. Relative paths resolve from the base compose dir (platform/).
+services:
+  # The stand-in for company Google: speaks real OIDC (discovery/authorize/token/
+  # JWKS). Published on the host so the browser can complete the front-channel
+  # redirect; oauth2-proxy reaches it back-channel via the same hostname (below).
+  mock-oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+    restart: unless-stopped
+    profiles: ["local"]
+    environment:
+      # Advertise a fixed issuer host so the URL is identical on the browser's
+      # front-channel and oauth2-proxy's back-channel (OIDC requires they match).
+      SERVER_PORT: "8080"
+      JSON_CONFIG_PATH: /config.json
+    volumes:
+      - ./local/mock-oidc.json:/config.json:ro
+    ports:
+      - "8080:8080"           # browser reaches http://auth.<domain>:8080 (→127.0.0.1)
+    networks:
+      - proxy
+      - tenant
+
+  oauth2-proxy:
+    # Back-channel resolution: inside the container, auth.<domain> is a nip.io
+    # name that would resolve to 127.0.0.1 (the container itself). Map it to the
+    # host gateway instead, where the mock's :8080 is published — so discovery +
+    # token calls hit the SAME issuer URL the browser used. Harmless in prod
+    # (the prod issuer is accounts.google.com, not auth.<domain>).
+    extra_hosts:
+      - "auth.${PLATFORM_DOMAIN}:host-gateway"
+    depends_on:
+      - mock-oidc

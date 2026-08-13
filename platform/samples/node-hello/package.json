@@ -1,0 +1,9 @@
+{
+  "name": "node-hello",
+  "version": "1.0.0",
+  "description": "Trivial Node HTTP app for the M1 walking-skeleton smoke test.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

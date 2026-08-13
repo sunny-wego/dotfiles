@@ -1,0 +1,240 @@
+# Internal App Platform — supporting services for the Coolify engine.
+#
+# Coolify (installed via coolify/install.sh) is the deploy engine + ingress
+# proxy: it builds/deploys tenant apps, terminates TLS, and runs the auth chain
+# (coolify/traefik-dynamic.yml). This compose file brings up the shared services
+# the kiosk and tenant apps depend on, on the same Docker network Coolify's
+# Destination uses (platform_tenant):
+#
+#   kiosk (UI · orchestrator · build worker · audit) → Coolify API
+#   oauth2-proxy|authstub (forward-auth answerer, alias `forward-auth`)
+#   postgres (kiosk metadata only)        litellm ─▶ OpenRouter (+ virtual keys)
+#   egress-proxy (squid, default-deny allowlist)   registry (deploy-from-image)
+#   uptime-kuma (health)
+#
+# Per-tenant databases are NOT here: each is a Coolify-managed PostgreSQL
+# resource with native scheduled backups, created on demand by the kiosk.
+#
+# This file is the LOCAL / dev-stub + mock-OIDC path. The production topology
+# self-hosts this control plane ON Coolify (the platform hosts itself) via
+# `make bootstrap` → coolify/platform-stack.yml. See coolify/README.md.
+#
+# Ingress + tenant-app routing are Coolify's job (see coolify/README.md); this
+# file publishes no ports. Auth profiles select the forward-auth answerer:
+#   AUTH_MODE=dev    -> authstub     (default; runnable with no Google)
+#   AUTH_MODE=google -> oauth2-proxy (company Google; see docs/AUTH.md)
+
+name: platform
+
+networks:
+  # Shared plane: kiosk + auth answerer, reachable by Coolify's proxy.
+  proxy:
+    name: platform_proxy
+  # Control/data plane: kiosk <-> postgres <-> litellm <-> registry.
+  backplane:
+    name: platform_backplane
+    internal: true
+  # Tenant plane: tenant apps + their Coolify databases + litellm/egress-proxy.
+  # internal:true == default-deny egress; the only route out is the egress-proxy.
+  tenant:
+    name: platform_tenant
+    internal: true
+  # The one network with real outbound — only the egress-proxy sits on it.
+  egress:
+    name: platform_egress
+
+volumes:
+  pgdata:
+  registry-data:
+  kiosk-work:
+  uptime-kuma:
+  egress-allowlist:
+
+services:
+  # Ingress/TLS/routing is provided by Coolify's proxy, not this stack — see
+  # coolify/README.md. The services below are the shared backing plane.
+
+  # ── Auth (dev profile): trust-everyone stub that injects a dev identity ────
+  authstub:
+    image: python:3.12-slim
+    restart: unless-stopped
+    profiles: ["dev"]
+    environment:
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+    volumes:
+      - ./authstub/server.py:/server.py:ro
+    command: ["python", "/server.py"]
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+      tenant:
+        aliases: ["forward-auth"]
+
+  # ── Auth (google / local profile): oauth2-proxy via generic OIDC ───────────
+  # One config, generic-OIDC provider. Prod points OIDC_ISSUER_URL at Google
+  # (https://accounts.google.com); local parity points it at the mock issuer
+  # (local/docker-compose.local.yml). The ONLY thing that differs between the two
+  # is the issuer URL + its client credentials — every flag/behaviour below is
+  # identical, so the local run exercises the real oauth2-proxy code path.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    restart: unless-stopped
+    profiles: ["google", "local"]
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true
+      - --provider=oidc
+      - --oidc-issuer-url=${OIDC_ISSUER_URL:-https://accounts.google.com}
+      - --email-domains=${COMPANY_EMAIL_DOMAIN}
+      # Pre-auth endpoints: the browserless `kiosk login` device flow starts with
+      # no token, so these two paths must NOT be redirected to the IdP. (/device
+      # and /device/approve stay behind auth — they bind a browser identity.)
+      - --skip-auth-regex=^/device/(code|token)$$
+      - --upstream=static://202
+      - --skip-provider-button=true
+      - --cookie-domain=.${PLATFORM_DOMAIN}
+      - --whitelist-domain=.${PLATFORM_DOMAIN}
+      - --cookie-secure=true
+      - --set-xauthrequest=true
+      - --pass-access-token=false
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+    # Coolify's proxy routes the /oauth2/ callback path and calls this service as
+    # the forward-auth answerer (see coolify/traefik-dynamic.yml).
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+      tenant:
+        aliases: ["forward-auth"]
+
+  # ── LLM gateway: kiosk's own (redacted) calls + per-tenant virtual keys ────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # DB enables key/budget management (per-tenant virtual keys).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "true"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    networks:
+      - backplane   # kiosk calls
+      - tenant      # tenant apps' LLM calls (virtual key)
+
+  # ── Egress proxy: default-deny + allowlist for tenant outbound ─────────────
+  egress-proxy:
+    image: ubuntu/squid:latest
+    container_name: egress-proxy
+    restart: unless-stopped
+    # A missing allowlist file is only a warning (empty ACL => deny-all, the safe
+    # default); the kiosk creates and populates it on startup, then reloads squid.
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+      - egress-allowlist:/egress
+    networks:
+      - tenant     # tenants reach the proxy here
+      - egress     # the proxy reaches the internet here
+
+  # ── Registry: honors the deploy-from-image contract ────────────────────────
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    volumes:
+      - registry-data:/var/lib/registry
+    networks:
+      - backplane
+
+  # ── Health monitoring (operator-facing) ────────────────────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma:/app/data
+    # Expose to operators through Coolify's proxy (behind the auth chain) — see
+    # coolify/README.md; port 3001.
+    networks:
+      - tenant     # probe tenant apps + be reached by Coolify's proxy
+
+  # ── Metadata Postgres: the kiosk's own state (apps, access, secrets, cron,
+  #    tokens, audit). Per-tenant databases are separate Coolify-managed
+  #    resources, not databases inside this cluster. ───────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backplane   # kiosk access only — tenants use their own Coolify databases
+
+  # ── The Kiosk: user plane · orchestrator · build worker · deploy driver ────
+  kiosk:
+    build: ./kiosk
+    image: platform/kiosk:m1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN}
+      AUTH_MODE: ${AUTH_MODE:-dev}
+      COMPANY_EMAIL_DOMAIN: ${COMPANY_EMAIL_DOMAIN}
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      KIOSK_LLM_MODEL: ${KIOSK_LLM_MODEL:-dockerfile-gen}
+      KIOSK_LLM_MODE: ${KIOSK_LLM_MODE:-llm}
+      KIOSK_HEAL_MAX_ITERATIONS: ${KIOSK_HEAL_MAX_ITERATIONS:-4}
+      KIOSK_LLM_TOKEN_BUDGET: ${KIOSK_LLM_TOKEN_BUDGET:-120000}
+      KIOSK_MAX_UNZIP_MB: ${KIOSK_MAX_UNZIP_MB:-512}
+      KIOSK_VERIFY_TIMEOUT_S: ${KIOSK_VERIFY_TIMEOUT_S:-40}
+      KIOSK_BUILD_NETWORK: ${KIOSK_BUILD_NETWORK:-}
+      KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY:-kiosk-insecure-dev-key-change-me}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      REGISTRY_HOST: registry:5000
+      EGRESS_PROXY: egress-proxy:3128
+      EGRESS_ALLOWLIST_FILE: /egress/allowlist.txt
+      # Coolify is the deploy engine AND the owner of per-tenant databases; the
+      # kiosk drives its API. These are required at runtime (see
+      # platform/coolify/README.md).
+      COOLIFY_BASE_URL: ${COOLIFY_BASE_URL:-}
+      COOLIFY_API_TOKEN: ${COOLIFY_API_TOKEN:-}
+      COOLIFY_PROJECT_UUID: ${COOLIFY_PROJECT_UUID:-}
+      COOLIFY_ENVIRONMENT: ${COOLIFY_ENVIRONMENT:-production}
+      COOLIFY_ENVIRONMENT_UUID: ${COOLIFY_ENVIRONMENT_UUID:-}
+      COOLIFY_SERVER_UUID: ${COOLIFY_SERVER_UUID:-}
+      COOLIFY_DESTINATION_UUID: ${COOLIFY_DESTINATION_UUID:-}
+      COOLIFY_TENANT_NETWORK: ${COOLIFY_TENANT_NETWORK:-platform_tenant}
+      COOLIFY_CPU_LIMIT: ${COOLIFY_CPU_LIMIT:-}
+      COOLIFY_MEMORY_LIMIT: ${COOLIFY_MEMORY_LIMIT:-}
+      # Per-tenant database backups run natively in Coolify (daily by default).
+      COOLIFY_BACKUP_FREQUENCY: ${COOLIFY_BACKUP_FREQUENCY:-daily}
+      COOLIFY_BACKUP_RETENTION_DAYS: ${COOLIFY_BACKUP_RETENTION_DAYS:-7}
+      COOLIFY_BACKUP_S3_STORAGE_UUID: ${COOLIFY_BACKUP_S3_STORAGE_UUID:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kiosk-work:/work
+      - egress-allowlist:/egress
+    # Creator UI is exposed through Coolify's proxy (behind the auth chain) at
+    # kiosk.${PLATFORM_DOMAIN}, port 8000 — see coolify/README.md. The kiosk also
+    # answers /internal/authz for the appauthz forward-auth hop, so it must be
+    # reachable from Coolify's proxy (tenant network).
+    networks:
+      - proxy
+      - backplane
+      - tenant

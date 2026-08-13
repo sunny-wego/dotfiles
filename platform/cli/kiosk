@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""kiosk — CLI for the Internal App Platform.
+
+A thin client over the Kiosk's HTTP API: it drives the SAME control plane the web
+UI does, authenticated with a personal API token. Meant to be run by hand or by
+a coding agent (see cli/SKILL.md) from the machine where the app's code lives —
+so uploading the ZIP is a direct multipart POST, not a detour.
+
+Config: `kiosk login` writes ~/.config/kiosk/config.json {url, token}. Env vars
+KIOSK_URL / KIOSK_TOKEN override it. Every command takes --json for machine-
+readable output (what the agent skill parses).
+
+Requires: httpx (`pip install httpx`).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+try:
+    import httpx
+except ImportError:  # pragma: no cover
+    sys.exit("kiosk: needs httpx — `pip install httpx`")
+
+CONFIG = Path(os.environ.get("KIOSK_CONFIG",
+                             Path.home() / ".config" / "kiosk" / "config.json"))
+
+
+# ── config ────────────────────────────────────────────────────────────────────
+def load_config() -> dict:
+    if CONFIG.exists():
+        try:
+            return json.loads(CONFIG.read_text())
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def client(args) -> httpx.Client:
+    cfg = load_config()
+    url = os.environ.get("KIOSK_URL") or cfg.get("url")
+    token = os.environ.get("KIOSK_TOKEN") or cfg.get("token")
+    if not url or not token:
+        sys.exit("kiosk: not logged in — run `kiosk login --url <kiosk-url> "
+                 "--token <ksk_…>` (mint a token in the Kiosk web UI)")
+    # Don't follow redirects: mutation routes answer 303 → we treat <400 as ok
+    # and read the Location header on deploy rather than fetching the HTML page.
+    return httpx.Client(base_url=url.rstrip("/"),
+                        headers={"Authorization": f"Bearer {token}",
+                                 "Accept": "application/json"},
+                        timeout=60, follow_redirects=False)
+
+
+def _die(resp: httpx.Response) -> None:
+    detail = resp.text.strip()
+    try:
+        detail = resp.json().get("detail", detail)
+    except Exception:  # noqa: BLE001
+        pass
+    sys.exit(f"kiosk: {resp.status_code} — {detail[:400]}")
+
+
+def _ok(resp: httpx.Response) -> httpx.Response:
+    if resp.status_code >= 400:
+        _die(resp)
+    return resp
+
+
+def _emit(args, obj, human: str = "") -> None:
+    if getattr(args, "json", False) or not human:
+        print(json.dumps(obj, indent=2))
+    else:
+        print(human)
+
+
+# ── commands ────────────────────────────────────────────────────────────────
+def cmd_login(args) -> None:
+    url = (args.url or os.environ.get("KIOSK_URL") or "").rstrip("/")
+    if not url:
+        sys.exit("kiosk login: --url is required")
+    token = args.token or os.environ.get("KIOSK_TOKEN")
+    if not token:
+        # No token supplied → browser device-authorization flow (like `gh`).
+        token = _device_login(url)
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps({"url": url, "token": token}))
+    CONFIG.chmod(0o600)
+    print(f"saved credentials to {CONFIG}")
+
+
+def _device_login(url: str) -> str:
+    """Ask the Kiosk for a device code, tell the user to approve it in the
+    browser, and poll until a token is issued. No token needed to start."""
+    with httpx.Client(base_url=url, timeout=30) as c:
+        start = _ok(c.post("/device/code")).json()
+        print(f"\n  1. Open:  {start['verification_uri']}\n"
+              f"  2. Enter this code:  {start['user_code']}\n\n"
+              "  (type the code yourself — don't approve a code anyone sent you)\n\n"
+              "  Waiting for approval… (Ctrl-C to cancel)")
+        interval = start.get("interval", 5)
+        deadline = time.monotonic() + start.get("expires_in", 600)
+        while time.monotonic() < deadline:
+            time.sleep(interval)
+            resp = c.post("/device/token", data={"device_code": start["device_code"]})
+            if resp.status_code >= 400:
+                _die(resp)
+            body = resp.json()
+            if body.get("token"):
+                print("  authorized ✓")
+                return body["token"]
+            if body.get("status") in ("expired", "consumed", "unknown"):
+                sys.exit(f"kiosk login: device authorization {body['status']}")
+            # status == pending → keep polling
+        sys.exit("kiosk login: timed out waiting for approval")
+
+
+def cmd_whoami(args) -> None:
+    with client(args) as c:
+        data = _ok(c.get("/me")).json()
+    _emit(args, data, f"{data['email']}")
+
+
+def cmd_list(args) -> None:
+    with client(args) as c:
+        data = _ok(c.get("/apps")).json()
+    apps = data.get("apps", [])
+    human = "\n".join(f"{a['slug']:24} {a.get('status',''):11} "
+                      f"{a.get('url') or ''}" for a in apps) or "(no apps yet)"
+    _emit(args, data, human)
+
+
+def cmd_status(args) -> None:
+    with client(args) as c:
+        data = _ok(c.get(f"/apps/{args.slug}/status")).json()
+    human = f"{args.slug}: {data.get('status')}  {data.get('url') or ''}"
+    _emit(args, data, human)
+
+
+def cmd_logs(args) -> None:
+    with client(args) as c:
+        data = _ok(c.get(f"/apps/{args.slug}/logs")).json()
+    _emit(args, data, data.get("logs", ""))
+
+
+def cmd_deploy(args) -> None:
+    zip_path = Path(args.zip)
+    if not zip_path.is_file():
+        sys.exit(f"kiosk deploy: no such file: {zip_path}")
+    name = args.name or zip_path.stem
+    with client(args) as c:
+        with zip_path.open("rb") as fh:
+            resp = c.post("/apps", data={"name": name},
+                          files={"zipfile": (zip_path.name, fh, "application/zip")})
+        if resp.status_code >= 400:
+            _die(resp)
+        # 303 → Location: /apps/<slug>
+        slug = (resp.headers.get("location", "").rstrip("/").rsplit("/", 1)[-1]
+                or name)
+        result = {"slug": slug, "status": "building"}
+        if args.wait:
+            result = _wait(c, slug, args.timeout)
+    _emit(args, result,
+          f"{slug}: {result.get('status')}  {result.get('url') or ''}")
+    if result.get("status") == "failed":
+        sys.exit(1)
+
+
+def _wait(c: httpx.Client, slug: str, timeout: int) -> dict:
+    """Poll status until the app is running/failed or the timeout elapses. The
+    server's reconciler is what flips deploying→running/failed."""
+    deadline = time.monotonic() + timeout
+    seen = 0
+    data: dict = {"slug": slug, "status": "unknown"}
+    while time.monotonic() < deadline:
+        r = c.get(f"/apps/{slug}/status")
+        if r.status_code < 400:
+            data = r.json()
+            lines = data.get("lines") or []
+            for line in lines[seen:]:
+                print(f"  {line}", file=sys.stderr)
+            seen = len(lines)
+            if data.get("status") in ("running", "failed"):
+                return data
+        time.sleep(3)
+    return data
+
+
+def cmd_secret(args) -> None:
+    with client(args) as c:
+        if args.action == "set":
+            _ok(c.post(f"/apps/{args.slug}/secrets",
+                       data={"key": args.key, "value": args.value}))
+            _emit(args, {"ok": True, "slug": args.slug, "key": args.key},
+                  f"set secret {args.key} on {args.slug}")
+        else:  # rm
+            _ok(c.post(f"/apps/{args.slug}/secrets",
+                       data={"key": args.key, "remove": "1"}))
+            _emit(args, {"ok": True, "slug": args.slug, "key": args.key},
+                  f"removed secret {args.key} from {args.slug}")
+
+
+def cmd_egress(args) -> None:
+    with client(args) as c:
+        _ok(c.post(f"/apps/{args.slug}/egress", data={"domain": args.domain}))
+    _emit(args, {"ok": True, "slug": args.slug, "domain": args.domain},
+          f"allowed egress to {args.domain} for {args.slug}")
+
+
+def cmd_cron(args) -> None:
+    with client(args) as c:
+        if args.action == "add":
+            _ok(c.post(f"/apps/{args.slug}/cron",
+                       data={"name": args.name, "schedule": args.schedule,
+                             "command": args.command}))
+            _emit(args, {"ok": True, "slug": args.slug, "name": args.name},
+                  f"added task {args.name} ({args.schedule}) to {args.slug}")
+        else:  # rm — reuse the cron form with remove flag
+            _ok(c.post(f"/apps/{args.slug}/cron",
+                       data={"name": args.name, "schedule": "", "command": "",
+                             "remove": "1"}))
+            _emit(args, {"ok": True, "slug": args.slug, "name": args.name},
+                  f"removed task {args.name} from {args.slug}")
+
+
+def cmd_access(args) -> None:
+    with client(args) as c:
+        data = {"email": args.email}
+        if args.action == "rm":
+            data["remove"] = "1"
+        _ok(c.post(f"/apps/{args.slug}/access", data=data))
+    verb = "removed" if args.action == "rm" else "added"
+    _emit(args, {"ok": True, "slug": args.slug, "email": args.email},
+          f"{verb} {args.email} on {args.slug}")
+
+
+def cmd_rollback(args) -> None:
+    with client(args) as c:
+        data = _ok(c.post(f"/apps/{args.slug}/rollback")).json()
+    _emit(args, data, data.get("message", "rollback requested"))
+
+
+def cmd_token(args) -> None:
+    with client(args) as c:
+        if args.action == "create":
+            data = _ok(c.post("/tokens", data={"label": args.label or ""})).json()
+            _emit(args, data, f"{data['token']}  (store it now)")
+        elif args.action == "list":
+            data = _ok(c.get("/tokens")).json()
+            human = "\n".join(f"{t['id']}\t{t.get('label') or ''}\t{t['created_at']}"
+                              for t in data.get("tokens", [])) or "(no tokens)"
+            _emit(args, data, human)
+        else:  # revoke
+            data = _ok(c.post(f"/tokens/{args.id}/revoke")).json()
+            _emit(args, data, f"revoked token {args.id}")
+
+
+# ── arg parsing ────────────────────────────────────────────────────────────
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="kiosk", description="Internal App Platform CLI")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    lp = sub.add_parser("login", help="save Kiosk URL + API token")
+    lp.add_argument("--url"); lp.add_argument("--token")
+    lp.set_defaults(fn=cmd_login)
+
+    sub.add_parser("whoami", help="show the authenticated identity").set_defaults(fn=cmd_whoami)
+    sub.add_parser("list", help="list apps").set_defaults(fn=cmd_list)
+
+    dp = sub.add_parser("deploy", help="deploy an app from a .zip")
+    dp.add_argument("zip"); dp.add_argument("--name")
+    dp.add_argument("--wait", action="store_true", help="poll until running/failed")
+    dp.add_argument("--timeout", type=int, default=600)
+    dp.set_defaults(fn=cmd_deploy)
+
+    sp = sub.add_parser("status", help="app status"); sp.add_argument("slug")
+    sp.set_defaults(fn=cmd_status)
+    gp = sub.add_parser("logs", help="app logs"); gp.add_argument("slug")
+    gp.set_defaults(fn=cmd_logs)
+    rb = sub.add_parser("rollback", help="roll back to the previous build")
+    rb.add_argument("slug"); rb.set_defaults(fn=cmd_rollback)
+
+    se = sub.add_parser("secret", help="manage app secrets")
+    se.add_argument("action", choices=["set", "rm"]); se.add_argument("slug")
+    se.add_argument("key"); se.add_argument("value", nargs="?", default="")
+    se.set_defaults(fn=cmd_secret)
+
+    eg = sub.add_parser("egress", help="allow an outbound domain")
+    eg.add_argument("slug"); eg.add_argument("domain"); eg.set_defaults(fn=cmd_egress)
+
+    cr = sub.add_parser("cron", help="manage scheduled tasks")
+    cr.add_argument("action", choices=["add", "rm"]); cr.add_argument("slug")
+    cr.add_argument("--name", required=True)
+    cr.add_argument("--schedule", default=""); cr.add_argument("--command", default="")
+    cr.set_defaults(fn=cmd_cron)
+
+    ac = sub.add_parser("access", help="manage the app allow-list")
+    ac.add_argument("action", choices=["add", "rm"]); ac.add_argument("slug")
+    ac.add_argument("email"); ac.set_defaults(fn=cmd_access)
+
+    tk = sub.add_parser("token", help="manage personal API tokens")
+    tk.add_argument("action", choices=["create", "list", "revoke"])
+    tk.add_argument("id", nargs="?"); tk.add_argument("--label")
+    tk.set_defaults(fn=cmd_token)
+    return p
+
+
+def main(argv=None) -> None:
+    args = build_parser().parse_args(argv)
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,3 @@
+{ "name": "learning-hub", "version": "1.0.0",
+  "description": "AI Literacy Learning Hub — minimal frontend+API+DB representative",
+  "scripts": { "start": "node server.js" } }

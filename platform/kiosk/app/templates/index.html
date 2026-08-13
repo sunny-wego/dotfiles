@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block body %}
+<div class="panel">
+  <h1>Drop a ZIP, get a hosted app</h1>
+  <p class="muted">We redact secrets, detect your stack, generate a Dockerfile,
+     build + verify + heal, scan, and deploy behind company Google login.</p>
+  <form action="/apps" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ request.state.csrf }}">
+    <label for="name">App name</label>
+    <input type="text" id="name" name="name" placeholder="ai-leaderboard" required>
+    <label for="zipfile">Project ZIP</label>
+    <input type="file" id="zipfile" name="zipfile" accept=".zip" required>
+    <button type="submit">Deploy →</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Your apps</h2>
+  {% if apps %}
+  <table>
+    <tr><th>App</th><th>Status</th><th>URL</th><th>Owner</th></tr>
+    {% for a in apps %}
+    <tr>
+      <td><a class="link" href="/apps/{{ a.slug }}">{{ a.name }}</a></td>
+      <td><span class="badge {{ a.status }}">{{ a.status }}</span></td>
+      <td>{% if a.url %}<a class="link" href="{{ a.url }}">{{ a.url }}</a>{% else %}—{% endif %}</td>
+      <td class="muted">{{ a.owner }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No apps yet. Drop a ZIP above.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>API tokens</h2>
+  <p class="muted">For the <code>kiosk</code> CLI + agent skill. A token acts as
+     you; shown once at creation.</p>
+  <button type="button" onclick="mintToken()">Create token</button>
+  <p id="new-token" class="muted"></p>
+  {% if tokens %}
+  <table>
+    <tr><th>ID</th><th>Label</th><th>Created</th><th>Last used</th><th></th></tr>
+    {% for t in tokens %}
+    <tr>
+      <td class="muted">{{ t.id }}</td>
+      <td>{{ t.label or '—' }}</td>
+      <td class="muted">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td class="muted">{% if t.last_used_at %}{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') }}{% else %}never{% endif %}</td>
+      <td><button type="button" onclick="revokeToken({{ t.id }})">Revoke</button></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <script>
+    function csrf() { return (document.cookie.match(/(?:^|; )kiosk_csrf=([^;]+)/) || [])[1] || ''; }
+    async function mintToken() {
+      const r = await fetch('/tokens', { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
+      const d = await r.json();
+      const el = document.getElementById('new-token');
+      el.textContent = d.token
+        ? `${d.token} — copy it now, it won't be shown again`
+        : (d.detail || 'could not create token');
+    }
+    async function revokeToken(id) {
+      await fetch(`/tokens/${id}/revoke`, { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
+      location.reload();
+    }
+  </script>
+</div>
+
+<div class="panel">
+  <h2>Recent activity (audit)</h2>
+  <table>
+    {% for e in audit %}
+    <tr>
+      <td class="muted">{{ e.ts.strftime('%H:%M:%S') }}</td>
+      <td><b>{{ e.action }}</b></td>
+      <td>{{ e.app_slug or '—' }}</td>
+      <td class="muted">{{ e.actor }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

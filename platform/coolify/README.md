@@ -1,0 +1,195 @@
+# Coolify — operator runbook
+
+This is the README's **headline architecture** and the platform's only deploy
+engine: Coolify builds/deploys tenant apps and is the operator admin plane; the
+Kiosk drives it through its REST API on the creator's behalf. Same Kiosk, same
+build/heal pipeline ([`../M1.md`](../M1.md) / [`../v1.md`](../v1.md)), same auth
+chain — Coolify underneath.
+
+> **Where the code lives.** `kiosk/app/deployer.py` hands off to
+> `kiosk/app/backends/coolify/` (`client.py` = the REST wrapper, `backend.py` =
+> the operations). The kiosk still builds + pushes the image; Coolify deploys it
+> from the registry. There is no plain-Docker deploy path.
+
+## Two planes, mapped onto Coolify
+
+| Plane | Who | Surface |
+|---|---|---|
+| **User plane** | creators (non-eng) | the **Kiosk** only (ZIP→app, logs, catalog) |
+| **Admin plane** | operators (eng) | the **Coolify dashboard** (deploys, envs, logs, rollback, resources) |
+
+The Kiosk holds a **least-privilege Coolify API token** and creates one Coolify
+*application* per tenant app. Creators never open Coolify; operators never touch
+the Kiosk to debug — they use Coolify's dashboard, which shows every tenant app
+because the Kiosk created them all in one project.
+
+## What Coolify owns
+
+Per README §3 ("native Coolify = deploy engine"):
+
+| Concern | Coolify mechanism | Kiosk code path |
+|---|---|---|
+| Deploy-from-image | Docker-image application | `backends/coolify/backend.py::deploy` |
+| TLS + domains | Coolify-managed Traefik | `domains` field on the app |
+| Env / secret store | Coolify encrypted env store | `client.replace_envs` (upsert + prune) |
+| CPU / mem limits | app resource limits | `limits_cpus` / `limits_memory` |
+| Cron | **Scheduled Tasks** | `sync_cron` — two-way reconcile (create/update/delete) |
+| Rollback | redeploy the retained prior build | `backend.rollback` |
+
+**Async deploys are reconciled, not assumed.** A deploy returns once Coolify
+*accepts* it; the app stays `deploying` and the kiosk monitor (`monitor.py`
+`_reconcile_loop`, ~15s) polls Coolify's real status and advances it to
+`running`/`failed` — so a failed async deploy never shows a false green.
+
+**Scheduled-task run history & failure alerts are Coolify's.** The kiosk no
+longer runs a scheduler, so per-run status (last run, success/failure) lives in
+the Coolify dashboard; enable Coolify's notifications for task-failure alerting.
+The kiosk only keeps the schedule in sync (both directions).
+
+**Still the Kiosk's job** (README's extensions): the LLM Dockerfile + build /
+verify / heal pipeline, redaction, the base-image allowlist, generating each
+tenant DB's credentials + wiring its `DATABASE_URL`, LiteLLM virtual keys, the
+oauth2-proxy + `appauthz` auth chain, and actor-attributed audit. The DB
+*resource* and its *backups* are Coolify's (see "Databases" below); the Kiosk
+asks Coolify to create them and injects the connection URL.
+
+## The auth chain still applies — verify this first
+
+Tenant apps must stay behind `strip-auth-in → slug-<slug> → forwardauth →
+appauthz` (README §9; built by `kiosk/app/backends/labels.py`). Under Coolify:
+
+1. The Kiosk sets the chain as **custom Traefik labels** on each app. But
+   Coolify's API has **no field to force "readonly labels"**
+   (`is_container_label_readonly_enabled` is read-only in the spec), so custom
+   labels alone do **not** stop Coolify generating its own domain router. Make
+   the chained router the ONLY one: toggle **Readonly labels** on the app in the
+   dashboard, or don't configure a Coolify domain and let the custom labels own
+   routing. This is the parity gate's #1 check.
+2. The `@file` middlewares the labels reference must exist in **Coolify's**
+   Traefik. Install [`traefik-dynamic.yml`](./traefik-dynamic.yml) into Coolify's
+   proxy dynamic-config directory (see that file's header) and point its
+   `forward-auth` / `kiosk` addresses at the reachable service names.
+
+> **Parity gate (do not skip).** Run it with one command — `make parity` (==
+> `./coolify/parity-gate.sh`). It drives the shipped `CoolifyClient` against the
+> live Coolify (create → env replace/prune → update → deploy → status → logs →
+> scheduled-task lifecycle → cleanup), so any endpoint/payload mismatch on this
+> Coolify version is pinpointed; set `PARITY_APP_HOST=<slug>.$PLATFORM_DOMAIN`
+> (or run the probe with `PARITY_KEEP=1`) to also auto-check the unauthenticated
+> → 403 invariant. The client's shapes were pre-validated against Coolify's
+> published OpenAPI spec (paths, field names, required `environment_uuid`,
+> `custom_labels`, env-bulk, deploy/logs params), but no live instance has run.
+> On the EC2 box, also run the M1/v1 done-when checks
+> end-to-end against Coolify: drop a Node ZIP and a Python ZIP → each reaches a
+> live URL; a per-tenant `DATABASE_URL` is injected; a Scheduled Task runs;
+> egress to a non-allowlisted host is blocked; a restore-from-backup drill passes.
+>
+> **#1 check — the auth chain must be the ONLY route.** Coolify's API has **no
+> field to force "readonly labels"** (`is_container_label_readonly_enabled` is
+> read-only in the spec), so setting `custom_labels` does *not* by itself stop
+> Coolify generating its own domain router. Make our chained router the only one
+> — toggle **Readonly labels** on the app in the dashboard, or drop the Coolify
+> domain and let the custom labels own routing — then confirm a tenant URL hit
+> **without** a company session returns **403**. If it 200s, the chain is bypassed.
+>
+> **Also verify:** scheduled tasks have **no timezone field** — Coolify runs them
+> in the container TZ, so confirm the base image is UTC (or accept the offset).
+
+## Bring-up
+
+```bash
+# 1. Install Coolify on the box (host-as-code, pinned).
+sudo ./install.sh
+
+# 2. In the Coolify dashboard, once:
+#    - create a Project + Environment ("production") for tenant apps
+#    - add this server, and a Destination whose Docker network is the same
+#      network kiosk/postgres/litellm/egress-proxy sit on (COOLIFY_TENANT_NETWORK)
+#    - create an API token (Keys & Tokens) scoped to that project
+#    - install ./traefik-dynamic.yml into Coolify's proxy dynamic config
+
+# 3. Point the Kiosk at Coolify (see ../.env.example "Coolify" block):
+#    COOLIFY_BASE_URL, COOLIFY_API_TOKEN, COOLIFY_PROJECT_UUID,
+#    COOLIFY_ENVIRONMENT + COOLIFY_ENVIRONMENT_UUID, COOLIFY_SERVER_UUID,
+#    COOLIFY_DESTINATION_UUID
+
+# 4. Self-host the control plane ON Coolify (the platform hosts itself).
+make bootstrap  # == ./coolify/bootstrap.sh
+
+# 5. Run the parity gate (one command; see below).
+make parity     # == ./coolify/parity-gate.sh
+```
+
+## Self-hosting the control plane (`make bootstrap`)
+
+The Kiosk + its backing services (Postgres, LiteLLM, egress-proxy, registry) run
+**as a Coolify service**, not a side compose stack.
+[`bootstrap.py`](./bootstrap.py) drives the *same* `CoolifyClient` the Kiosk uses
+for tenant apps to create [`platform-stack.yml`](./platform-stack.yml) via
+`POST /services` — so Coolify owns the Kiosk's domain/TLS/auth chain exactly like
+any app, and there is no separate app stack to network-bridge. This is the
+bootstrap answer to "who deploys the Kiosk?": the platform deploys itself.
+
+- The Kiosk's public router (`kiosk.<domain>`) carries `strip-auth-in → forwardauth`
+  via labels in the stack file — the Kiosk UI is behind company login, and it
+  enforces per-app RBAC itself. `/internal/authz` stays internal (Traefik reaches
+  it by service name, never through the public router).
+- **The identity edge (`oauth2-proxy`) is environment-provided, not in this
+  stack** (Option C). `forwardauth@file` points at the `forward-auth` alias
+  (`traefik-dynamic.yml`); whatever answers it on the shared network is the
+  environment's IdP:
+  - **local:** the compose `oauth2-proxy` + mock OIDC issuer
+    (`docker compose … --profile local`), already wired on the shared network.
+  - **prod:** `oauth2-proxy` against company Google — run it as its own resource,
+    or `docker compose --profile google up -d oauth2-proxy` on the shared network.
+    No back-channel wrinkle: Google is external.
+  Keeping the IdP out of the shipped stack means no local networking hack ever
+  leaks into it, and the answerer stays swappable per environment.
+- Everything (this service, tenant apps, AND the forward-auth answerer) shares
+  `COOLIFY_TENANT_NETWORK`, so they reach each other + the Coolify databases by
+  name. **Connect the service to that network** in Coolify (service → "Connect to
+  Predefined Network").
+- Re-running `make bootstrap` reuses the service, refreshes its env store, and
+  redeploys; `./coolify/bootstrap.sh --delete` tears it down.
+- The root compose (`../docker-compose.yml`) is the fast **dev-stub, non-self-
+  hosted** local path (`make up PROFILE=dev`) AND the home of the forward-auth
+  answerer; `platform-stack.yml` is the Coolify-managed app control plane.
+
+> Parity-gate checks the live bring-up can't skip (see the stack file's header):
+> Coolify must not ALSO auto-publish the Kiosk's domain (else the auth chain is
+> bypassable — the Layer-B 403 check catches it), and `traefik-dynamic.yml` must
+> be installed in Coolify's proxy.
+
+## Databases — Coolify-managed, one per app
+
+Each app's database is a **Coolify-managed PostgreSQL resource** (not a database
+inside the Kiosk's own cluster). On first deploy the Kiosk calls Coolify to
+create it, reads back the `internal_db_url`, injects it as the app's
+`DATABASE_URL`, and configures a **native scheduled backup** (`daily` by default;
+tune with `COOLIFY_BACKUP_FREQUENCY` / `COOLIFY_BACKUP_RETENTION_DAYS`). The DB
+appears in the dashboard as a normal Coolify database — that's where its status,
+size, per-app limits, backup executions and **restore** live.
+
+For off-box backup durability, create an **S3 storage** in Coolify once and set
+`COOLIFY_BACKUP_S3_STORAGE_UUID`; scheduled backups are then pushed to S3 too.
+
+## Backups — the one thing the engine swap adds to your runbook
+
+Per-tenant DB backups are Coolify's job now (above). What still needs a runbook
+step is that **Coolify's own state is deployment state** — domains, envs,
+scheduled tasks, destinations, and the tenant databases' definitions. If you lose
+it, retained images/Dockerfiles alone won't reproduce the apps. So:
+
+- Enable Coolify's built-in **scheduled backup of its own database**.
+- Also enable a scheduled backup on the **Kiosk's metadata Postgres** (apps,
+  access, secrets, cron, tokens, audit) — make it a Coolify-managed DB too, or
+  back it up however you back up Coolify's own DB.
+- Back up Coolify's data directory (`/data/coolify`) off-box.
+- Keep this runbook + `install.sh` as the host-as-code restore path.
+
+## Async deploys
+
+Coolify deploys are **asynchronous**: the Kiosk returns once the deploy is
+*accepted*, not once the container is live (the plain-Docker backend blocks until
+live). The app page and the Coolify dashboard show progress. This is the only
+creator-visible behavioural difference between the two engines.

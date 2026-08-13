@@ -1,0 +1,21 @@
+{
+  "interactiveLogin": false,
+  "httpServer": "NettyWrapper",
+  "tokenCallbacks": [
+    {
+      "issuerId": "default",
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "authorization_code",
+          "claims": {
+            "sub": "dev-user",
+            "email": "dev@wego.com",
+            "email_verified": true,
+            "name": "Local Dev"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+name: platform-tests
+
+# Fast, no-infrastructure unit tests for the internal app platform's kiosk.
+# Behaviour/contract tests only (base-image guard, upload safety, redaction,
+# detection, app access, secret storage) — the with-Docker end-to-end checks
+# live in platform/scripts/smoke-test.sh and run against a live stack.
+on:
+  push:
+    paths: ['platform/**']
+  pull_request:
+    paths: ['platform/**']
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    services:
+      # The behaviour/contract tests are no-infra; the deploy-lifecycle tests
+      # (test_deploy_flow.py) need a Postgres and skip themselves when one isn't
+      # reachable, so this service just lets them actually run in CI.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kiosk
+          POSTGRES_PASSWORD: kiosk
+          POSTGRES_DB: kiosk
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U kiosk -d kiosk"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://kiosk:kiosk@localhost:55432/kiosk
+      PG_ADMIN_URL: postgresql://kiosk:kiosk@localhost:55432/kiosk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install -r kiosk/requirements.txt -r kiosk/requirements-dev.txt
+      - name: Run unit tests
+        run: python -m pytest kiosk/tests -q
