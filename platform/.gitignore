@@ -1,0 +1,6 @@
+# Local secrets & build artifacts — never committed.
+.env
+dist/
+*.zip
+__pycache__/
+*.pyc

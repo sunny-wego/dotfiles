@@ -1,0 +1,3 @@
+# Test-only deps (not shipped in the kiosk image). Install alongside
+# requirements.txt to run `make test`:  pip install -r kiosk/requirements-dev.txt
+pytest==8.3.4

@@ -1,0 +1,28 @@
+# LiteLLM gateway config.
+#
+# The kiosk's OWN inference (Dockerfile generation + heal) is routed through
+# here, pinned to a ZDR/approved provider (OpenRouter). This is the governed
+# egress path from README §9: the platform never calls a model provider
+# directly, and everything sent has already been secret-redacted by the kiosk.
+#
+# In M1 there is one model alias for the kiosk. Per-tenant virtual keys are a
+# lean-v1 concern (deferred here).
+
+model_list:
+  - model_name: dockerfile-gen
+    litellm_params:
+      # Strong coding model — the heal-loop quality bar is the product, so this
+      # is the one place not to under-spend. Swap for your approved model.
+      model: openrouter/anthropic/claude-sonnet-4.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      # ZDR / provider pinning is enforced at the OpenRouter account level;
+      # keep this model on an approved, zero-data-retention route.
+
+litellm_settings:
+  drop_params: true
+  # Cap a single request so one runaway completion can't blow the budget; the
+  # kiosk also enforces a per-provision token budget across all calls.
+  max_tokens: 4096
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

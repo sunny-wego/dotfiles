@@ -1,0 +1,256 @@
+# Internal App Platform — Lean v1 (plain-Docker variant).
+# One box, one command: `docker compose up -d` (see M1.md / v1.md).
+#
+#   traefik ─▶ oauth2-proxy|authstub ─▶ (per-app allow-list) ─▶ tenant apps
+#   kiosk (UI · orchestrator · build worker · cron · backups · audit)
+#   postgres (metadata + db-per-tenant)   litellm ─▶ OpenRouter (+ virtual keys)
+#   egress-proxy (squid, default-deny allowlist)   registry
+#   minio (backup target)                 uptime-kuma (health)
+#
+# Auth profiles select who answers Traefik's forward-auth, both aliased
+# `forward-auth` so the middleware address never changes:
+#   AUTH_MODE=dev    -> authstub     (default; runnable with no Google)
+#   AUTH_MODE=google -> oauth2-proxy (company Google; see docs/AUTH.md)
+
+name: platform
+
+networks:
+  # Ingress plane: Traefik + auth + kiosk. Externally reachable (published ports).
+  proxy:
+    name: platform_proxy
+  # Control/data plane: kiosk <-> postgres <-> litellm <-> registry <-> minio.
+  backplane:
+    name: platform_backplane
+    internal: true
+  # Tenant plane: apps live here ONLY. internal:true == default-deny egress.
+  # Traefik/postgres/litellm are also attached so apps get ingress + DB + LLM,
+  # but NO route to the internet (that only exists via the egress-proxy).
+  tenant:
+    name: platform_tenant
+    internal: true
+  # The one network with real outbound — only the egress-proxy sits on it.
+  egress:
+    name: platform_egress
+
+volumes:
+  pgdata:
+  registry-data:
+  kiosk-work:
+  backups:
+  minio-data:
+  uptime-kuma:
+  egress-allowlist:
+
+services:
+  # ── Ingress: TLS termination + host routing ───────────────────────────────
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=platform_tenant
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - proxy      # kiosk route + reachable from auth
+      - tenant     # reach tenant app containers
+
+  # ── Auth (dev profile): trust-everyone stub that injects a dev identity ────
+  authstub:
+    image: python:3.12-slim
+    restart: unless-stopped
+    profiles: ["dev"]
+    environment:
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+    volumes:
+      - ./authstub/server.py:/server.py:ro
+    command: ["python", "/server.py"]
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+
+  # ── Auth (google profile): oauth2-proxy against company Google ─────────────
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    restart: unless-stopped
+    profiles: ["google"]
+    command:
+      - --http-address=0.0.0.0:4180
+      - --reverse-proxy=true
+      - --provider=google
+      - --email-domains=${COMPANY_EMAIL_DOMAIN}
+      - --upstream=static://202
+      - --skip-provider-button=true
+      - --cookie-domain=.${PLATFORM_DOMAIN}
+      - --whitelist-domain=.${PLATFORM_DOMAIN}
+      - --cookie-secure=true
+      - --set-xauthrequest=true
+      - --pass-access-token=false
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform_proxy
+      - traefik.http.routers.oauth2.rule=HostRegexp(`{host:.+\.${PLATFORM_DOMAIN}}`) && PathPrefix(`/oauth2/`)
+      - traefik.http.routers.oauth2.entrypoints=websecure
+      - traefik.http.routers.oauth2.tls=true
+      - traefik.http.services.oauth2.loadbalancer.server.port=4180
+    networks:
+      proxy:
+        aliases: ["forward-auth"]
+
+  # ── LLM gateway: kiosk's own (redacted) calls + per-tenant virtual keys ────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # DB enables key/budget management (per-tenant virtual keys).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "true"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    networks:
+      - backplane   # kiosk calls
+      - tenant      # tenant apps' LLM calls (virtual key)
+
+  # ── Egress proxy: default-deny + allowlist for tenant outbound ─────────────
+  egress-proxy:
+    image: ubuntu/squid:latest
+    container_name: egress-proxy
+    restart: unless-stopped
+    # A missing allowlist file is only a warning (empty ACL => deny-all, the safe
+    # default); the kiosk creates and populates it on startup, then reloads squid.
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+      - egress-allowlist:/egress
+    networks:
+      - tenant     # tenants reach the proxy here
+      - egress     # the proxy reaches the internet here
+
+  # ── Registry: honors the deploy-from-image contract ────────────────────────
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    volumes:
+      - registry-data:/var/lib/registry
+    networks:
+      - backplane
+
+  # ── Object storage: off-box backup target (local S3) ───────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-platform}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-platform-local-dev}
+    volumes:
+      - minio-data:/data
+    networks:
+      - backplane
+
+  # ── Health monitoring (operator-facing) ────────────────────────────────────
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma:/app/data
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform_tenant
+      - traefik.http.routers.kuma.rule=Host(`kuma.${PLATFORM_DOMAIN}`)
+      - traefik.http.routers.kuma.entrypoints=websecure
+      - traefik.http.routers.kuma.tls=true
+      - traefik.http.routers.kuma.middlewares=strip-auth-in@file,forwardauth@file
+      - traefik.http.services.kuma.loadbalancer.server.port=3001
+    networks:
+      - tenant     # probe tenant apps + be reached by Traefik
+
+  # ── Metadata Postgres: kiosk state + db-per-tenant ─────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backplane   # kiosk (admin) access
+      - tenant      # tenant apps' scoped DATABASE_URL
+
+  # ── The Kiosk: user plane · orchestrator · build worker · cron · backups ───
+  kiosk:
+    build: ./kiosk
+    image: platform/kiosk:m1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN}
+      AUTH_MODE: ${AUTH_MODE:-dev}
+      COMPANY_EMAIL_DOMAIN: ${COMPANY_EMAIL_DOMAIN}
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@wego.com}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PG_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PG_TENANT_HOST: postgres
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      KIOSK_LLM_MODEL: ${KIOSK_LLM_MODEL:-dockerfile-gen}
+      KIOSK_LLM_MODE: ${KIOSK_LLM_MODE:-llm}
+      KIOSK_HEAL_MAX_ITERATIONS: ${KIOSK_HEAL_MAX_ITERATIONS:-4}
+      KIOSK_LLM_TOKEN_BUDGET: ${KIOSK_LLM_TOKEN_BUDGET:-120000}
+      KIOSK_MAX_UNZIP_MB: ${KIOSK_MAX_UNZIP_MB:-512}
+      KIOSK_VERIFY_TIMEOUT_S: ${KIOSK_VERIFY_TIMEOUT_S:-40}
+      KIOSK_BUILD_NETWORK: ${KIOSK_BUILD_NETWORK:-}
+      KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY:-kiosk-insecure-dev-key-change-me}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      REGISTRY_HOST: registry:5000
+      PROXY_NETWORK: platform_proxy
+      TENANT_NETWORK: platform_tenant
+      EGRESS_PROXY: egress-proxy:3128
+      EGRESS_ALLOWLIST_FILE: /egress/allowlist.txt
+      KIOSK_TENANT_DB_QUOTA_MB: ${KIOSK_TENANT_DB_QUOTA_MB:-1024}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-platform}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-platform-local-dev}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kiosk-work:/work
+      - egress-allowlist:/egress
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform_proxy
+      - traefik.http.routers.kiosk.rule=Host(`kiosk.${PLATFORM_DOMAIN}`)
+      - traefik.http.routers.kiosk.entrypoints=websecure
+      - traefik.http.routers.kiosk.tls=true
+      - traefik.http.routers.kiosk.middlewares=strip-auth-in@file,forwardauth@file
+      - traefik.http.services.kiosk.loadbalancer.server.port=8000
+    networks:
+      - proxy
+      - backplane

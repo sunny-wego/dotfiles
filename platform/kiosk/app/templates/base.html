@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Kiosk{% endblock %} · Internal App Platform</title>
+  <style>
+    :root {
+      --bg: #e1e2e7; --panel: #fff; --ink: #3760bf; --text: #343b58;
+      --muted: #6172b0; --line: #cfd0d7; --ok: #587539; --err: #c64343;
+      --accent: #2e7de9;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif;
+           background: var(--bg); color: var(--text); }
+    header { background: var(--ink); color: #fff; padding: 14px 24px;
+             display: flex; justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; font-weight: 600; }
+    .who { font-size: 13px; opacity: .85; }
+    main { max-width: 900px; margin: 28px auto; padding: 0 20px; }
+    .panel { background: var(--panel); border: 1px solid var(--line);
+             border-radius: 10px; padding: 20px; margin-bottom: 22px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; color: var(--muted); text-transform: uppercase;
+         letter-spacing: .04em; margin: 0 0 14px; }
+    label { display: block; font-weight: 600; margin: 12px 0 4px; }
+    input[type=text], input[type=file] { width: 100%; padding: 9px;
+      border: 1px solid var(--line); border-radius: 7px; background: #fafafd; }
+    button { margin-top: 16px; background: var(--accent); color: #fff;
+      border: 0; border-radius: 7px; padding: 10px 18px; font-weight: 600;
+      cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    .badge { font-size: 12px; padding: 2px 9px; border-radius: 20px;
+             font-weight: 600; }
+    .running { background: #d5e6c4; color: var(--ok); }
+    .failed { background: #f3d2d2; color: var(--err); }
+    .building, .deploying, .pending { background: #d9e2f8; color: var(--ink); }
+    pre { background: #1a1b26; color: #c0caf5; padding: 14px; border-radius: 8px;
+          overflow-x: auto; font-size: 13px; line-height: 1.45; }
+    a.link { color: var(--accent); }
+    .muted { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/">◆ Internal App Platform — Kiosk</a>
+    <span class="who">{{ who }}</span>
+  </header>
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>
